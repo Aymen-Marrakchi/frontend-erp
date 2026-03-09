@@ -472,7 +472,18 @@ export default function StockInventoriesPage() {
 
                     <button
                       onClick={handleSubmitSession}
-                      disabled={submitting}
+                      disabled={
+                        submitting ||
+                        lines.length === 0 ||
+                        !["DRAFT", "IN_PROGRESS"].includes(selectedSession?.status ?? "")
+                      }
+                      title={
+                        lines.length === 0
+                          ? "Add at least one count line before submitting"
+                          : !["DRAFT", "IN_PROGRESS"].includes(selectedSession?.status ?? "")
+                            ? "Session already submitted or closed"
+                            : undefined
+                      }
                       className="rounded-2xl bg-slate-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
                     >
                       <Send size={14} className="mr-1 inline" />
