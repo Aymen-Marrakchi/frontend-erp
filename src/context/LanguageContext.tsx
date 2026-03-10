@@ -780,6 +780,9 @@ export const translations = {
     // --- Commercial & Purchase Dashboards ---
     commercialDashboard: "Commercial Dashboard",
     purchaseDashboard: "Purchase Dashboard",
+    purchaseDashboardSubtitle: "Purchasing Department",
+    purchaseDashboardPlaceholder: "This module home is ready. Information cards and analytics can be added later.",
+    openPurchaseRequests: "Open purchase requests",
     recentActivity: "Recent Activity",
     noRecentActivity: "No recent activity",
     quickAccess: "Quick Access",
@@ -1588,6 +1591,9 @@ export const translations = {
     // --- Commercial & Purchase Dashboards ---
     commercialDashboard: "Tableau de bord Commercial",
     purchaseDashboard: "Tableau de bord Achat",
+    purchaseDashboardSubtitle: "Département Achat",
+    purchaseDashboardPlaceholder: "La page d'accueil du module est prête. Les cartes d'information et analyses peuvent être ajoutées plus tard.",
+    openPurchaseRequests: "Ouvrir les demandes d'achat",
     recentActivity: "Activité récente",
     noRecentActivity: "Aucune activité récente",
     quickAccess: "Accès rapide",

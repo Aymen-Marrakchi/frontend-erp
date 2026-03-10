@@ -93,6 +93,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
   ];
 
   const commercialItems: NavItem[] = [
+    { href: "/dashboard/commercial", label: t("dashboard"), icon: LayoutDashboard },
     { href: "/dashboard/commercial/orders", label: t("onlineOrders"), icon: FileText },
   ];
 
@@ -114,7 +115,8 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
   ];
 
   const purchaseItems: NavItem[] = [
-    { href: "/dashboard/achat", label: "Purchase Requests", icon: Truck },
+    { href: "/dashboard/achat", label: t("dashboard"), icon: LayoutDashboard },
+    { href: "/dashboard/achat/requests", label: t("purchaseRequestsTitle"), icon: Truck },
   ];
 
   let items: NavItem[] = [{ href: dashboardPath, label: t("dashboard"), icon: LayoutDashboard }];
