@@ -17,27 +17,33 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { stockProductService } from "@/services/stock/stockProductService";
+import { skuSettingService } from "@/services/stock/skuSettingService";
 
 interface Product {
   _id: string;
   sku: string;
   name: string;
-  description?: string;
-  category?: string;
-  unit: string;
+  type: "PRODUIT_FINI" | "SOUS_ENSEMBLE" | "COMPOSANT" | "MATIERE_PREMIERE";
+  unit: "pcs" | "kg" | "l" | "m";
   isLotTracked: boolean;
   status: "ACTIVE" | "INACTIVE";
+  purchasePrice?: number;
   createdAt: string;
 }
 
+interface SkuSetting {
+  _id: string;
+  skuName: string;
+  skuMax: number;
+}
+
 interface ProductFormState {
-  sku: string;
+  skuPrefix: string;
   name: string;
-  description: string;
-  category: string;
-  unit: string;
+  type: Product["type"];
+  unit: Product["unit"];
   isLotTracked: boolean;
-  status: "ACTIVE" | "INACTIVE";
+  status: Product["status"];
 }
 
 function Modal({
@@ -76,8 +82,20 @@ function Modal({
 export default function StockProductsPage() {
   const { t } = useLanguage();
 
+  const PRODUCT_TYPES: Product["type"][] = [
+    "PRODUIT_FINI",
+    "SOUS_ENSEMBLE",
+    "COMPOSANT",
+    "MATIERE_PREMIERE",
+  ];
+
+  const PRODUCT_UNITS: Product["unit"][] = ["pcs", "kg", "l", "m"];
+
+  const [skuSettings, setSkuSettings] = useState<SkuSetting[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState<Product["type"] | "ALL">("ALL");
+  const [unitFilter, setUnitFilter] = useState<Product["unit"] | "ALL">("ALL");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -90,13 +108,35 @@ export default function StockProductsPage() {
   const [formError, setFormError] = useState("");
 
   const emptyForm: ProductFormState = {
-    sku: "",
+    skuPrefix: "",
     name: "",
-    description: "",
-    category: "",
-    unit: "",
+    type: "PRODUIT_FINI",
+    unit: "pcs",
     isLotTracked: false,
     status: "ACTIVE",
+  };
+
+  // Find the next auto-increment number for a given prefix (scans existing products)
+  const getNextNumber = (prefix: string): string => {
+    const setting = skuSettings.find((s) => s.skuName === prefix);
+    if (!setting) return "";
+    let maxNum = 0;
+    for (const p of products) {
+      // Support format: PREFIX-DIGITS
+      if (p.sku.startsWith(prefix + "-")) {
+        const numPart = p.sku.slice(prefix.length + 1);
+        if (/^\d+$/.test(numPart)) maxNum = Math.max(maxNum, Number(numPart));
+      }
+    }
+    return String(maxNum + 1).padStart(setting.skuMax, "0");
+  };
+
+  // Compose the full SKU string: PREFIX-001
+  const composeSku = (prefix: string): string => {
+    if (!prefix) return "";
+    const next = getNextNumber(prefix);
+    if (!next) return "";
+    return `${prefix}-${next}`;
   };
 
   const [form, setForm] = useState<ProductFormState>(emptyForm);
@@ -111,8 +151,18 @@ export default function StockProductsPage() {
     "mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400";
 
   useEffect(() => {
+    fetchSkuSettings();
     fetchProducts();
   }, []);
+
+  const fetchSkuSettings = async () => {
+    try {
+      const data = await skuSettingService.getAll();
+      setSkuSettings(data);
+    } catch {
+      // non-blocking
+    }
+  };
 
   const fetchProducts = async () => {
     try {
@@ -128,7 +178,7 @@ export default function StockProductsPage() {
   };
 
   const openCreate = () => {
-    setForm(emptyForm);
+    setForm({ ...emptyForm, skuPrefix: skuSettings[0]?.skuName ?? "" });
     setFormError("");
     setShowCreate(true);
   };
@@ -136,10 +186,9 @@ export default function StockProductsPage() {
   const openEdit = (product: Product) => {
     setSelected(product);
     setForm({
-      sku: product.sku,
+      skuPrefix: "",
       name: product.name,
-      description: product.description || "",
-      category: product.category || "",
+      type: product.type,
       unit: product.unit,
       isLotTracked: product.isLotTracked,
       status: product.status,
@@ -153,27 +202,38 @@ export default function StockProductsPage() {
     setShowDelete(true);
   };
 
-  const validateForm = () => {
-    if (!form.sku.trim() || !form.name.trim() || !form.unit.trim()) {
-      setFormError("SKU, name and unit are required");
+  const validateForm = (isEdit = false) => {
+    if (!isEdit && !form.skuPrefix) {
+      setFormError("Select a SKU prefix");
+      return false;
+    }
+    if (!form.name.trim()) {
+      setFormError("Product name is required");
+      return false;
+    }
+    if (!PRODUCT_TYPES.includes(form.type)) {
+      setFormError("Product type is required");
+      return false;
+    }
+    if (!PRODUCT_UNITS.includes(form.unit)) {
+      setFormError("Unit is required");
       return false;
     }
     return true;
   };
 
   const handleCreate = async () => {
-    if (!validateForm()) return;
+    if (!validateForm(false)) return;
 
     try {
       setSubmitting(true);
       setFormError("");
 
       await stockProductService.create({
-        sku: form.sku.trim(),
+        sku: composeSku(form.skuPrefix),
         name: form.name.trim(),
-        description: form.description.trim(),
-        category: form.category.trim(),
-        unit: form.unit.trim(),
+        type: form.type,
+        unit: form.unit,
         isLotTracked: form.isLotTracked,
         status: form.status,
       });
@@ -190,18 +250,17 @@ export default function StockProductsPage() {
 
   const handleEdit = async () => {
     if (!selected) return;
-    if (!validateForm()) return;
+    if (!validateForm(true)) return;
 
     try {
       setSubmitting(true);
       setFormError("");
 
       await stockProductService.update(selected._id, {
-        sku: form.sku.trim(),
+        sku: selected.sku,
         name: form.name.trim(),
-        description: form.description.trim(),
-        category: form.category.trim(),
-        unit: form.unit.trim(),
+        type: form.type,
+        unit: form.unit,
         isLotTracked: form.isLotTracked,
         status: form.status,
       });
@@ -234,19 +293,21 @@ export default function StockProductsPage() {
 
   const filtered = products.filter((p) => {
     const q = search.toLowerCase();
-    return (
+    const matchesSearch =
       p.name.toLowerCase().includes(q) ||
       p.sku.toLowerCase().includes(q) ||
-      (p.category || "").toLowerCase().includes(q) ||
-      p.unit.toLowerCase().includes(q)
-    );
+      p.type.toLowerCase().includes(q) ||
+      p.unit.toLowerCase().includes(q);
+
+    const matchesType = typeFilter === "ALL" ? true : p.type === typeFilter;
+    const matchesUnit = unitFilter === "ALL" ? true : p.unit === unitFilter;
+
+    return matchesSearch && matchesType && matchesUnit;
   });
 
   const activeCount = products.filter((p) => p.status === "ACTIVE").length;
   const lotTrackedCount = products.filter((p) => p.isLotTracked).length;
-  const categoriesCount = new Set(
-    products.map((p) => (p.category || "").trim()).filter(Boolean)
-  ).size;
+  const typesCount = new Set(products.map((p) => p.type)).size;
 
   return (
     <ProtectedRoute allowedRoles={["ADMIN", "STOCK_MANAGER"]}>
@@ -270,7 +331,7 @@ export default function StockProductsPage() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {[
             {
               label: t("totalProducts"),
@@ -281,8 +342,8 @@ export default function StockProductsPage() {
             },
             {
               label: t("categories"),
-              value: String(categoriesCount),
-              sub: "unique categories",
+              value: String(typesCount),
+              sub: "unique product types",
               icon: <Tag size={16} />,
               iconBg: "bg-violet-50 text-violet-700 dark:bg-violet-950/30 dark:text-violet-300",
             },
@@ -316,7 +377,7 @@ export default function StockProductsPage() {
         </div>
 
         <div className={`${surface} overflow-hidden`}>
-          <div className="flex flex-col justify-between gap-4 border-b border-slate-200 px-6 py-5 sm:flex-row sm:items-center dark:border-slate-800">
+          <div className="flex flex-col justify-between gap-4 border-b border-slate-200 px-6 py-5 lg:flex-row lg:items-center dark:border-slate-800">
             <div>
               <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
                 {t("products")}
@@ -326,14 +387,45 @@ export default function StockProductsPage() {
               </p>
             </div>
 
-            <div className="relative w-full sm:w-72">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100 dark:border-slate-800 dark:bg-slate-950 dark:text-white dark:focus:border-slate-600 dark:focus:ring-slate-800"
-                placeholder={t("searchProducts")}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="relative w-full sm:w-60">
+                <Search
+                  size={14}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+                <input
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100 dark:border-slate-800 dark:bg-slate-950 dark:text-white dark:focus:border-slate-600 dark:focus:ring-slate-800"
+                  placeholder={t("searchProducts")}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+
+              <select
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value as Product["type"] | "ALL")}
+              >
+                <option value="ALL">{t("allTypes")}</option>
+                {PRODUCT_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                value={unitFilter}
+                onChange={(e) => setUnitFilter(e.target.value as Product["unit"] | "ALL")}
+              >
+                <option value="ALL">{t("unit")}</option>
+                {PRODUCT_UNITS.map((unit) => (
+                  <option key={unit} value={unit}>
+                    {unit}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -355,7 +447,7 @@ export default function StockProductsPage() {
                   <tr className="text-left text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
                     <th className="px-6 py-3 font-medium">{t("sku")}</th>
                     <th className="px-6 py-3 font-medium">{t("product")}</th>
-                    <th className="px-6 py-3 font-medium">{t("category")}</th>
+                    <th className="px-6 py-3 font-medium">Type</th>
                     <th className="px-6 py-3 font-medium">{t("unit")}</th>
                     <th className="px-6 py-3 font-medium">{t("lotTracking")}</th>
                     <th className="px-6 py-3 font-medium">{t("status")}</th>
@@ -386,14 +478,14 @@ export default function StockProductsPage() {
                               {product.name}
                             </p>
                             <p className="text-xs text-slate-500 dark:text-slate-400">
-                              {product.description || "—"}
+                              {product.type} · {product.unit}
                             </p>
                           </div>
                         </div>
                       </td>
 
                       <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
-                        {product.category || "—"}
+                        {product.type}
                       </td>
 
                       <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
@@ -454,25 +546,40 @@ export default function StockProductsPage() {
         {showCreate && (
           <Modal title={t("addProduct")} onClose={() => setShowCreate(false)}>
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={labelClass}>{t("sku")}</label>
-                  <input
-                    className={inputClass}
-                    value={form.sku}
-                    onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value.toUpperCase() }))}
-                  />
+              {/* SKU composer */}
+              {skuSettings.length === 0 ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-400">
+                  No SKU prefixes configured. Go to Settings → Stock to create one.
                 </div>
-
-                <div>
-                  <label className={labelClass}>{t("unit")}</label>
-                  <input
-                    className={inputClass}
-                    value={form.unit}
-                    onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}
-                  />
+              ) : (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/40">
+                  <p className={labelClass}>SKU</p>
+                  <div className="flex items-end gap-3">
+                    <div className="flex-1">
+                      <label className="mb-1.5 block text-[11px] text-slate-400 dark:text-slate-500">Prefix</label>
+                      <select
+                        className={inputClass}
+                        value={form.skuPrefix}
+                        onChange={(e) => setForm((f) => ({ ...f, skuPrefix: e.target.value }))}
+                      >
+                        {skuSettings.map((s) => (
+                          <option key={s._id} value={s.skuName}>
+                            {s.skuName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {composeSku(form.skuPrefix) && (
+                      <div className="flex-shrink-0 pb-0.5">
+                        <div className="mb-1.5 text-[11px] text-slate-400 dark:text-slate-500">Generated SKU</div>
+                        <div className="flex h-[38px] items-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 font-mono text-sm font-semibold tracking-wider text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">
+                          {composeSku(form.skuPrefix)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div>
                 <label className={labelClass}>{t("product")}</label>
@@ -483,22 +590,40 @@ export default function StockProductsPage() {
                 />
               </div>
 
-              <div>
-                <label className={labelClass}>{t("category")}</label>
-                <input
-                  className={inputClass}
-                  value={form.category}
-                  onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-                />
-              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelClass}>Type</label>
+                  <select
+                    className={inputClass}
+                    value={form.type}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, type: e.target.value as Product["type"] }))
+                    }
+                  >
+                    {PRODUCT_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              <div>
-                <label className={labelClass}>Description</label>
-                <textarea
-                  className={`${inputClass} min-h-[90px] resize-none`}
-                  value={form.description}
-                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                />
+                <div>
+                  <label className={labelClass}>{t("unit")}</label>
+                  <select
+                    className={inputClass}
+                    value={form.unit}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, unit: e.target.value as Product["unit"] }))
+                    }
+                  >
+                    {PRODUCT_UNITS.map((u) => (
+                      <option key={u} value={u}>
+                        {u}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -561,23 +686,11 @@ export default function StockProductsPage() {
         {showEdit && selected && (
           <Modal title={t("editProduct")} onClose={() => setShowEdit(false)}>
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={labelClass}>{t("sku")}</label>
-                  <input
-                    className={inputClass}
-                    value={form.sku}
-                    onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value.toUpperCase() }))}
-                  />
-                </div>
-
-                <div>
-                  <label className={labelClass}>{t("unit")}</label>
-                  <input
-                    className={inputClass}
-                    value={form.unit}
-                    onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}
-                  />
+              {/* SKU — read-only in edit */}
+              <div>
+                <label className={labelClass}>{t("sku")}</label>
+                <div className="flex h-[42px] items-center rounded-2xl border border-slate-200 bg-slate-100 px-4 font-mono text-sm font-semibold tracking-wider text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                  {selected.sku}
                 </div>
               </div>
 
@@ -590,22 +703,40 @@ export default function StockProductsPage() {
                 />
               </div>
 
-              <div>
-                <label className={labelClass}>{t("category")}</label>
-                <input
-                  className={inputClass}
-                  value={form.category}
-                  onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-                />
-              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelClass}>Type</label>
+                  <select
+                    className={inputClass}
+                    value={form.type}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, type: e.target.value as Product["type"] }))
+                    }
+                  >
+                    {PRODUCT_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              <div>
-                <label className={labelClass}>Description</label>
-                <textarea
-                  className={`${inputClass} min-h-[90px] resize-none`}
-                  value={form.description}
-                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                />
+                <div>
+                  <label className={labelClass}>{t("unit")}</label>
+                  <select
+                    className={inputClass}
+                    value={form.unit}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, unit: e.target.value as Product["unit"] }))
+                    }
+                  >
+                    {PRODUCT_UNITS.map((u) => (
+                      <option key={u} value={u}>
+                        {u}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

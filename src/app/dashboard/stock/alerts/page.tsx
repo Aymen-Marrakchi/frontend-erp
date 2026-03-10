@@ -2,33 +2,64 @@
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useLanguage } from "@/context/LanguageContext";
-import { motion } from "framer-motion";
-import { Loader2, Search, TriangleAlert } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Loader2, Search, TriangleAlert, ShoppingCart, X, Clock, CheckCircle2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { stockAlertService } from "@/services/stock/stockAlertService";
+import { purchaseRequestService } from "@/services/purchase/purchaseRequestService";
 
 interface Product {
   _id: string;
   sku: string;
   name: string;
-  category?: string;
 }
 
 interface StockAlert {
   _id: string;
   productId: Product;
-  thresholdRuleId?: {
-    _id: string;
-    minQuantity?: number;
-  } | null;
+  thresholdRuleId?: { _id: string; minQuantity?: number } | null;
   type: "LOW_STOCK" | "OUT_OF_STOCK" | "NEGATIVE_RISK" | "SYSTEM";
   title: string;
   message: string;
   currentQuantity: number;
   thresholdQuantity?: number | null;
-  status: "OPEN" | "ACKNOWLEDGED" | "CLOSED";
+  status: "OPEN" | "ACKNOWLEDGED" | "PENDING" | "CLOSED";
   createdAt: string;
   updatedAt: string;
+}
+
+function Modal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.97, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: 8 }}
+        transition={{ duration: 0.18 }}
+        className="relative w-full max-w-md rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 dark:border-slate-800">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{title}</h3>
+          <button
+            onClick={onClose}
+            className="flex h-7 w-7 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700"
+          >
+            <X size={13} />
+          </button>
+        </div>
+        <div className="p-6">{children}</div>
+      </motion.div>
+    </div>
+  );
 }
 
 export default function StockAlertsPage() {
@@ -36,15 +67,26 @@ export default function StockAlertsPage() {
 
   const [alerts, setAlerts] = useState<StockAlert[]>([]);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"ALL" | "OPEN" | "ACKNOWLEDGED" | "CLOSED">(
-    "ALL"
-  );
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "OPEN" | "ACKNOWLEDGED" | "PENDING" | "CLOSED">("ALL");
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
+  const [purchaseAlert, setPurchaseAlert] = useState<StockAlert | null>(null);
+  const [prQuantity, setPrQuantity] = useState("");
+  const [prPriority, setPrPriority] = useState<"LOW" | "NORMAL" | "URGENT">("NORMAL");
+  const [prNotes, setPrNotes] = useState("");
+  const [prSubmitting, setPrSubmitting] = useState(false);
+  const [prError, setPrError] = useState("");
+
   const surface =
     "rounded-3xl border border-slate-200 bg-white shadow-sm transition-colors duration-200 dark:border-slate-800 dark:bg-slate-900";
+
+  const inputClass =
+    "w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100 dark:border-slate-800 dark:bg-slate-950 dark:text-white dark:focus:border-slate-600 dark:focus:ring-slate-800";
+
+  const labelClass =
+    "mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400";
 
   useEffect(() => {
     fetchAlerts();
@@ -72,7 +114,6 @@ export default function StockAlertsPage() {
         alert.type.toLowerCase().includes(q) ||
         alert.title.toLowerCase().includes(q) ||
         alert.message.toLowerCase().includes(q);
-
       const matchStatus = statusFilter === "ALL" ? true : alert.status === statusFilter;
       return matchSearch && matchStatus;
     });
@@ -82,7 +123,7 @@ export default function StockAlertsPage() {
     () => ({
       total: alerts.length,
       open: alerts.filter((a) => a.status === "OPEN").length,
-      acknowledged: alerts.filter((a) => a.status === "ACKNOWLEDGED").length,
+      pending: alerts.filter((a) => a.status === "PENDING").length,
       closed: alerts.filter((a) => a.status === "CLOSED").length,
     }),
     [alerts]
@@ -100,6 +141,39 @@ export default function StockAlertsPage() {
     }
   };
 
+  const openPurchaseModal = (alert: StockAlert) => {
+    setPurchaseAlert(alert);
+    setPrQuantity("");
+    setPrPriority("NORMAL");
+    setPrNotes("");
+    setPrError("");
+  };
+
+  const handleCreatePurchaseRequest = async () => {
+    if (!purchaseAlert) return;
+    if (!prQuantity || Number(prQuantity) < 1) {
+      setPrError("Quantity must be at least 1");
+      return;
+    }
+    try {
+      setPrSubmitting(true);
+      setPrError("");
+      const requestNo = `PR-${Date.now()}`;
+      await purchaseRequestService.createFromAlert(purchaseAlert._id, {
+        requestNo,
+        requestedQuantity: Number(prQuantity),
+        priority: prPriority,
+        notes: prNotes,
+      });
+      setPurchaseAlert(null);
+      await fetchAlerts();
+    } catch (err: any) {
+      setPrError(err.response?.data?.message || "Failed to create purchase request");
+    } finally {
+      setPrSubmitting(false);
+    }
+  };
+
   const formatDateTime = (value: string) =>
     new Date(value).toLocaleString("en-GB", {
       day: "2-digit",
@@ -110,25 +184,16 @@ export default function StockAlertsPage() {
     });
 
   const typeBadge = (type: StockAlert["type"]) => {
-    if (type === "OUT_OF_STOCK") {
-      return "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300";
-    }
-    if (type === "LOW_STOCK") {
-      return "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300";
-    }
-    if (type === "NEGATIVE_RISK") {
-      return "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300";
-    }
+    if (type === "OUT_OF_STOCK") return "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300";
+    if (type === "LOW_STOCK") return "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300";
+    if (type === "NEGATIVE_RISK") return "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300";
     return "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
   };
 
   const statusBadge = (status: StockAlert["status"]) => {
-    if (status === "OPEN") {
-      return "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300";
-    }
-    if (status === "ACKNOWLEDGED") {
-      return "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300";
-    }
+    if (status === "OPEN") return "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300";
+    if (status === "ACKNOWLEDGED") return "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300";
+    if (status === "PENDING") return "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300";
     return "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300";
   };
 
@@ -149,14 +214,10 @@ export default function StockAlertsPage() {
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           {[
-            { label: t("stockAlertsMenu"), value: String(stats.total), sub: "total alerts" },
-            { label: "Open", value: String(stats.open), sub: "requires action" },
-            {
-              label: "Acknowledged",
-              value: String(stats.acknowledged),
-              sub: "under review",
-            },
-            { label: "Closed", value: String(stats.closed), sub: "resolved alerts" },
+            { label: "Total Alerts", value: String(stats.total), sub: "all alerts", Icon: TriangleAlert },
+            { label: "Open", value: String(stats.open), sub: "requires action", Icon: TriangleAlert },
+            { label: "Pending Purchase", value: String(stats.pending), sub: "awaiting purchase", Icon: Clock },
+            { label: "Closed", value: String(stats.closed), sub: "resolved alerts", Icon: CheckCircle2 },
           ].map((card, i) => (
             <motion.div
               key={i}
@@ -166,7 +227,7 @@ export default function StockAlertsPage() {
               className={`${surface} flex items-center gap-4 px-5 py-5`}
             >
               <div className="rounded-2xl bg-slate-100 p-3 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                <TriangleAlert size={16} />
+                <card.Icon size={16} />
               </div>
               <div>
                 <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
@@ -194,10 +255,7 @@ export default function StockAlertsPage() {
 
             <div className="flex flex-col gap-3 sm:flex-row">
               <div className="relative w-full sm:w-72">
-                <Search
-                  size={14}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                />
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100 dark:border-slate-800 dark:bg-slate-950 dark:text-white dark:focus:border-slate-600 dark:focus:ring-slate-800"
                   placeholder={t("search")}
@@ -209,14 +267,11 @@ export default function StockAlertsPage() {
               <select
                 className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
                 value={statusFilter}
-                onChange={(e) =>
-                  setStatusFilter(
-                    e.target.value as "ALL" | "OPEN" | "ACKNOWLEDGED" | "CLOSED"
-                  )
-                }
+                onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
               >
                 <option value="ALL">All Status</option>
                 <option value="OPEN">OPEN</option>
+                <option value="PENDING">PENDING</option>
                 <option value="ACKNOWLEDGED">ACKNOWLEDGED</option>
                 <option value="CLOSED">CLOSED</option>
               </select>
@@ -289,7 +344,8 @@ export default function StockAlertsPage() {
                       </td>
 
                       <td className="px-6 py-4">
-                        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusBadge(alert.status)}`}>
+                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${statusBadge(alert.status)}`}>
+                          {alert.status === "PENDING" && <Clock size={10} />}
                           {alert.status}
                         </span>
                       </td>
@@ -302,31 +358,40 @@ export default function StockAlertsPage() {
                         <div className="flex flex-wrap gap-2">
                           {alert.status === "OPEN" && (
                             <button
-                              onClick={() => updateStatus(alert._id, "ACKNOWLEDGED")}
+                              onClick={() => openPurchaseModal(alert)}
                               disabled={updatingId === alert._id}
-                              className="rounded-xl border border-blue-200 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-50 disabled:opacity-60 dark:border-blue-900/40 dark:text-blue-300 dark:hover:bg-blue-950/20"
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 disabled:opacity-60 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-300 dark:hover:bg-blue-950/40"
                             >
-                              {updatingId === alert._id ? "..." : "Acknowledge"}
+                              <ShoppingCart size={11} />
+                              Request Purchase
                             </button>
                           )}
 
-                          {alert.status !== "CLOSED" && (
-                            <button
-                              onClick={() => updateStatus(alert._id, "CLOSED")}
-                              disabled={updatingId === alert._id}
-                              className="rounded-xl border border-emerald-200 px-3 py-1.5 text-xs font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-60 dark:border-emerald-900/40 dark:text-emerald-300 dark:hover:bg-emerald-950/20"
-                            >
-                              {updatingId === alert._id ? "..." : "Close"}
-                            </button>
+                          {alert.status === "PENDING" && (
+                            <span className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+                              <Clock size={11} />
+                              Pending
+                            </span>
                           )}
 
-                          {alert.status !== "OPEN" && (
+                          {alert.status === "CLOSED" && (
+                            <span className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">
+                              <CheckCircle2 size={11} />
+                              Closed
+                            </span>
+                          )}
+
+                          {(alert.status === "CLOSED" || alert.status === "ACKNOWLEDGED") && (
                             <button
                               onClick={() => updateStatus(alert._id, "OPEN")}
                               disabled={updatingId === alert._id}
                               className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                             >
-                              {updatingId === alert._id ? "..." : "Reopen"}
+                              {updatingId === alert._id ? (
+                                <Loader2 size={11} className="animate-spin" />
+                              ) : (
+                                "Reopen"
+                              )}
                             </button>
                           )}
                         </div>
@@ -339,6 +404,89 @@ export default function StockAlertsPage() {
           )}
         </div>
       </div>
+
+      <AnimatePresence>
+        {purchaseAlert && (
+          <Modal title="Create Purchase Request" onClose={() => setPurchaseAlert(null)}>
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/40">
+                <p className="text-[11px] uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">Product</p>
+                <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
+                  {purchaseAlert.productId?.name}
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  SKU: {purchaseAlert.productId?.sku} · Current stock: {purchaseAlert.currentQuantity}
+                </p>
+              </div>
+
+              {prError && (
+                <div className="flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-600 dark:border-rose-900/30 dark:bg-rose-950/20 dark:text-rose-400">
+                  <X size={13} />
+                  {prError}
+                </div>
+              )}
+
+              <div>
+                <label className={labelClass}>Quantity to Request</label>
+                <input
+                  className={inputClass}
+                  type="number"
+                  min="1"
+                  placeholder="e.g. 50"
+                  value={prQuantity}
+                  onChange={(e) => setPrQuantity(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className={labelClass}>Priority</label>
+                <select
+                  className={inputClass}
+                  value={prPriority}
+                  onChange={(e) => setPrPriority(e.target.value as typeof prPriority)}
+                >
+                  <option value="LOW">Low</option>
+                  <option value="NORMAL">Normal</option>
+                  <option value="URGENT">Urgent</option>
+                </select>
+              </div>
+
+              <div>
+                <label className={labelClass}>Notes (optional)</label>
+                <textarea
+                  className={`${inputClass} resize-none`}
+                  rows={2}
+                  placeholder="Additional notes..."
+                  value={prNotes}
+                  onChange={(e) => setPrNotes(e.target.value)}
+                />
+              </div>
+
+              <div className="flex gap-3 pt-1">
+                <button
+                  onClick={handleCreatePurchaseRequest}
+                  disabled={prSubmitting}
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"
+                >
+                  {prSubmitting ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <ShoppingCart size={14} />
+                  )}
+                  Send Purchase Request
+                </button>
+                <button
+                  onClick={() => setPurchaseAlert(null)}
+                  disabled={prSubmitting}
+                  className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
+      </AnimatePresence>
     </ProtectedRoute>
   );
 }

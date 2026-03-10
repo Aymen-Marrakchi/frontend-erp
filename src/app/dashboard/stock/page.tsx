@@ -10,6 +10,7 @@ import {
   Boxes,
   Package,
   Search,
+  Bell,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -20,6 +21,9 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  PieChart,
+  Pie,
+  Cell,
 } from "recharts";
 import { stockProductService } from "@/services/stock/stockProductService";
 import { stockItemService } from "@/services/stock/stockItemService";
@@ -31,6 +35,7 @@ interface Product {
   sku: string;
   name: string;
   category?: string;
+  type: "PRODUIT_FINI" | "SOUS_ENSEMBLE" | "COMPOSANT" | "MATIERE_PREMIERE";
   unit: string;
   status: "ACTIVE" | "INACTIVE";
   purchasePrice?: number;
@@ -86,6 +91,7 @@ export default function StockDashboardPage() {
   const [alerts, setAlerts] = useState<StockAlertItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [showNotifications, setShowNotifications] = useState(false);
 
   const surface =
     "rounded-3xl border border-slate-200 bg-white shadow-sm transition-colors duration-200 dark:border-slate-800 dark:bg-slate-900";
@@ -125,7 +131,7 @@ export default function StockDashboardPage() {
     }
   };
 
-  const totalSkus = useMemo(
+  const totalProducts = useMemo(
     () => products.filter((p) => p.status === "ACTIVE").length,
     [products]
   );
@@ -157,13 +163,35 @@ export default function StockDashboardPage() {
         .slice(0, 7),
     [openAlerts]
   );
+  const productTypeDistribution = useMemo(
+    () => {
+      const base = [
+        { key: "PRODUIT_FINI" as const, label: "Produit fini", value: 0, color: "#0ea5e9" },
+        { key: "SOUS_ENSEMBLE" as const, label: "Sous ensemble", value: 0, color: "#22c55e" },
+        { key: "COMPOSANT" as const, label: "Composant", value: 0, color: "#a855f7" },
+        {
+          key: "MATIERE_PREMIERE" as const,
+          label: "Matière première",
+          value: 0,
+          color: "#f97316",
+        },
+      ];
 
-  const lowStockItems = useMemo(() => {
-    return [...openAlerts]
-      .filter((a) => a.type === "LOW_STOCK" || a.type === "OUT_OF_STOCK")
-      .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
-      .slice(0, 7);
-  }, [openAlerts]);
+      const indexByKey = base.reduce<Record<string, number>>((acc, item, idx) => {
+        acc[item.key] = idx;
+        return acc;
+      }, {});
+
+      products.forEach((p) => {
+        if (p.status === "ACTIVE" && indexByKey[p.type] !== undefined) {
+          base[indexByKey[p.type]].value += 1;
+        }
+      });
+
+      return base;
+    },
+    [products]
+  );
 
   const movementChartData = useMemo(() => {
     const now = new Date();
@@ -235,14 +263,81 @@ export default function StockDashboardPage() {
   return (
     <ProtectedRoute allowedRoles={["ADMIN", "STOCK_MANAGER"]}>
       <div className="space-y-6">
-        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
           <div>
             <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-              Stock Module · ERP
+              {t("stockModule")} · ERP
             </p>
             <h1 className="text-3xl font-bold tracking-tight text-slate-950 dark:text-white">
               {t("dashboard")} <span className="text-slate-400 dark:text-slate-500">Stock</span>
             </h1>
+          </div>
+
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowNotifications((prev) => !prev)}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              <div className="relative">
+                <Bell size={16} />
+                {openAlerts.length > 0 && (
+                  <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold text-white">
+                    {openAlerts.length}
+                  </span>
+                )}
+              </div>
+              <span className="text-[11px] uppercase tracking-[0.16em]">
+                {t("stockAlertsMenu")}
+              </span>
+            </button>
+
+            {showNotifications && (
+              <div className="absolute right-0 z-20 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-3 text-xs shadow-xl dark:border-slate-800 dark:bg-slate-950">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                    {t("stockAlerts")}
+                  </span>
+                  <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                    {Math.min(openAlerts.length, 5)} / {openAlerts.length}
+                  </span>
+                </div>
+
+                {latestAlerts.slice(0, 5).length === 0 ? (
+                  <div className="py-4 text-center text-slate-500 dark:text-slate-400">
+                    {t("noResults")}
+                  </div>
+                ) : (
+                  <ul className="space-y-2 max-h-64 overflow-y-auto">
+                    {latestAlerts.slice(0, 5).map((alert) => (
+                      <li
+                        key={alert._id}
+                        className="rounded-xl border border-slate-100 px-3 py-2 dark:border-slate-800"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="text-xs font-medium text-slate-900 dark:text-white">
+                              {alert.productId?.sku || "—"} ·{" "}
+                              {alert.productId?.name || t("product")}
+                            </p>
+                            <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500 dark:text-slate-400">
+                              {alert.message}
+                            </p>
+                          </div>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${alertBadge(
+                              alert.type
+                            )}`}
+                          >
+                            {alert.type}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -262,30 +357,30 @@ export default function StockDashboardPage() {
                 {
                   icon: <Boxes size={16} />,
                   iconBg: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400",
-                  label: "Total SKUs",
-                  value: String(totalSkus),
-                  sub: "active products",
+                  label: t("totalProducts"),
+                  value: String(totalProducts),
+                  sub: t("active"),
                 },
                 {
                   icon: <Package size={16} />,
                   iconBg: "bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400",
-                  label: "Stock Value",
+                  label: t("catalogValue"),
                   value: `${formatMoney(totalStockValue)} TND`,
-                  sub: "current estimated value",
+                  sub: t("tndEquivalent"),
                 },
                 {
                   icon: <AlertTriangle size={16} />,
                   iconBg: "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400",
-                  label: "Open Alerts",
+                  label: t("stockAlerts"),
                   value: String(openAlerts.length),
-                  sub: "active stock alerts",
+                  sub: t("itemsNeedingAttention"),
                 },
                 {
                   icon: <ArrowDownToLine size={16} />,
                   iconBg: "bg-violet-50 text-violet-600 dark:bg-violet-950/30 dark:text-violet-400",
-                  label: "Movements This Month",
+                  label: t("movements"),
                   value: String(movementsThisMonth),
-                  sub: "entries, exits and deductions",
+                  sub: t("thisMonth"),
                 },
               ].map((kpi, i) => (
                 <motion.div
@@ -313,10 +408,10 @@ export default function StockDashboardPage() {
                 <div className="mb-5 flex items-start justify-between gap-4">
                   <div>
                     <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
-                      Stock Movement Chart
+                      {t("stockLevels")}
                     </h2>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                      Entries vs exits over the last 6 months
+                      {t("stockVsMinimum")}
                     </p>
                   </div>
                 </div>
@@ -336,17 +431,17 @@ export default function StockDashboardPage() {
               <div className={`${surface} p-6`}>
                 <div className="mb-5">
                   <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
-                    Latest Alerts
+                    {t("stockAlerts")}
                   </h2>
                   <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                    Showing latest 7 open alerts
+                    {t("itemsNeedingAttention")}
                   </p>
                 </div>
 
                 <div className="space-y-3">
                   {latestAlerts.length === 0 ? (
                     <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                      No open alerts.
+                      {t("noResults")}
                     </div>
                   ) : (
                     latestAlerts.map((alert) => (
@@ -357,7 +452,7 @@ export default function StockDashboardPage() {
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="font-medium text-slate-950 dark:text-white">
-                              {alert.productId?.name || "Unknown Product"}
+                              {alert.productId?.name || t("product")}
                             </p>
                             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                               {alert.message}
@@ -370,8 +465,12 @@ export default function StockDashboardPage() {
                         </div>
 
                         <div className="mt-3 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                          <span>Qty: {alert.currentQuantity}</span>
-                          <span>Threshold: {alert.thresholdQuantity ?? "—"}</span>
+                          <span>
+                            {t("current")}: {alert.currentQuantity}
+                          </span>
+                          <span>
+                            {t("minimum")}: {alert.thresholdQuantity ?? "—"}
+                          </span>
                         </div>
                       </div>
                     ))
@@ -384,53 +483,38 @@ export default function StockDashboardPage() {
               <div className={`${surface} p-6 xl:col-span-2`}>
                 <div className="mb-5">
                   <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
-                    Low Stock Products
+                    {t("productCatalogTitle")}
                   </h2>
                   <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                    Products needing attention now
+                    {t("productTypes")}
                   </p>
                 </div>
 
-                {lowStockItems.length === 0 ? (
+                {productTypeDistribution.every((item) => item.value === 0) ? (
                   <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                    No low stock products.
+                    {t("noProductsMatch")}
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-slate-50 dark:bg-slate-800/50">
-                        <tr className="text-left text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                          <th className="px-4 py-3 font-medium">{t("product")}</th>
-                          <th className="px-4 py-3 font-medium">{t("sku")}</th>
-                          <th className="px-4 py-3 font-medium">{t("current")}</th>
-                          <th className="px-4 py-3 font-medium">{t("minimum")}</th>
-                          <th className="px-4 py-3 font-medium">{t("status")}</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                        {lowStockItems.map((alert) => (
-                          <tr key={alert._id}>
-                            <td className="px-4 py-4 font-medium text-slate-900 dark:text-white">
-                              {alert.productId?.name || "—"}
-                            </td>
-                            <td className="px-4 py-4 text-slate-600 dark:text-slate-300">
-                              {alert.productId?.sku || "—"}
-                            </td>
-                            <td className="px-4 py-4 text-slate-600 dark:text-slate-300">
-                              {alert.currentQuantity}
-                            </td>
-                            <td className="px-4 py-4 text-slate-600 dark:text-slate-300">
-                              {alert.thresholdQuantity ?? "—"}
-                            </td>
-                            <td className="px-4 py-4">
-                              <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${alertBadge(alert.type)}`}>
-                                {alert.type}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="flex min-h-[260px] items-center justify-center">
+                    <ResponsiveContainer width="100%" height={260}>
+                      <PieChart>
+                        <Tooltip contentStyle={tooltipStyle as any} />
+                        <Pie
+                          data={productTypeDistribution}
+                          dataKey="value"
+                          nameKey="label"
+                          innerRadius={60}
+                          outerRadius={90}
+                          paddingAngle={4}
+                          stroke="#020617"
+                          strokeWidth={1}
+                        >
+                          {productTypeDistribution.map((entry, index) => (
+                            <Cell key={`cell-${entry.key}-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                      </PieChart>
+                    </ResponsiveContainer>
                   </div>
                 )}
               </div>
@@ -438,27 +522,27 @@ export default function StockDashboardPage() {
               <div className={`${surface} p-6`}>
                 <div className="mb-5">
                   <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
-                    Stock Summary
+                    {t("stockProduction2")}
                   </h2>
                   <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                    Global quantities
+                    {t("totalUnits")}
                   </p>
                 </div>
 
                 <div className="space-y-4">
                   {[
                     {
-                      label: "On Hand",
+                      label: t("onHand"),
                       value: totalOnHand,
                       icon: <Package size={16} />,
                     },
                     {
-                      label: "Reserved",
+                      label: t("reserved"),
                       value: totalReserved,
                       icon: <ArrowUpFromLine size={16} />,
                     },
                     {
-                      label: "Available",
+                      label: t("availableQty"),
                       value: totalAvailable,
                       icon: <ArrowDownToLine size={16} />,
                     },
@@ -482,19 +566,19 @@ export default function StockDashboardPage() {
 
                 <div className="mt-6 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                    Last refresh basis
+                    {t("lastSync")}
                   </p>
                   <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                    Products: {products.length}
+                    {t("products")}: {products.length}
                   </p>
                   <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                    Stock Items: {items.length}
+                    {t("stockItems")}: {items.length}
                   </p>
                   <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                    Movements: {movements.length}
+                    {t("movements")}: {movements.length}
                   </p>
                   <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                    Alerts: {alerts.length}
+                    {t("stockAlertsMenu")}: {alerts.length}
                   </p>
                   <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
                     Latest stock item activity:{" "}

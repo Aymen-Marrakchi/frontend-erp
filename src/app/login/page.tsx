@@ -63,6 +63,7 @@ export default function LoginPage() {
     MARKETING_MANAGER: "/dashboard/marketing",
     SALES_MANAGER: "/dashboard/sales",
     STOCK_MANAGER: "/dashboard/stock",
+    DEPOT_MANAGER: "/dashboard/depot",
     COMMERCIAL_MANAGER: "/dashboard/commercial",
     FINANCE_MANAGER: "/dashboard/finance",
     PURCHASE_MANAGER: "/dashboard/achat",

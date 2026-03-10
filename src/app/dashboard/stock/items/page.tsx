@@ -11,7 +11,7 @@ interface StockProduct {
   _id: string;
   sku: string;
   name: string;
-  category?: string;
+  type: "PRODUIT_FINI" | "SOUS_ENSEMBLE" | "COMPOSANT" | "MATIERE_PREMIERE";
   unit: string;
   status: "ACTIVE" | "INACTIVE";
 }
@@ -57,12 +57,15 @@ export default function StockItemsPage() {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
+    if (!q) {
+      return items;
+    }
     return items.filter((item) => {
       const product = item.productId;
       return (
         product?.name?.toLowerCase().includes(q) ||
         product?.sku?.toLowerCase().includes(q) ||
-        (product?.category || "").toLowerCase().includes(q) ||
+        product?.type?.toLowerCase().includes(q) ||
         product?.unit?.toLowerCase().includes(q)
       );
     });
@@ -165,7 +168,7 @@ export default function StockItemsPage() {
         </div>
 
         <div className={`${surface} overflow-hidden`}>
-          <div className="flex flex-col justify-between gap-4 border-b border-slate-200 px-6 py-5 sm:flex-row sm:items-center dark:border-slate-800">
+          <div className="flex flex-col justify-between gap-4 border-b border-slate-200 px-6 py-5 lg:flex-row lg:items-center dark:border-slate-800">
             <div>
               <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
                 {t("stockItems")}
@@ -205,9 +208,9 @@ export default function StockItemsPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 dark:bg-slate-800/50">
                   <tr className="text-left text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                    <th className="px-6 py-3 font-medium">{t("product")}</th>
                     <th className="px-6 py-3 font-medium">{t("sku")}</th>
-                    <th className="px-6 py-3 font-medium">{t("category")}</th>
+                    <th className="px-6 py-3 font-medium">{t("product")}</th>
+                    <th className="px-6 py-3 font-medium">Type</th>
                     <th className="px-6 py-3 font-medium">{t("onHand")}</th>
                     <th className="px-6 py-3 font-medium">{t("reserved")}</th>
                     <th className="px-6 py-3 font-medium">{t("availableQty")}</th>
@@ -227,15 +230,15 @@ export default function StockItemsPage() {
                       className="transition hover:bg-slate-50 dark:hover:bg-slate-800/30"
                     >
                       <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">
-                        {item.productId?.name || "—"}
-                      </td>
-
-                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
                         {item.productId?.sku || "—"}
                       </td>
 
                       <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
-                        {item.productId?.category || "—"}
+                        {item.productId?.name || "—"}
+                      </td>
+
+                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
+                        {item.productId?.type || "—"}
                       </td>
 
                       <td className="px-6 py-4 text-slate-600 dark:text-slate-300">

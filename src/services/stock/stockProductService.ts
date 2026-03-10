@@ -6,20 +6,23 @@ export const stockProductService = {
   create: async (payload: {
     sku: string;
     name: string;
-    description?: string;
-    category?: string;
-    unit: string;
+    type: "PRODUIT_FINI" | "SOUS_ENSEMBLE" | "COMPOSANT" | "MATIERE_PREMIERE";
+    unit: "pcs" | "kg" | "l" | "m";
     isLotTracked?: boolean;
     status?: "ACTIVE" | "INACTIVE";
+    purchasePrice?: number;
   }) => (await api.post("/stock/products", payload)).data,
-  update: async (id: string, payload: Partial<{
-    sku: string;
-    name: string;
-    description: string;
-    category: string;
-    unit: string;
-    isLotTracked: boolean;
-    status: "ACTIVE" | "INACTIVE";
-  }>) => (await api.put(`/stock/products/${id}`, payload)).data,
+  update: async (
+    id: string,
+    payload: Partial<{
+      sku: string;
+      name: string;
+      type: "PRODUIT_FINI" | "SOUS_ENSEMBLE" | "COMPOSANT" | "MATIERE_PREMIERE";
+      unit: "pcs" | "kg" | "l" | "m";
+      isLotTracked: boolean;
+      status: "ACTIVE" | "INACTIVE";
+      purchasePrice: number;
+    }>
+  ) => (await api.put(`/stock/products/${id}`, payload)).data,
   delete: async (id: string) => (await api.delete(`/stock/products/${id}`)).data,
 };

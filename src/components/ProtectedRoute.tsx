@@ -5,6 +5,19 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Role } from "@/types/user";
 
+const ROLE_HOME: Record<Role, string> = {
+  ADMIN: "/dashboard/admin",
+  HR_MANAGER: "/dashboard/hr",
+  MARKETING_MANAGER: "/dashboard/marketing",
+  SALES_MANAGER: "/dashboard/sales",
+  STOCK_MANAGER: "/dashboard/stock",
+  DEPOT_MANAGER: "/dashboard/depot",
+  COMMERCIAL_MANAGER: "/dashboard/commercial",
+  FINANCE_MANAGER: "/dashboard/finance",
+  PURCHASE_MANAGER: "/dashboard/achat",
+  EMPLOYEE: "/dashboard/employee",
+};
+
 interface Props {
   children: React.ReactNode;
   allowedRoles?: Role[];
@@ -13,7 +26,7 @@ interface Props {
 export default function ProtectedRoute({ children, allowedRoles }: Props) {
   const { user } = useAuth();
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     if (user === undefined) return;
@@ -23,23 +36,15 @@ export default function ProtectedRoute({ children, allowedRoles }: Props) {
       return;
     }
 
-    setLoading(false);
-  }, [user, router]);
+    if (allowedRoles && user.role !== "ADMIN" && !allowedRoles.includes(user.role)) {
+      router.push(ROLE_HOME[user.role] ?? "/dashboard");
+      return;
+    }
 
-  if (loading || user === undefined) return null;
-  if (!user) return null;
+    setReady(true);
+  }, [user, router, allowedRoles]);
 
-  if (user.role === "ADMIN") {
-    return <>{children}</>;
-  }
-
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return (
-      <div className="flex h-screen items-center justify-center text-white">
-        <h1 className="text-2xl font-bold">Access Denied</h1>
-      </div>
-    );
-  }
+  if (!ready || user === undefined) return null;
 
   return <>{children}</>;
 }

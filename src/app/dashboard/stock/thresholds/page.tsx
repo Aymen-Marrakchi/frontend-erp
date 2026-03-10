@@ -80,6 +80,7 @@ export default function StockThresholdsPage() {
   const [rules, setRules] = useState<ThresholdRule[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
+  const [skuFilter, setSkuFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -141,12 +142,16 @@ export default function StockThresholdsPage() {
     return rules.filter((r) => {
       const p = r.productId;
       return (
-        p?.name?.toLowerCase().includes(q) ||
-        p?.sku?.toLowerCase().includes(q) ||
+        (p?.name || "").toLowerCase().includes(q) ||
+        (p?.sku || "").toLowerCase().includes(q) ||
         r.notifyRoles.join(",").toLowerCase().includes(q)
       );
-    });
-  }, [rules, search]);
+    }).filter((r) =>
+      skuFilter
+        ? (r.productId?.sku || "").toLowerCase().includes(skuFilter.toLowerCase())
+        : true
+    );
+  }, [rules, search, skuFilter]);
 
   const openCreate = () => {
     setForm(emptyForm);
@@ -325,7 +330,7 @@ export default function StockThresholdsPage() {
         </div>
 
         <div className={`${surface} overflow-hidden`}>
-          <div className="flex flex-col justify-between gap-4 border-b border-slate-200 px-6 py-5 sm:flex-row sm:items-center dark:border-slate-800">
+          <div className="flex flex-col justify-between gap-4 border-b border-slate-200 px-6 py-5 lg:flex-row lg:items-center dark:border-slate-800">
             <div>
               <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
                 {t("thresholdRules")}
@@ -335,16 +340,25 @@ export default function StockThresholdsPage() {
               </p>
             </div>
 
-            <div className="relative w-full sm:w-72">
-              <Search
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-              />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="relative w-full sm:w-64">
+                <Search
+                  size={14}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+                <input
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100 dark:border-slate-800 dark:bg-slate-950 dark:text-white dark:focus:border-slate-600 dark:focus:ring-slate-800"
+                  placeholder={t("search")}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+
               <input
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100 dark:border-slate-800 dark:bg-slate-950 dark:text-white dark:focus:border-slate-600 dark:focus:ring-slate-800"
-                placeholder={t("search")}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                placeholder={t("sku")}
+                value={skuFilter}
+                onChange={(e) => setSkuFilter(e.target.value)}
               />
             </div>
           </div>
@@ -365,8 +379,8 @@ export default function StockThresholdsPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 dark:bg-slate-800/50">
                   <tr className="text-left text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                    <th className="px-6 py-3 font-medium">{t("product")}</th>
                     <th className="px-6 py-3 font-medium">{t("sku")}</th>
+                    <th className="px-6 py-3 font-medium">{t("product")}</th>
                     <th className="px-6 py-3 font-medium">{t("minQuantity")}</th>
                     <th className="px-6 py-3 font-medium">Alert</th>
                     <th className="px-6 py-3 font-medium">{t("status")}</th>
@@ -385,10 +399,10 @@ export default function StockThresholdsPage() {
                       className="transition hover:bg-slate-50 dark:hover:bg-slate-800/30"
                     >
                       <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">
-                        {rule.productId?.name || "—"}
+                        {rule.productId?.sku || "—"}
                       </td>
                       <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
-                        {rule.productId?.sku || "—"}
+                        {rule.productId?.name || "—"}
                       </td>
                       <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
                         {rule.minQuantity}
@@ -479,11 +493,18 @@ export default function StockThresholdsPage() {
 
               <div>
                 <label className={labelClass}>{t("notifyRoles")}</label>
-                <input
-                  className={inputClass}
-                  value={form.notifyRolesText}
-                  onChange={(e) => setForm((f) => ({ ...f, notifyRolesText: e.target.value }))}
-                />
+                <select
+                  multiple
+                  className={`${inputClass} h-24`}
+                  value={parseNotifyRoles()}
+                  onChange={(e) => {
+                    const values = Array.from(e.target.selectedOptions).map((o) => o.value);
+                    setForm((f) => ({ ...f, notifyRolesText: values.join(",") }));
+                  }}
+                >
+                  <option value="ADMIN">ADMIN</option>
+                  <option value="STOCK_MANAGER">STOCK_MANAGER</option>
+                </select>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -560,11 +581,18 @@ export default function StockThresholdsPage() {
 
               <div>
                 <label className={labelClass}>{t("notifyRoles")}</label>
-                <input
-                  className={inputClass}
-                  value={form.notifyRolesText}
-                  onChange={(e) => setForm((f) => ({ ...f, notifyRolesText: e.target.value }))}
-                />
+                <select
+                  multiple
+                  className={`${inputClass} h-24`}
+                  value={parseNotifyRoles()}
+                  onChange={(e) => {
+                    const values = Array.from(e.target.selectedOptions).map((o) => o.value);
+                    setForm((f) => ({ ...f, notifyRolesText: values.join(",") }));
+                  }}
+                >
+                  <option value="ADMIN">ADMIN</option>
+                  <option value="STOCK_MANAGER">STOCK_MANAGER</option>
+                </select>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

@@ -2,6 +2,7 @@
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useLanguage } from "@/context/LanguageContext";
+import { useAuth } from "@/context/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowDownToLine,
@@ -39,6 +40,7 @@ interface Movement {
   lotMode?: "FIFO" | "LIFO" | "MANUAL" | null;
   lotRef?: string;
   createdAt: string;
+  createdBy?: { _id: string; name: string; role: string } | null;
 }
 
 interface MovementFormState {
@@ -85,6 +87,7 @@ function Modal({
 
 export default function StockMovementsPage() {
   const { t } = useLanguage();
+  const { user } = useAuth();
 
   const [movements, setMovements] = useState<Movement[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -245,7 +248,7 @@ export default function StockMovementsPage() {
     });
 
   return (
-    <ProtectedRoute allowedRoles={["ADMIN", "STOCK_MANAGER"]}>
+    <ProtectedRoute allowedRoles={["ADMIN", "STOCK_MANAGER", "DEPOT_MANAGER"]}>
       <div className="space-y-6">
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
           <div>
@@ -257,31 +260,33 @@ export default function StockMovementsPage() {
             </h1>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => {
-                setForm(emptyForm);
-                setFormError("");
-                setShowEntry(true);
-              }}
-              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
-              <ArrowDownToLine size={15} />
-              {t("addEntry")}
-            </button>
+          {(user?.role === "ADMIN" || user?.role === "DEPOT_MANAGER") && (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  setForm(emptyForm);
+                  setFormError("");
+                  setShowEntry(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                <ArrowDownToLine size={15} />
+                {t("addEntry")}
+              </button>
 
-            <button
-              onClick={() => {
-                setForm(emptyForm);
-                setFormError("");
-                setShowExit(true);
-              }}
-              className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
-            >
-              <ArrowUpFromLine size={15} />
-              {t("addExit")}
-            </button>
-          </div>
+              <button
+                onClick={() => {
+                  setForm(emptyForm);
+                  setFormError("");
+                  setShowExit(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+              >
+                <ArrowUpFromLine size={15} />
+                {t("addExit")}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
@@ -370,13 +375,14 @@ export default function StockMovementsPage() {
                     <th className="px-6 py-3 font-medium">{t("date")}</th>
                     <th className="px-6 py-3 font-medium">{t("product")}</th>
                     <th className="px-6 py-3 font-medium">{t("movementType")}</th>
-                    <th className="px-6 py-3 font-medium">{t("amount")}</th>
+                    <th className="px-6 py-3 font-medium">{t("reorderQty")}</th>
                     <th className="px-6 py-3 font-medium">Prev On Hand</th>
                     <th className="px-6 py-3 font-medium">New On Hand</th>
                     <th className="px-6 py-3 font-medium">Prev Reserved</th>
                     <th className="px-6 py-3 font-medium">New Reserved</th>
                     <th className="px-6 py-3 font-medium">Source</th>
                     <th className="px-6 py-3 font-medium">{t("reason")}</th>
+                    <th className="px-6 py-3 font-medium">Done by</th>
                   </tr>
                 </thead>
 
@@ -404,6 +410,20 @@ export default function StockMovementsPage() {
                       <td className="px-6 py-4">{m.sourceModule || "—"}</td>
                       <td className="px-6 py-4 text-slate-500 dark:text-slate-400">
                         {m.reason || "—"}
+                      </td>
+                      <td className="px-6 py-4">
+                        {m.createdBy ? (
+                          <div>
+                            <p className="font-medium text-slate-900 dark:text-white">
+                              {m.createdBy.name}
+                            </p>
+                            <p className="text-[10px] text-slate-400">
+                              {m.createdBy.role.replace(/_/g, " ")}
+                            </p>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
                       </td>
                     </motion.tr>
                   ))}
@@ -441,7 +461,7 @@ export default function StockMovementsPage() {
               </div>
 
               <div>
-                <label className={labelClass}>{t("amount")}</label>
+                <label className={labelClass}>{t("reorderQty")}</label>
                 <input
                   className={inputClass}
                   type="number"

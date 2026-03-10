@@ -21,6 +21,7 @@ import {
   Bell,
   TriangleAlert,
   ClipboardList,
+  Warehouse,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -38,7 +39,20 @@ export default function Sidebar() {
 
   if (!user) return null;
 
-  const dashboardPath = `/dashboard/${user.role.toLowerCase().replace("_manager", "")}`;
+  const dashboardMap: Record<string, string> = {
+  ADMIN: "/dashboard/admin",
+  HR_MANAGER: "/dashboard/hr",
+  MARKETING_MANAGER: "/dashboard/marketing",
+  SALES_MANAGER: "/dashboard/sales",
+  STOCK_MANAGER: "/dashboard/stock",
+  DEPOT_MANAGER: "/dashboard/depot",
+  COMMERCIAL_MANAGER: "/dashboard/commercial",
+  FINANCE_MANAGER: "/dashboard/finance",
+  PURCHASE_MANAGER: "/dashboard/achat",
+  EMPLOYEE: "/dashboard/employee",
+};
+
+const dashboardPath = dashboardMap[user.role] || "/dashboard";
 
   const adminItems: NavItem[] = [
     { href: "/dashboard/admin", label: t("dashboard"), icon: LayoutDashboard },
@@ -78,6 +92,10 @@ export default function Sidebar() {
     { href: "/dashboard/marketing/promotions", label: t("promotions"), icon: Calendar },
   ];
 
+  const commercialItems: NavItem[] = [
+    { href: "/dashboard/commercial/orders", label: t("onlineOrders"), icon: FileText },
+  ];
+
   const stockItems: NavItem[] = [
     { href: "/dashboard/stock", label: t("dashboard"), icon: LayoutDashboard },
     { href: "/dashboard/stock/products", label: t("products"), icon: Package },
@@ -86,15 +104,29 @@ export default function Sidebar() {
     { href: "/dashboard/stock/thresholds", label: t("thresholdRules"), icon: Bell },
     { href: "/dashboard/stock/alerts", label: t("stockAlertsMenu"), icon: TriangleAlert },
     { href: "/dashboard/stock/inventories", label: t("inventories"), icon: ClipboardList },
+    { href: "/dashboard/stock/depots", label: t("depots"), icon: Warehouse },
+    { href: "/dashboard/stock/settings", label: "Settings", icon: FileText },
+  ];
+  const depotItems: NavItem[] = [
+    { href: "/dashboard/depot", label: t("dashboard"), icon: LayoutDashboard },
+    { href: "/dashboard/stock/movements", label: t("movements"), icon: FileText },
+    { href: "/dashboard/stock/inventories", label: t("inventories"), icon: ClipboardList },
+  ];
+
+  const purchaseItems: NavItem[] = [
+    { href: "/dashboard/achat", label: "Purchase Requests", icon: Truck },
   ];
 
   let items: NavItem[] = [{ href: dashboardPath, label: t("dashboard"), icon: LayoutDashboard }];
 
   if (user.role === "ADMIN") items = adminItems;
   if (user.role === "HR_MANAGER") items = hrItems;
-  if (user.role === "SALES_MANAGER") items = salesItems;
   if (user.role === "MARKETING_MANAGER") items = marketingItems;
+  if (user.role === "SALES_MANAGER") items = salesItems;
   if (user.role === "STOCK_MANAGER") items = stockItems;
+  if (user.role === "DEPOT_MANAGER") items = depotItems;
+  if (user.role === "COMMERCIAL_MANAGER") items = commercialItems;
+  if (user.role === "PURCHASE_MANAGER") items = purchaseItems;
 
   return (
     <motion.aside
@@ -115,9 +147,7 @@ export default function Sidebar() {
                 </div>
               </>
             ) : (
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-sm font-bold text-slate-900 dark:bg-slate-800 dark:text-white">
-                E
-              </div>
+              <div className="h-10" />
             )}
           </div>
 
