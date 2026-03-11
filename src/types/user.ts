@@ -8,6 +8,7 @@ export type Role =
   | "FINANCE_MANAGER"
   | "COMMERCIAL_MANAGER"
   | "PURCHASE_MANAGER"
+  | "WAREHOUSE_OPERATOR"
   | "EMPLOYEE";
 
 export interface User {

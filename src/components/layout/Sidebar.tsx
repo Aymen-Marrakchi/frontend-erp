@@ -23,6 +23,7 @@ import {
   ClipboardList,
   Warehouse,
   Wallet,
+  CalendarDays,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -50,6 +51,7 @@ export default function Sidebar() {
   COMMERCIAL_MANAGER: "/dashboard/commercial",
   FINANCE_MANAGER: "/dashboard/finance",
   PURCHASE_MANAGER: "/dashboard/achat",
+  WAREHOUSE_OPERATOR: "/dashboard/commercial/orders",
   EMPLOYEE: "/dashboard/employee",
 };
 
@@ -98,6 +100,8 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/commercial/orders", label: t("onlineOrders"), icon: FileText },
     { href: "/dashboard/commercial/preparation", label: t("prepared") || "Preparation", icon: Package },
     { href: "/dashboard/commercial/shipments", label: t("shipped") || "Shipments", icon: Truck },
+    { href: "/dashboard/commercial/carriers", label: t("carriersTitle") || "Carriers", icon: Truck },
+    { href: "/dashboard/commercial/planning", label: t("deliveryPlanning") || "Delivery Planning", icon: CalendarDays },
     { href: "/dashboard/commercial/backorders", label: t("backorders") || "Backorders", icon: RotateCcw },
     { href: "/dashboard/commercial/reports", label: t("reportsKpi") || "Reports", icon: BarChart3 },
   ];
@@ -131,6 +135,12 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/achat/requests", label: t("purchaseRequestsTitle"), icon: Truck },
   ];
 
+  const warehouseOperatorItems: NavItem[] = [
+    { href: "/dashboard/commercial/orders", label: t("onlineOrders"), icon: FileText },
+    { href: "/dashboard/commercial/preparation", label: t("prepared") || "Preparation", icon: Package },
+    { href: "/dashboard/commercial/shipments", label: t("shipped") || "Shipments", icon: Truck },
+  ];
+
   let items: NavItem[] = [{ href: dashboardPath, label: t("dashboard"), icon: LayoutDashboard }];
 
   if (user.role === "ADMIN") items = adminItems;
@@ -141,6 +151,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
   if (user.role === "DEPOT_MANAGER") items = depotItems;
   if (user.role === "COMMERCIAL_MANAGER") items = commercialItems;
   if (user.role === "PURCHASE_MANAGER") items = purchaseItems;
+  if (user.role === "WAREHOUSE_OPERATOR") items = warehouseOperatorItems;
 
   return (
     <motion.aside

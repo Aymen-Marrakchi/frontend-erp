@@ -2,7 +2,9 @@
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useLanguage } from "@/context/LanguageContext";
+import Link from "next/link";
 import { salesOrderService, SalesOrder } from "@/services/commercial/salesOrderService";
+import { carrierService, Carrier } from "@/services/commercial/carrierService";
 import { useEffect, useMemo, useState } from "react";
 import {
   Truck,
@@ -12,6 +14,8 @@ import {
   CheckCircle,
   Package,
   X,
+  DollarSign,
+  CalendarDays,
 } from "lucide-react";
 
 const surface =
@@ -30,12 +34,15 @@ export default function CommercialShipmentsPage() {
   const { t } = useLanguage();
 
   const [orders, setOrders] = useState<SalesOrder[]>([]);
+  const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [trackingInputs, setTrackingInputs] = useState<Record<string, string>>({});
+  const [carrierInputs, setCarrierInputs] = useState<Record<string, string>>({});
+  const [costInputs, setCostInputs] = useState<Record<string, string>>({});
 
   const fetchOrders = async () => {
     try {
@@ -52,6 +59,7 @@ export default function CommercialShipmentsPage() {
 
   useEffect(() => {
     fetchOrders();
+    carrierService.getActive().then(setCarriers).catch(() => {});
   }, []);
 
   const preparedOrders = useMemo(
@@ -88,6 +96,8 @@ export default function CommercialShipmentsPage() {
       setError("");
       await salesOrderService.ship(order._id, {
         trackingNumber: trackingInputs[order._id] || "",
+        carrierId: carrierInputs[order._id] || undefined,
+        shippingCost: parseFloat(costInputs[order._id] || "0") || 0,
       });
       await fetchOrders();
     } catch (err: any) {
@@ -135,6 +145,13 @@ export default function CommercialShipmentsPage() {
               </div>
             </div>
           </div>
+          <Link
+            href="/dashboard/commercial/planning"
+            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            <CalendarDays size={15} />
+            {t("deliveryPlanning") || "Delivery Planning"}
+          </Link>
         </div>
 
         {error && (
@@ -248,7 +265,40 @@ export default function CommercialShipmentsPage() {
                         )}
                       </div>
 
-                      <div className="w-full md:w-56">
+                      <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row">
+                        {/* Carrier selector */}
+                        <select
+                          value={carrierInputs[order._id] || ""}
+                          onChange={(e) =>
+                            setCarrierInputs((prev) => ({ ...prev, [order._id]: e.target.value }))
+                          }
+                          className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                        >
+                          <option value="">— Carrier —</option>
+                          {carriers.map((c) => (
+                            <option key={c._id} value={c._id}>
+                              {c.name} ({c.code})
+                            </option>
+                          ))}
+                        </select>
+
+                        {/* Shipping cost */}
+                        <div className="relative">
+                          <DollarSign size={11} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={costInputs[order._id] || ""}
+                            onChange={(e) =>
+                              setCostInputs((prev) => ({ ...prev, [order._id]: e.target.value }))
+                            }
+                            placeholder="Cost (TND)"
+                            className="w-32 rounded-2xl border border-slate-200 bg-slate-50 py-2 pl-8 pr-3 text-xs text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                          />
+                        </div>
+
+                        {/* Tracking number */}
                         <input
                           value={trackingInputs[order._id] || ""}
                           onChange={(e) =>
@@ -258,7 +308,7 @@ export default function CommercialShipmentsPage() {
                             }))
                           }
                           placeholder="Tracking number"
-                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                          className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
                         />
                       </div>
 
@@ -383,6 +433,18 @@ export default function CommercialShipmentsPage() {
                           </span>
                         )}
                         {order.trackingNumber && <span>Tracking: {order.trackingNumber}</span>}
+                        {order.carrierId && (
+                          <span className="flex items-center gap-1">
+                            <Truck size={10} />
+                            {order.carrierId.name} ({order.carrierId.code})
+                          </span>
+                        )}
+                        {order.shippingCost !== undefined && order.shippingCost > 0 && (
+                          <span className="flex items-center gap-1">
+                            <DollarSign size={10} />
+                            {order.shippingCost.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
+                          </span>
+                        )}
                       </div>
                     </div>
 

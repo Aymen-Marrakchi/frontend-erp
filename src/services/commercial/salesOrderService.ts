@@ -6,6 +6,17 @@ export interface SalesOrderLine {
   unitPrice: number;
 }
 
+export interface ShipApproval {
+  status: "NONE" | "PENDING" | "APPROVED" | "REJECTED";
+  requestedAt?: string;
+  requestedBy?: { _id: string; name: string } | null;
+  approvedAt?: string;
+  approvedBy?: { _id: string; name: string } | null;
+  rejectedAt?: string;
+  rejectedBy?: { _id: string; name: string } | null;
+  rejectionReason?: string;
+}
+
 export interface SalesOrder {
   _id: string;
   orderNo: string;
@@ -16,6 +27,10 @@ export interface SalesOrder {
   shippedAt?: string;
   deliveredAt?: string;
   trackingNumber?: string;
+  carrierId?: { _id: string; name: string; code: string } | null;
+  shippingCost?: number;
+  isUrgent?: boolean;
+  shipApproval?: ShipApproval;
   notes?: string;
   createdAt?: string;
   lines: SalesOrderLine[];
@@ -53,9 +68,21 @@ export const salesOrderService = {
   cancel: async (id: string) =>
     (await api.post(`/commercial/orders/${id}/cancel`)).data,
 
-  ship: async (id: string, payload?: { trackingNumber?: string }) =>
+  ship: async (id: string, payload?: { trackingNumber?: string; carrierId?: string; shippingCost?: number }) =>
     (await api.post(`/commercial/orders/${id}/ship`, payload || {})).data,
 
   deliver: async (id: string) =>
     (await api.post(`/commercial/orders/${id}/deliver`)).data,
+
+  markUrgent: async (id: string, urgent: boolean) =>
+    (await api.post(`/commercial/orders/${id}/mark-urgent`, { urgent })).data,
+
+  requestApproval: async (id: string) =>
+    (await api.post(`/commercial/orders/${id}/request-approval`)).data,
+
+  approveShip: async (id: string) =>
+    (await api.post(`/commercial/orders/${id}/approve-ship`)).data,
+
+  rejectShip: async (id: string, reason: string) =>
+    (await api.post(`/commercial/orders/${id}/reject-ship`, { reason })).data,
 };

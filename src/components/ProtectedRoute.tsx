@@ -15,6 +15,7 @@ const ROLE_HOME: Record<Role, string> = {
   COMMERCIAL_MANAGER: "/dashboard/commercial",
   FINANCE_MANAGER: "/dashboard/finance",
   PURCHASE_MANAGER: "/dashboard/achat",
+  WAREHOUSE_OPERATOR: "/dashboard/commercial/orders",
   EMPLOYEE: "/dashboard/employee",
 };
 

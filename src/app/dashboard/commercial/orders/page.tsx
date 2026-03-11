@@ -1,10 +1,12 @@
 "use client";
 
 import ProtectedRoute from "@/components/ProtectedRoute";
+import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { salesOrderService } from "@/services/commercial/salesOrderService";
 import { stockProductService } from "@/services/stock/stockProductService";
 import { useEffect, useState, useMemo } from "react";
+import Link from "next/link";
 import {
   ShoppingCart,
   Plus,
@@ -18,7 +20,14 @@ import {
   Package,
   ChevronDown,
   Clock,
+  ExternalLink,
+  RotateCcw,
+  Zap,
+  ShieldCheck,
+  ShieldX,
+  Send,
 } from "lucide-react";
+import { backorderService } from "@/services/commercial/backorderService";
 
 interface Product {
   _id: string;
@@ -33,6 +42,11 @@ interface OrderLine {
   unitPrice: string;
 }
 
+interface ShipApproval {
+  status: "NONE" | "PENDING" | "APPROVED" | "REJECTED";
+  rejectionReason?: string;
+}
+
 interface Order {
   _id: string;
   orderNo: string;
@@ -45,6 +59,8 @@ interface Order {
   promisedDate?: string;
   notes?: string;
   createdAt?: string;
+  isUrgent?: boolean;
+  shipApproval?: ShipApproval;
   lines: {
     productId: Product;
     quantity: number;
@@ -92,9 +108,13 @@ function isLate(order: Order): boolean {
 
 export default function CommercialOrdersPage() {
   const { t } = useLanguage();
+  const { user } = useAuth();
+
+  const isManager = user?.role === "ADMIN" || user?.role === "COMMERCIAL_MANAGER";
 
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [backorderedIds, setBackorderedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
@@ -102,6 +122,8 @@ export default function CommercialOrdersPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const [form, setForm] = useState({ orderNo: "", customerName: "", notes: "" });
   const [lines, setLines] = useState<OrderLine[]>([
@@ -117,12 +139,20 @@ export default function CommercialOrdersPage() {
     try {
       setLoading(true);
       setError("");
-      const [productData, orderData] = await Promise.all([
+      const [productData, orderData, backorderData] = await Promise.all([
         stockProductService.getAll(),
         salesOrderService.getAll(),
+        backorderService.getAll(),
       ]);
       setProducts(productData.filter((p: Product) => p.status === "ACTIVE"));
       setOrders(orderData);
+      setBackorderedIds(
+        new Set(
+          backorderData
+            .filter((b: any) => b.status === "PENDING")
+            .map((b: any) => String(b.salesOrderId))
+        )
+      );
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to load orders");
     } finally {
@@ -177,26 +207,46 @@ export default function CommercialOrdersPage() {
   };
 
   const runAction = async (
-  action: "confirm" | "prepare" | "cancel" | "ship" | "deliver",
-  id: string
-) => {
-  try {
-    setActionId(id);
-    setError("");
+    action: "confirm" | "prepare" | "cancel" | "ship" | "deliver" | "markUrgent" | "unmarkUrgent" | "requestApproval" | "approveShip",
+    id: string
+  ) => {
+    try {
+      setActionId(id);
+      setError("");
 
-    if (action === "confirm") await salesOrderService.confirm(id);
-    if (action === "prepare") await salesOrderService.prepare(id);
-    if (action === "cancel") await salesOrderService.cancel(id);
-    if (action === "ship") await salesOrderService.ship(id);
-    if (action === "deliver") await salesOrderService.deliver(id);
+      if (action === "confirm") await salesOrderService.confirm(id);
+      if (action === "prepare") await salesOrderService.prepare(id);
+      if (action === "cancel") await salesOrderService.cancel(id);
+      if (action === "ship") await salesOrderService.ship(id);
+      if (action === "deliver") await salesOrderService.deliver(id);
+      if (action === "markUrgent") await salesOrderService.markUrgent(id, true);
+      if (action === "unmarkUrgent") await salesOrderService.markUrgent(id, false);
+      if (action === "requestApproval") await salesOrderService.requestApproval(id);
+      if (action === "approveShip") await salesOrderService.approveShip(id);
 
-    await fetchAll();
-  } catch (err: any) {
-    setError(err.response?.data?.message || `Failed to ${action} order`);
-  } finally {
-    setActionId(null);
-  }
-};
+      await fetchAll();
+    } catch (err: any) {
+      setError(err.response?.data?.message || `Failed to ${action} order`);
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const runReject = async (id: string) => {
+    if (!rejectReason.trim()) return;
+    try {
+      setActionId(id);
+      setError("");
+      await salesOrderService.rejectShip(id, rejectReason.trim());
+      setRejectingId(null);
+      setRejectReason("");
+      await fetchAll();
+    } catch (err: any) {
+      setError(err.response?.data?.message || "Failed to reject approval");
+    } finally {
+      setActionId(null);
+    }
+  };
 
   const orderTotal = (order: Order) =>
     order.lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
@@ -225,7 +275,7 @@ export default function CommercialOrdersPage() {
   }), [orders]);
 
   return (
-    <ProtectedRoute allowedRoles={["ADMIN", "COMMERCIAL_MANAGER"]}>
+    <ProtectedRoute allowedRoles={["ADMIN", "COMMERCIAL_MANAGER", "WAREHOUSE_OPERATOR"]}>
       <div className="space-y-6">
         {/* ── Header ── */}
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
@@ -247,12 +297,14 @@ export default function CommercialOrdersPage() {
               </div>
             </div>
           </div>
-          <button
-            onClick={() => { setShowForm((v) => !v); setError(""); }}
-            className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
-          >
-            <Plus size={15} /> {t("createSalesOrder")}
-          </button>
+          {isManager && (
+            <button
+              onClick={() => { setShowForm((v) => !v); setError(""); }}
+              className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+            >
+              <Plus size={15} /> {t("createSalesOrder")}
+            </button>
+          )}
         </div>
 
         {/* ── Error banner ── */}
@@ -464,9 +516,14 @@ export default function CommercialOrdersPage() {
                       {/* Order info */}
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold text-slate-900 dark:text-white">
+                          <Link
+                            href={`/dashboard/commercial/orders/${order._id}`}
+                            className="inline-flex items-center gap-1 font-semibold text-slate-900 hover:text-blue-600 dark:text-white dark:hover:text-blue-400"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             {order.orderNo}
-                          </span>
+                            <ExternalLink size={11} className="opacity-40" />
+                          </Link>
                           <span
                             className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${statusBadge(order.status)}`}
                           >
@@ -477,6 +534,36 @@ export default function CommercialOrdersPage() {
                             <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
                               <Clock size={10} />
                               {t("late") || "Late"}
+                            </span>
+                          )}
+                          {backorderedIds.has(order._id) && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
+                              <RotateCcw size={10} />
+                              {t("backorders") || "Backorder"}
+                            </span>
+                          )}
+                          {order.isUrgent && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2.5 py-0.5 text-[10px] font-semibold text-orange-700 dark:bg-orange-950/40 dark:text-orange-400">
+                              <Zap size={10} />
+                              {t("urgent") || "Urgent"}
+                            </span>
+                          )}
+                          {order.isUrgent && order.shipApproval?.status === "PENDING" && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2.5 py-0.5 text-[10px] font-semibold text-yellow-700 dark:bg-yellow-950/40 dark:text-yellow-400">
+                              <Clock size={10} />
+                              {t("awaitingApproval") || "Awaiting Approval"}
+                            </span>
+                          )}
+                          {order.isUrgent && order.shipApproval?.status === "APPROVED" && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
+                              <ShieldCheck size={10} />
+                              {t("approved") || "Approved"}
+                            </span>
+                          )}
+                          {order.isUrgent && order.shipApproval?.status === "REJECTED" && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
+                              <ShieldX size={10} />
+                              {t("rejected") || "Rejected"}
                             </span>
                           )}
                         </div>
@@ -501,69 +588,157 @@ export default function CommercialOrdersPage() {
                       </div>
 
                       {/* Actions */}
-                      <div className="flex shrink-0 items-center gap-2">
-  {order.status === "DRAFT" && (
-    <button
-      onClick={() => runAction("confirm", order._id)}
-      disabled={busy}
-      className="inline-flex items-center gap-1.5 rounded-2xl bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
-    >
-      {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
-      {t("confirm")}
-    </button>
-  )}
+                      <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        {/* Managers only: confirm draft */}
+                        {order.status === "DRAFT" && isManager && (
+                          <button
+                            onClick={() => runAction("confirm", order._id)}
+                            disabled={busy}
+                            className="inline-flex items-center gap-1.5 rounded-2xl bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+                          >
+                            {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
+                            {t("confirm")}
+                          </button>
+                        )}
 
-  {order.status === "CONFIRMED" && (
-    <>
-      <button
-        onClick={() => runAction("prepare", order._id)}
-        disabled={busy}
-        className="inline-flex items-center gap-1.5 rounded-2xl bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
-      >
-        {busy ? <Loader2 size={11} className="animate-spin" /> : <Package size={11} />}
-        {t("prepared") || "Prepare"}
-      </button>
-      <button
-        onClick={() => runAction("cancel", order._id)}
-        disabled={busy}
-        className="inline-flex items-center gap-1.5 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-600 transition hover:bg-rose-100 disabled:opacity-50 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400"
-      >
-        <XCircle size={11} /> {t("cancel")}
-      </button>
-    </>
-  )}
+                        {/* Managers only: mark/unmark urgent on active orders */}
+                        {isManager && !["SHIPPED", "DELIVERED", "CANCELLED"].includes(order.status) && (
+                          <button
+                            onClick={() => runAction(order.isUrgent ? "unmarkUrgent" : "markUrgent", order._id)}
+                            disabled={busy}
+                            className={`inline-flex items-center gap-1.5 rounded-2xl border px-3 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
+                              order.isUrgent
+                                ? "border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100 dark:border-orange-900/40 dark:bg-orange-950/20 dark:text-orange-400"
+                                : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                            }`}
+                          >
+                            <Zap size={11} />
+                            {order.isUrgent ? t("unmarkUrgent") : t("markUrgent")}
+                          </button>
+                        )}
 
-  {order.status === "PREPARED" && (
-    <>
-      <button
-        onClick={() => runAction("ship", order._id)}
-        disabled={busy}
-        className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
-      >
-        {busy ? <Loader2 size={11} className="animate-spin" /> : <Truck size={11} />}
-        {t("ship")}
-      </button>
-      <button
-        onClick={() => runAction("cancel", order._id)}
-        disabled={busy}
-        className="inline-flex items-center gap-1.5 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-600 transition hover:bg-rose-100 disabled:opacity-50 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400"
-      >
-        <XCircle size={11} /> {t("cancel")}
-      </button>
-    </>
-  )}
+                        {/* Prepare: both roles on CONFIRMED */}
+                        {order.status === "CONFIRMED" && (
+                          <button
+                            onClick={() => runAction("prepare", order._id)}
+                            disabled={busy}
+                            className="inline-flex items-center gap-1.5 rounded-2xl bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
+                          >
+                            {busy ? <Loader2 size={11} className="animate-spin" /> : <Package size={11} />}
+                            {t("prepared") || "Prepare"}
+                          </button>
+                        )}
 
-  {order.status === "SHIPPED" && (
-    <button
-      onClick={() => runAction("deliver", order._id)}
-      disabled={busy}
-      className="inline-flex items-center gap-1.5 rounded-2xl bg-teal-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-teal-700 disabled:opacity-50"
-    >
-      {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
-      {t("delivered") || "Deliver"}
-    </button>
-  )}
-</div>
+                        {/* Ship / approval flow on PREPARED */}
+                        {order.status === "PREPARED" && (() => {
+                          const approval = order.shipApproval?.status ?? "NONE";
+                          const canShipDirectly = !order.isUrgent || isManager || approval === "APPROVED";
+
+                          if (canShipDirectly) {
+                            return (
+                              <button
+                                onClick={() => runAction("ship", order._id)}
+                                disabled={busy}
+                                className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                              >
+                                {busy ? <Loader2 size={11} className="animate-spin" /> : <Truck size={11} />}
+                                {t("ship")}
+                              </button>
+                            );
+                          }
+
+                          // Urgent + WAREHOUSE_OPERATOR
+                          if (approval === "PENDING") {
+                            return (
+                              <span className="inline-flex items-center gap-1.5 rounded-2xl bg-yellow-50 px-3 py-1.5 text-xs font-medium text-yellow-700 dark:bg-yellow-950/20 dark:text-yellow-400">
+                                <Clock size={11} />
+                                {t("awaitingApproval")}
+                              </span>
+                            );
+                          }
+
+                          // NONE or REJECTED → allow request
+                          return (
+                            <button
+                              onClick={() => runAction("requestApproval", order._id)}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1.5 rounded-2xl bg-orange-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-orange-700 disabled:opacity-50"
+                            >
+                              {busy ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+                              {t("requestApproval")}
+                            </button>
+                          );
+                        })()}
+
+                        {/* Managers: approve / reject pending approval */}
+                        {isManager && order.status === "PREPARED" && order.isUrgent && order.shipApproval?.status === "PENDING" && (
+                          <>
+                            <button
+                              onClick={() => runAction("approveShip", order._id)}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                            >
+                              {busy ? <Loader2 size={11} className="animate-spin" /> : <ShieldCheck size={11} />}
+                              {t("approveShip")}
+                            </button>
+                            {rejectingId === order._id ? (
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  autoFocus
+                                  value={rejectReason}
+                                  onChange={(e) => setRejectReason(e.target.value)}
+                                  placeholder={t("rejectionReason")}
+                                  className="w-44 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs outline-none focus:border-rose-300 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                                />
+                                <button
+                                  onClick={() => runReject(order._id)}
+                                  disabled={!rejectReason.trim() || busy}
+                                  className="inline-flex items-center gap-1 rounded-xl bg-rose-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-rose-700 disabled:opacity-50"
+                                >
+                                  {t("confirmReject")}
+                                </button>
+                                <button
+                                  onClick={() => { setRejectingId(null); setRejectReason(""); }}
+                                  className="flex h-7 w-7 items-center justify-center rounded-xl border border-slate-200 text-slate-400 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
+                                >
+                                  <X size={11} />
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => { setRejectingId(order._id); setRejectReason(""); }}
+                                className="inline-flex items-center gap-1.5 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-600 transition hover:bg-rose-100 disabled:opacity-50 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400"
+                              >
+                                <ShieldX size={11} />
+                                {t("rejectShip")}
+                              </button>
+                            )}
+                          </>
+                        )}
+
+                        {/* Cancel: managers only */}
+                        {isManager && ["CONFIRMED", "PREPARED"].includes(order.status) && (
+                          <button
+                            onClick={() => runAction("cancel", order._id)}
+                            disabled={busy}
+                            className="inline-flex items-center gap-1.5 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-600 transition hover:bg-rose-100 disabled:opacity-50 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400"
+                          >
+                            <XCircle size={11} /> {t("cancel")}
+                          </button>
+                        )}
+
+                        {/* Deliver: managers only */}
+                        {order.status === "SHIPPED" && isManager && (
+                          <button
+                            onClick={() => runAction("deliver", order._id)}
+                            disabled={busy}
+                            className="inline-flex items-center gap-1.5 rounded-2xl bg-teal-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-teal-700 disabled:opacity-50"
+                          >
+                            {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
+                            {t("delivered") || "Deliver"}
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {/* Expanded lines */}

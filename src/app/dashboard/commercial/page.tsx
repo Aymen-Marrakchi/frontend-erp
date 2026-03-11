@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   Loader2,
   RotateCcw,
+  CalendarDays,
 } from "lucide-react";
 
 const surface =
@@ -146,6 +147,18 @@ export default function CommercialDashboardPage() {
       desc: "Ship prepared orders and confirm delivery",
       href: "/dashboard/commercial/shipments",
       icon: <Truck size={18} className="text-emerald-500" />,
+    },
+    {
+      label: t("carriersTitle") || "Carriers",
+      desc: t("carriersSub") || "Manage shipping carriers and rate configuration",
+      href: "/dashboard/commercial/carriers",
+      icon: <Truck size={18} className="text-teal-500" />,
+    },
+    {
+      label: t("deliveryPlanning") || "Delivery Planning",
+      desc: t("deliveryPlanningSub") || "Schedule and group shipments for delivery runs",
+      href: "/dashboard/commercial/planning",
+      icon: <CalendarDays size={18} className="text-indigo-500" />,
     },
     {
       label: t("backorders") || "Backorders",
