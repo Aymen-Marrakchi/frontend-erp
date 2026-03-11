@@ -17,6 +17,7 @@ import {
   Truck,
   Package,
   ChevronDown,
+  Clock,
 } from "lucide-react";
 
 interface Product {
@@ -36,7 +37,12 @@ interface Order {
   _id: string;
   orderNo: string;
   customerName: string;
-  status: "DRAFT" | "CONFIRMED" | "CANCELLED" | "SHIPPED";
+  status: "DRAFT" | "CONFIRMED" | "PREPARED" | "SHIPPED" | "DELIVERED" | "CANCELLED";
+  preparedAt?: string;
+  shippedAt?: string;
+  deliveredAt?: string;
+  trackingNumber?: string;
+  promisedDate?: string;
   notes?: string;
   createdAt?: string;
   lines: {
@@ -59,7 +65,9 @@ function statusBadge(status: string) {
   const map: Record<string, string> = {
     DRAFT: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
     CONFIRMED: "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
+    PREPARED: "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300",
     SHIPPED: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
+    DELIVERED: "bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300",
     CANCELLED: "bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300",
   };
   return map[status] ?? "bg-slate-100 text-slate-600";
@@ -67,9 +75,19 @@ function statusBadge(status: string) {
 
 function StatusIcon({ status }: { status: string }) {
   if (status === "CONFIRMED") return <CheckCircle size={12} className="text-blue-500" />;
+  if (status === "PREPARED") return <Package size={12} className="text-violet-500" />;
   if (status === "SHIPPED") return <Truck size={12} className="text-emerald-500" />;
+  if (status === "DELIVERED") return <CheckCircle size={12} className="text-teal-500" />;
   if (status === "CANCELLED") return <XCircle size={12} className="text-rose-500" />;
   return <Package size={12} className="text-slate-400" />;
+}
+
+const ACTIVE_STATUSES = ["DRAFT", "CONFIRMED", "PREPARED", "SHIPPED"];
+
+function isLate(order: Order): boolean {
+  if (!order.promisedDate) return false;
+  if (!ACTIVE_STATUSES.includes(order.status)) return false;
+  return new Date(order.promisedDate) < new Date();
 }
 
 export default function CommercialOrdersPage() {
@@ -158,20 +176,27 @@ export default function CommercialOrdersPage() {
     }
   };
 
-  const runAction = async (action: "confirm" | "cancel" | "ship", id: string) => {
-    try {
-      setActionId(id);
-      setError("");
-      if (action === "confirm") await salesOrderService.confirm(id);
-      if (action === "cancel") await salesOrderService.cancel(id);
-      if (action === "ship") await salesOrderService.ship(id);
-      await fetchAll();
-    } catch (err: any) {
-      setError(err.response?.data?.message || `Failed to ${action} order`);
-    } finally {
-      setActionId(null);
-    }
-  };
+  const runAction = async (
+  action: "confirm" | "prepare" | "cancel" | "ship" | "deliver",
+  id: string
+) => {
+  try {
+    setActionId(id);
+    setError("");
+
+    if (action === "confirm") await salesOrderService.confirm(id);
+    if (action === "prepare") await salesOrderService.prepare(id);
+    if (action === "cancel") await salesOrderService.cancel(id);
+    if (action === "ship") await salesOrderService.ship(id);
+    if (action === "deliver") await salesOrderService.deliver(id);
+
+    await fetchAll();
+  } catch (err: any) {
+    setError(err.response?.data?.message || `Failed to ${action} order`);
+  } finally {
+    setActionId(null);
+  }
+};
 
   const orderTotal = (order: Order) =>
     order.lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
@@ -182,7 +207,9 @@ export default function CommercialOrdersPage() {
       const matchSearch =
         o.orderNo.toLowerCase().includes(q) ||
         o.customerName.toLowerCase().includes(q);
-      const matchStatus = statusFilter === "ALL" || o.status === statusFilter;
+      const matchStatus =
+        statusFilter === "ALL" ||
+        (statusFilter === "LATE" ? isLate(o) : o.status === statusFilter);
       return matchSearch && matchStatus;
     });
   }, [orders, search, statusFilter]);
@@ -190,9 +217,11 @@ export default function CommercialOrdersPage() {
   // KPI counts
   const kpis = useMemo(() => ({
     total: orders.length,
-    confirmed: orders.filter((o) => o.status === "CONFIRMED").length,
-    shipped: orders.filter((o) => o.status === "SHIPPED").length,
     draft: orders.filter((o) => o.status === "DRAFT").length,
+    confirmed: orders.filter((o) => o.status === "CONFIRMED").length,
+    prepared: orders.filter((o) => o.status === "PREPARED").length,
+    shipped: orders.filter((o) => o.status === "SHIPPED").length,
+    late: orders.filter(isLate).length,
   }), [orders]);
 
   return (
@@ -237,12 +266,13 @@ export default function CommercialOrdersPage() {
         )}
 
         {/* ── KPI cards ── */}
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
           {[
             { label: t("totalOrdersKpi"), value: kpis.total, color: "text-slate-900 dark:text-white" },
             { label: t("draft"), value: kpis.draft, color: "text-slate-600 dark:text-slate-300" },
-            { label: t("completed"), value: kpis.confirmed, color: "text-blue-700 dark:text-blue-400" },
-            { label: t("shipped"), value: kpis.shipped, color: "text-emerald-700 dark:text-emerald-400" },
+            { label: t("confirmedOrders"), value: kpis.confirmed, color: "text-blue-700 dark:text-blue-400" },
+            { label: t("prepared") || "Prepared", value: kpis.prepared, color: "text-violet-700 dark:text-violet-400" },
+            { label: t("lateOrders") || "Late Orders", value: kpis.late, color: kpis.late > 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-600 dark:text-slate-300" },
           ].map((kpi) => (
             <div key={kpi.label} className={`${surface} px-6 py-5`}>
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">
@@ -389,9 +419,12 @@ export default function CommercialOrdersPage() {
                 className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
               >
                 <option value="ALL">{t("allStatus")}</option>
+                <option value="LATE">{t("late") || "Late"}</option>
                 <option value="DRAFT">{t("draft")}</option>
-                <option value="CONFIRMED">{t("completed")}</option>
+                <option value="CONFIRMED">{t("confirmedOrders")}</option>
+                <option value="PREPARED">{t("prepared") || "Prepared"}</option>
                 <option value="SHIPPED">{t("shipped")}</option>
+                <option value="DELIVERED">{t("delivered") || "Delivered"}</option>
                 <option value="CANCELLED">{t("cancelled")}</option>
               </select>
             </div>
@@ -440,9 +473,20 @@ export default function CommercialOrdersPage() {
                             <StatusIcon status={order.status} />
                             {order.status}
                           </span>
+                          {isLate(order) && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
+                              <Clock size={10} />
+                              {t("late") || "Late"}
+                            </span>
+                          )}
                         </div>
                         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
                           {order.customerName}
+                          {order.promisedDate && (
+                            <span className={`ml-2 text-[11px] ${isLate(order) ? "text-rose-500 dark:text-rose-400" : "text-slate-400"}`}>
+                              · {new Date(order.promisedDate).toLocaleDateString("fr-TN")}
+                            </span>
+                          )}
                         </p>
                       </div>
 
@@ -458,45 +502,68 @@ export default function CommercialOrdersPage() {
 
                       {/* Actions */}
                       <div className="flex shrink-0 items-center gap-2">
-                        {order.status === "DRAFT" && (
-                          <>
-                            <button
-                              onClick={() => runAction("confirm", order._id)}
-                              disabled={busy}
-                              className="inline-flex items-center gap-1.5 rounded-2xl bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
-                            >
-                              {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
-                              {t("confirm")}
-                            </button>
-                            <button
-                              onClick={() => runAction("cancel", order._id)}
-                              disabled={busy}
-                              className="inline-flex items-center gap-1.5 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-600 transition hover:bg-rose-100 disabled:opacity-50 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400"
-                            >
-                              <XCircle size={11} /> {t("cancel")}
-                            </button>
-                          </>
-                        )}
-                        {order.status === "CONFIRMED" && (
-                          <>
-                            <button
-                              onClick={() => runAction("ship", order._id)}
-                              disabled={busy}
-                              className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
-                            >
-                              {busy ? <Loader2 size={11} className="animate-spin" /> : <Truck size={11} />}
-                              {t("ship")}
-                            </button>
-                            <button
-                              onClick={() => runAction("cancel", order._id)}
-                              disabled={busy}
-                              className="inline-flex items-center gap-1.5 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-600 transition hover:bg-rose-100 disabled:opacity-50 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400"
-                            >
-                              <XCircle size={11} /> {t("cancel")}
-                            </button>
-                          </>
-                        )}
-                      </div>
+  {order.status === "DRAFT" && (
+    <button
+      onClick={() => runAction("confirm", order._id)}
+      disabled={busy}
+      className="inline-flex items-center gap-1.5 rounded-2xl bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+    >
+      {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
+      {t("confirm")}
+    </button>
+  )}
+
+  {order.status === "CONFIRMED" && (
+    <>
+      <button
+        onClick={() => runAction("prepare", order._id)}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 rounded-2xl bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
+      >
+        {busy ? <Loader2 size={11} className="animate-spin" /> : <Package size={11} />}
+        {t("prepared") || "Prepare"}
+      </button>
+      <button
+        onClick={() => runAction("cancel", order._id)}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-600 transition hover:bg-rose-100 disabled:opacity-50 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400"
+      >
+        <XCircle size={11} /> {t("cancel")}
+      </button>
+    </>
+  )}
+
+  {order.status === "PREPARED" && (
+    <>
+      <button
+        onClick={() => runAction("ship", order._id)}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
+      >
+        {busy ? <Loader2 size={11} className="animate-spin" /> : <Truck size={11} />}
+        {t("ship")}
+      </button>
+      <button
+        onClick={() => runAction("cancel", order._id)}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-600 transition hover:bg-rose-100 disabled:opacity-50 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400"
+      >
+        <XCircle size={11} /> {t("cancel")}
+      </button>
+    </>
+  )}
+
+  {order.status === "SHIPPED" && (
+    <button
+      onClick={() => runAction("deliver", order._id)}
+      disabled={busy}
+      className="inline-flex items-center gap-1.5 rounded-2xl bg-teal-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-teal-700 disabled:opacity-50"
+    >
+      {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
+      {t("delivered") || "Deliver"}
+    </button>
+  )}
+</div>
                     </div>
 
                     {/* Expanded lines */}
@@ -507,6 +574,14 @@ export default function CommercialOrdersPage() {
                             {order.notes}
                           </p>
                         )}
+                        <div className="mb-3 flex flex-wrap gap-4 text-[11px] text-slate-500 dark:text-slate-400">
+  {order.createdAt && <span>Created: {new Date(order.createdAt).toLocaleDateString("fr-TN")}</span>}
+  {order.promisedDate && <span>Promised: {new Date(order.promisedDate).toLocaleDateString("fr-TN")}</span>}
+  {order.preparedAt && <span>Prepared: {new Date(order.preparedAt).toLocaleDateString("fr-TN")}</span>}
+  {order.shippedAt && <span>Shipped: {new Date(order.shippedAt).toLocaleDateString("fr-TN")}</span>}
+  {order.deliveredAt && <span>Delivered: {new Date(order.deliveredAt).toLocaleDateString("fr-TN")}</span>}
+  {order.trackingNumber && <span>Tracking: {order.trackingNumber}</span>}
+</div>
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="border-b border-slate-200 dark:border-slate-800">

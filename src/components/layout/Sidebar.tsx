@@ -22,6 +22,7 @@ import {
   TriangleAlert,
   ClipboardList,
   Warehouse,
+  Wallet,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -95,6 +96,10 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
   const commercialItems: NavItem[] = [
     { href: "/dashboard/commercial", label: t("dashboard"), icon: LayoutDashboard },
     { href: "/dashboard/commercial/orders", label: t("onlineOrders"), icon: FileText },
+    { href: "/dashboard/commercial/preparation", label: t("prepared") || "Preparation", icon: Package },
+    { href: "/dashboard/commercial/shipments", label: t("shipped") || "Shipments", icon: Truck },
+    { href: "/dashboard/commercial/backorders", label: t("backorders") || "Backorders", icon: RotateCcw },
+    { href: "/dashboard/commercial/reports", label: t("reportsKpi") || "Reports", icon: BarChart3 },
   ];
 
   const stockItems: NavItem[] = [
@@ -106,8 +111,15 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/stock/alerts", label: t("stockAlertsMenu"), icon: TriangleAlert },
     { href: "/dashboard/stock/inventories", label: t("inventories"), icon: ClipboardList },
     { href: "/dashboard/stock/depots", label: t("depots"), icon: Warehouse },
-    { href: "/dashboard/stock/settings", label: "Settings", icon: FileText },
+    { href: "/dashboard/stock/settings", label: t("settings"), icon: FileText },
   ];
+
+  const financeItems: NavItem[] = [
+  { href: "/dashboard/finance", label: t("dashboard"), icon: LayoutDashboard },
+  { href: "/dashboard/finance/receivables", label: "Receivables", icon: FileText },
+  { href: "/dashboard/finance/treasury", label: "Treasury", icon: Wallet },
+];
+
   const depotItems: NavItem[] = [
     { href: "/dashboard/depot", label: t("dashboard"), icon: LayoutDashboard },
     { href: "/dashboard/stock/movements", label: t("movements"), icon: FileText },
@@ -165,7 +177,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
           {!collapsed ? (
             <>
               <div className="text-xs text-slate-500 dark:text-slate-400">
-                Logged in as
+                {t("loggedInAs")}
               </div>
               <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
                 {user.name}

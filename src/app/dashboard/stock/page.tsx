@@ -97,11 +97,11 @@ export default function StockDashboardPage() {
     "rounded-3xl border border-slate-200 bg-white shadow-sm transition-colors duration-200 dark:border-slate-800 dark:bg-slate-900";
 
   const tooltipStyle = {
-    backgroundColor: "#0f172a",
-    border: "1px solid rgba(148,163,184,0.15)",
+    backgroundColor: "#ffffff",
+    border: "1px solid rgba(148,163,184,0.3)",
     borderRadius: "14px",
     fontSize: "12px",
-    color: "#e2e8f0",
+    color: "#0f172a",
   };
 
   useEffect(() => {
@@ -136,12 +136,15 @@ export default function StockDashboardPage() {
     [products]
   );
 
-  const totalStockValue = useMemo(() => {
-    return items.reduce((sum, item) => {
-      const price = item.productId?.purchasePrice || 0;
-      return sum + item.quantityOnHand * price;
-    }, 0);
-  }, [items]);
+  const mpProductCount = useMemo(
+    () => products.filter((p) => p.status === "ACTIVE" && p.type === "MATIERE_PREMIERE").length,
+    [products]
+  );
+
+  const pfProductCount = useMemo(
+    () => products.filter((p) => p.status === "ACTIVE" && p.type === "PRODUIT_FINI").length,
+    [products]
+  );
 
   const openAlerts = useMemo(
     () => alerts.filter((a) => a.status === "OPEN"),
@@ -365,15 +368,15 @@ export default function StockDashboardPage() {
                   icon: <Package size={16} />,
                   iconBg: "bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400",
                   label: t("catalogValue"),
-                  value: `${formatMoney(totalStockValue)} TND`,
-                  sub: t("tndEquivalent"),
+                  value: String(mpProductCount),
+                  sub: t("active"),
                 },
                 {
                   icon: <AlertTriangle size={16} />,
                   iconBg: "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400",
-                  label: t("stockAlerts"),
-                  value: String(openAlerts.length),
-                  sub: t("itemsNeedingAttention"),
+                  label: t("pfProductsValue"),
+                  value: String(pfProductCount),
+                  sub: t("active"),
                 },
                 {
                   icon: <ArrowDownToLine size={16} />,

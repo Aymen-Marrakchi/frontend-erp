@@ -38,8 +38,11 @@ interface ThresholdFormState {
   minQuantity: string;
   alertEnabled: boolean;
   isActive: boolean;
-  notifyRolesText: string;
+  notifyRoles: string[];
 }
+
+const NOTIFY_ROLE_OPTIONS = ["ADMIN", "STOCK_MANAGER"];
+const FIXED_NOTIFY_ROLES = ["ADMIN", "STOCK_MANAGER"];
 
 function Modal({
   title,
@@ -97,7 +100,7 @@ export default function StockThresholdsPage() {
     minQuantity: "",
     alertEnabled: true,
     isActive: true,
-    notifyRolesText: "ADMIN,STOCK_MANAGER",
+    notifyRoles: ["ADMIN", "STOCK_MANAGER"],
   };
 
   const [form, setForm] = useState<ThresholdFormState>(emptyForm);
@@ -166,7 +169,7 @@ export default function StockThresholdsPage() {
       minQuantity: String(rule.minQuantity),
       alertEnabled: rule.alertEnabled,
       isActive: rule.isActive,
-      notifyRolesText: rule.notifyRoles.join(","),
+      notifyRoles: FIXED_NOTIFY_ROLES,
     });
     setFormError("");
     setShowEdit(true);
@@ -177,11 +180,7 @@ export default function StockThresholdsPage() {
     setShowDelete(true);
   };
 
-  const parseNotifyRoles = () =>
-    form.notifyRolesText
-      .split(",")
-      .map((r) => r.trim())
-      .filter(Boolean);
+  const parseNotifyRoles = () => FIXED_NOTIFY_ROLES;
 
   const validateForm = () => {
     if (!form.productId || !form.minQuantity) {
@@ -493,18 +492,30 @@ export default function StockThresholdsPage() {
 
               <div>
                 <label className={labelClass}>{t("notifyRoles")}</label>
-                <select
-                  multiple
-                  className={`${inputClass} h-24`}
-                  value={parseNotifyRoles()}
-                  onChange={(e) => {
-                    const values = Array.from(e.target.selectedOptions).map((o) => o.value);
-                    setForm((f) => ({ ...f, notifyRolesText: values.join(",") }));
-                  }}
-                >
-                  <option value="ADMIN">ADMIN</option>
-                  <option value="STOCK_MANAGER">STOCK_MANAGER</option>
-                </select>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {NOTIFY_ROLE_OPTIONS.map((role) => {
+                    const checked = FIXED_NOTIFY_ROLES.includes(role);
+
+                    return (
+                      <label
+                        key={role}
+                        className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm transition ${
+                          checked
+                            ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-300"
+                            : "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="font-medium">{role}</span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -581,18 +592,30 @@ export default function StockThresholdsPage() {
 
               <div>
                 <label className={labelClass}>{t("notifyRoles")}</label>
-                <select
-                  multiple
-                  className={`${inputClass} h-24`}
-                  value={parseNotifyRoles()}
-                  onChange={(e) => {
-                    const values = Array.from(e.target.selectedOptions).map((o) => o.value);
-                    setForm((f) => ({ ...f, notifyRolesText: values.join(",") }));
-                  }}
-                >
-                  <option value="ADMIN">ADMIN</option>
-                  <option value="STOCK_MANAGER">STOCK_MANAGER</option>
-                </select>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {NOTIFY_ROLE_OPTIONS.map((role) => {
+                    const checked = FIXED_NOTIFY_ROLES.includes(role);
+
+                    return (
+                      <label
+                        key={role}
+                        className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm transition ${
+                          checked
+                            ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-300"
+                            : "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="font-medium">{role}</span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

@@ -7,21 +7,27 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
+  ChevronLeft,
+  ChevronRight,
   FileText,
   Loader2,
   Plus,
   Search,
   X,
 } from "lucide-react";
+
+const PAGE_SIZE = 20;
 import { useEffect, useMemo, useState } from "react";
 import { stockMovementService } from "@/services/stock/stockMovementService";
 import { stockProductService } from "@/services/stock/stockProductService";
+import { stockDepotService, type Depot } from "@/services/stock/stockDepotService";
 
 interface Product {
   _id: string;
   sku: string;
   name: string;
   unit: string;
+  type: string;
   isLotTracked: boolean;
 }
 
@@ -34,6 +40,7 @@ interface Movement {
   newOnHand: number;
   previousReserved: number;
   newReserved: number;
+  depotId?: { _id: string; name: string } | null;
   sourceModule?: string;
   sourceType?: string;
   reason?: string;
@@ -91,9 +98,11 @@ export default function StockMovementsPage() {
 
   const [movements, setMovements] = useState<Movement[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [myDepot, setMyDepot] = useState<Depot | null>(null);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("ALL");
-  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [formError, setFormError] = useState("");
@@ -122,25 +131,45 @@ export default function StockMovementsPage() {
     "mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400";
 
   useEffect(() => {
-    fetchAll();
-  }, []);
+    if (user?.id) fetchAll();
+  }, [user?.id]);
 
   const fetchAll = async () => {
     try {
       setLoading(true);
       setError("");
-      const [movementData, productData] = await Promise.all([
+      const fetches: Promise<any>[] = [
         stockMovementService.getAll(),
         stockProductService.getAll(),
-      ]);
+      ];
+      if (user?.role === "DEPOT_MANAGER") {
+        fetches.push(stockDepotService.getAll());
+      }
+      const [movementData, productData, depotData] = await Promise.all(fetches);
       setMovements(movementData);
-      setProducts(productData.filter((p: any) => p.status === "ACTIVE"));
+
+      if (user?.role === "DEPOT_MANAGER" && depotData) {
+        const depot: Depot | undefined = (depotData as Depot[]).find(
+          (d) => (d.managerId as any)?._id === user.id || (d.managerId as any)?._id?.toString() === user.id || (d.managerId as any) === user.id
+        );
+        setMyDepot(depot || null);
+        const allowedTypes = getAllowedProductTypes(depot?.productTypeScope);
+        setProducts(productData.filter((p: any) => p.status === "ACTIVE" && allowedTypes.includes(p.type)));
+      } else {
+        setProducts(productData.filter((p: any) => p.status === "ACTIVE"));
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to load movements");
     } finally {
       setLoading(false);
     }
   };
+
+  function getAllowedProductTypes(scope?: string): string[] {
+    if (scope === "MP") return ["MATIERE_PREMIERE"];
+    if (scope === "PF") return ["PRODUIT_FINI"];
+    return ["PRODUIT_FINI", "SOUS_ENSEMBLE", "COMPOSANT", "MATIERE_PREMIERE"];
+  }
 
   const selectedProduct = useMemo(
     () => products.find((p) => p._id === form.productId),
@@ -169,6 +198,11 @@ export default function StockMovementsPage() {
       deductions: movements.filter((m) => m.type === "DEDUCTION").length,
     };
   }, [movements]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = useMemo(() => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filtered, page]);
+
+  useEffect(() => { setPage(1); }, [search, typeFilter]);
 
   const validateForm = () => {
     if (!form.productId || !form.quantity) {
@@ -247,6 +281,37 @@ export default function StockMovementsPage() {
       minute: "2-digit",
     });
 
+  const getMovementTypeBadgeClass = (type: string) => {
+    if (type === "ENTRY") {
+      return "inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300";
+    }
+
+    if (type === "EXIT" || type === "DEDUCTION") {
+      return "inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300";
+    }
+
+    if (type === "ADJUSTMENT") {
+      return "inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300";
+    }
+
+    return "inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300";
+  };
+
+  const getMovementQuantityClass = (type: string) => {
+    if (type === "ENTRY") return "text-emerald-600 dark:text-emerald-400";
+    if (type === "EXIT" || type === "DEDUCTION") return "text-rose-600 dark:text-rose-400";
+    if (type === "ADJUSTMENT") return "text-amber-600 dark:text-amber-400";
+    return "text-slate-900 dark:text-white";
+  };
+
+  const formatMovementQuantity = (movement: Movement) => {
+    if (movement.type === "ENTRY") return `+${movement.quantity}`;
+    if (movement.type === "EXIT" || movement.type === "DEDUCTION") return `-${movement.quantity}`;
+    return String(movement.quantity);
+  };
+
+  const getSourceLabel = (movement: Movement) => movement.depotId?.name || movement.sourceModule || "—";
+
   return (
     <ProtectedRoute allowedRoles={["ADMIN", "STOCK_MANAGER", "DEPOT_MANAGER"]}>
       <div className="space-y-6">
@@ -262,6 +327,16 @@ export default function StockMovementsPage() {
 
           {(user?.role === "ADMIN" || user?.role === "DEPOT_MANAGER") && (
             <div className="flex items-center gap-3">
+              {user?.role === "DEPOT_MANAGER" && myDepot && (
+                <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
+                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{t("depotLabel")}:</span>
+                  <span className="text-xs font-bold text-slate-800 dark:text-white">{myDepot.name}</span>
+                  <span className="rounded-xl bg-indigo-100 px-2 py-0.5 text-[10px] font-bold uppercase text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
+                    {myDepot.productTypeScope}
+                  </span>
+                </div>
+              )}
+
               <button
                 onClick={() => {
                   setForm(emptyForm);
@@ -291,10 +366,10 @@ export default function StockMovementsPage() {
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           {[
-            { label: "Entries", value: String(totals.entries), icon: <ArrowDownToLine size={16} /> },
-            { label: "Exits", value: String(totals.exits), icon: <ArrowUpFromLine size={16} /> },
-            { label: "Reservations", value: String(totals.reservations), icon: <FileText size={16} /> },
-            { label: "Deductions", value: String(totals.deductions), icon: <FileText size={16} /> },
+            { label: t("entries"), value: String(totals.entries), icon: <ArrowDownToLine size={16} /> },
+            { label: t("exits"), value: String(totals.exits), icon: <ArrowUpFromLine size={16} /> },
+            { label: t("movReservations"), value: String(totals.reservations), icon: <FileText size={16} /> },
+            { label: t("deductions"), value: String(totals.deductions), icon: <FileText size={16} /> },
           ].map((card, i) => (
             <motion.div
               key={i}
@@ -359,7 +434,7 @@ export default function StockMovementsPage() {
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500 dark:text-slate-400">
               <Loader2 size={16} className="animate-spin" />
-              Loading...
+              {t("loading")}
             </div>
           ) : error ? (
             <div className="px-6 py-10 text-sm text-rose-600 dark:text-rose-400">{error}</div>
@@ -376,18 +451,18 @@ export default function StockMovementsPage() {
                     <th className="px-6 py-3 font-medium">{t("product")}</th>
                     <th className="px-6 py-3 font-medium">{t("movementType")}</th>
                     <th className="px-6 py-3 font-medium">{t("reorderQty")}</th>
-                    <th className="px-6 py-3 font-medium">Prev On Hand</th>
-                    <th className="px-6 py-3 font-medium">New On Hand</th>
-                    <th className="px-6 py-3 font-medium">Prev Reserved</th>
-                    <th className="px-6 py-3 font-medium">New Reserved</th>
-                    <th className="px-6 py-3 font-medium">Source</th>
+                    <th className="px-6 py-3 font-medium">{t("prevOnHand")}</th>
+                    <th className="px-6 py-3 font-medium">{t("newOnHand")}</th>
+                    <th className="px-6 py-3 font-medium">{t("prevReserved")}</th>
+                    <th className="px-6 py-3 font-medium">{t("newReserved")}</th>
+                    <th className="px-6 py-3 font-medium">{t("sourceCol")}</th>
                     <th className="px-6 py-3 font-medium">{t("reason")}</th>
-                    <th className="px-6 py-3 font-medium">Done by</th>
+                    <th className="px-6 py-3 font-medium">{t("doneBy")}</th>
                   </tr>
                 </thead>
 
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                  {filtered.map((m, i) => (
+                  {paginated.map((m, i) => (
                     <motion.tr
                       key={m._id}
                       initial={{ opacity: 0 }}
@@ -401,13 +476,20 @@ export default function StockMovementsPage() {
                       <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">
                         {m.productId?.name || "—"}
                       </td>
-                      <td className="px-6 py-4">{m.type}</td>
-                      <td className="px-6 py-4">{m.quantity}</td>
+                      <td className="px-6 py-4">
+                        <span className={getMovementTypeBadgeClass(m.type)}>
+                          {m.type === "ENTRY" ? "+" : m.type === "EXIT" || m.type === "DEDUCTION" ? "-" : ""}
+                          {m.type}
+                        </span>
+                      </td>
+                      <td className={`px-6 py-4 font-semibold ${getMovementQuantityClass(m.type)}`}>
+                        {formatMovementQuantity(m)}
+                      </td>
                       <td className="px-6 py-4">{m.previousOnHand}</td>
                       <td className="px-6 py-4">{m.newOnHand}</td>
                       <td className="px-6 py-4">{m.previousReserved}</td>
                       <td className="px-6 py-4">{m.newReserved}</td>
-                      <td className="px-6 py-4">{m.sourceModule || "—"}</td>
+                      <td className="px-6 py-4">{getSourceLabel(m)}</td>
                       <td className="px-6 py-4 text-slate-500 dark:text-slate-400">
                         {m.reason || "—"}
                       </td>
@@ -431,6 +513,54 @@ export default function StockMovementsPage() {
               </table>
             </div>
           )}
+
+          {!loading && !error && totalPages > 1 && (
+            <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4 dark:border-slate-800">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Page {page} of {totalPages} · {filtered.length} records
+              </p>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                >
+                  <ChevronLeft size={14} />
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                  .reduce<(number | "…")[]>((acc, p, idx, arr) => {
+                    if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("…");
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((p, i) =>
+                    p === "…" ? (
+                      <span key={`e${i}`} className="px-1 text-xs text-slate-400">…</span>
+                    ) : (
+                      <button
+                        key={p}
+                        onClick={() => setPage(p as number)}
+                        className={`inline-flex h-8 w-8 items-center justify-center rounded-xl text-xs font-medium transition ${
+                          page === p
+                            ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950"
+                            : "border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    )
+                  )}
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                >
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -451,7 +581,7 @@ export default function StockMovementsPage() {
                   value={form.productId}
                   onChange={(e) => setForm((f) => ({ ...f, productId: e.target.value }))}
                 >
-                  <option value="">— Select Product —</option>
+                  <option value="">{t("selectProduct")}</option>
                   {products.map((p) => (
                     <option key={p._id} value={p._id}>
                       {p.sku} · {p.name}
@@ -485,7 +615,7 @@ export default function StockMovementsPage() {
                         }))
                       }
                     >
-                      <option value="">— Select Mode —</option>
+                      <option value="">{t("selectMode")}</option>
                       <option value="FIFO">FIFO</option>
                       <option value="LIFO">LIFO</option>
                       <option value="MANUAL">MANUAL</option>
@@ -493,7 +623,7 @@ export default function StockMovementsPage() {
                   </div>
 
                   <div>
-                    <label className={labelClass}>Lot Ref</label>
+                    <label className={labelClass}>{t("lotRef")}</label>
                     <input
                       className={inputClass}
                       value={form.lotRef}
@@ -513,7 +643,7 @@ export default function StockMovementsPage() {
               </div>
 
               <div>
-                <label className={labelClass}>Notes</label>
+                <label className={labelClass}>{t("notes")}</label>
                 <textarea
                   className={`${inputClass} min-h-[90px] resize-none`}
                   value={form.notes}
@@ -535,7 +665,7 @@ export default function StockMovementsPage() {
                   }}
                   className="flex-1 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
                 >
-                  Cancel
+                  {t("cancel")}
                 </button>
 
                 <button
@@ -554,3 +684,4 @@ export default function StockMovementsPage() {
     </ProtectedRoute>
   );
 }
+

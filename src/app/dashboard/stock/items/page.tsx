@@ -5,7 +5,10 @@ import { useLanguage } from "@/context/LanguageContext";
 import { motion } from "framer-motion";
 import { BarChart3, Boxes, Loader2, Package, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { stockItemService } from "@/services/stock/stockItemService";
+
+const PAGE_SIZE = 20;
 
 interface StockProduct {
   _id: string;
@@ -32,6 +35,7 @@ export default function StockItemsPage() {
 
   const [items, setItems] = useState<StockItem[]>([]);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -84,6 +88,11 @@ export default function StockItemsPage() {
   }, [filtered]);
 
   const lowAvailabilityCount = filtered.filter((i) => i.quantityAvailable <= 0).length;
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = useMemo(() => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filtered, page]);
+
+  useEffect(() => { setPage(1); }, [search]);
 
   const formatDateTime = (value?: string | null) => {
     if (!value) return "—";
@@ -221,7 +230,7 @@ export default function StockItemsPage() {
                 </thead>
 
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                  {filtered.map((item, i) => (
+                  {paginated.map((item, i) => (
                     <motion.tr
                       key={item._id}
                       initial={{ opacity: 0 }}
@@ -284,6 +293,54 @@ export default function StockItemsPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {!loading && !error && totalPages > 1 && (
+            <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4 dark:border-slate-800">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Page {page} of {totalPages} · {filtered.length} records
+              </p>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                >
+                  <ChevronLeft size={14} />
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                  .reduce<(number | "…")[]>((acc, p, idx, arr) => {
+                    if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("…");
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((p, i) =>
+                    p === "…" ? (
+                      <span key={`e${i}`} className="px-1 text-xs text-slate-400">…</span>
+                    ) : (
+                      <button
+                        key={p}
+                        onClick={() => setPage(p as number)}
+                        className={`inline-flex h-8 w-8 items-center justify-center rounded-xl text-xs font-medium transition ${
+                          page === p
+                            ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950"
+                            : "border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    )
+                  )}
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                >
+                  <ChevronRight size={14} />
+                </button>
+              </div>
             </div>
           )}
         </div>

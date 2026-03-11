@@ -3,8 +3,10 @@
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useLanguage } from "@/context/LanguageContext";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, Search, TriangleAlert, ShoppingCart, X, Clock, CheckCircle2 } from "lucide-react";
+import { Loader2, Search, TriangleAlert, ShoppingCart, X, Clock, CheckCircle2, ChevronLeft, ChevronRight, Factory } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+
+const PAGE_SIZE = 20;
 import { stockAlertService } from "@/services/stock/stockAlertService";
 import { purchaseRequestService } from "@/services/purchase/purchaseRequestService";
 
@@ -12,6 +14,7 @@ interface Product {
   _id: string;
   sku: string;
   name: string;
+  type: "PRODUIT_FINI" | "SOUS_ENSEMBLE" | "COMPOSANT" | "MATIERE_PREMIERE";
 }
 
 interface StockAlert {
@@ -68,6 +71,7 @@ export default function StockAlertsPage() {
   const [alerts, setAlerts] = useState<StockAlert[]>([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "OPEN" | "ACKNOWLEDGED" | "PENDING" | "CLOSED">("ALL");
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -118,6 +122,11 @@ export default function StockAlertsPage() {
       return matchSearch && matchStatus;
     });
   }, [alerts, search, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = useMemo(() => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filtered, page]);
+
+  useEffect(() => { setPage(1); }, [search, statusFilter]);
 
   const stats = useMemo(
     () => ({
@@ -281,7 +290,7 @@ export default function StockAlertsPage() {
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500 dark:text-slate-400">
               <Loader2 size={16} className="animate-spin" />
-              Loading...
+              {t("loading")}
             </div>
           ) : error ? (
             <div className="px-6 py-10 text-sm text-rose-600 dark:text-rose-400">{error}</div>
@@ -306,7 +315,7 @@ export default function StockAlertsPage() {
                 </thead>
 
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                  {filtered.map((alert, i) => (
+                  {paginated.map((alert, i) => (
                     <motion.tr
                       key={alert._id}
                       initial={{ opacity: 0 }}
@@ -356,28 +365,38 @@ export default function StockAlertsPage() {
 
                       <td className="px-6 py-4">
                         <div className="flex flex-wrap gap-2">
-                          {alert.status === "OPEN" && (
+                          {alert.status === "OPEN" && alert.productId?.type === "MATIERE_PREMIERE" && (
                             <button
                               onClick={() => openPurchaseModal(alert)}
                               disabled={updatingId === alert._id}
                               className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 disabled:opacity-60 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-300 dark:hover:bg-blue-950/40"
                             >
                               <ShoppingCart size={11} />
-                              Request Purchase
+                              {t("requestPurchase")}
+                            </button>
+                          )}
+
+                          {alert.status === "OPEN" && alert.productId?.type !== "MATIERE_PREMIERE" && (
+                            <button
+                              disabled
+                              className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 opacity-60 dark:border-violet-900/40 dark:bg-violet-950/20 dark:text-violet-300"
+                            >
+                              <Factory size={11} />
+                              {t("requestProduction")}
                             </button>
                           )}
 
                           {alert.status === "PENDING" && (
                             <span className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
                               <Clock size={11} />
-                              Pending
+                              {t("pending")}
                             </span>
                           )}
 
                           {alert.status === "CLOSED" && (
                             <span className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">
                               <CheckCircle2 size={11} />
-                              Closed
+                              {t("closed")}
                             </span>
                           )}
 
@@ -390,7 +409,7 @@ export default function StockAlertsPage() {
                               {updatingId === alert._id ? (
                                 <Loader2 size={11} className="animate-spin" />
                               ) : (
-                                "Reopen"
+                                t("reopen")
                               )}
                             </button>
                           )}
@@ -402,20 +421,68 @@ export default function StockAlertsPage() {
               </table>
             </div>
           )}
+
+          {!loading && !error && totalPages > 1 && (
+            <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4 dark:border-slate-800">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Page {page} of {totalPages} · {filtered.length} records
+              </p>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                >
+                  <ChevronLeft size={14} />
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                  .reduce<(number | "…")[]>((acc, p, idx, arr) => {
+                    if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("…");
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((p, i) =>
+                    p === "…" ? (
+                      <span key={`e${i}`} className="px-1 text-xs text-slate-400">…</span>
+                    ) : (
+                      <button
+                        key={p}
+                        onClick={() => setPage(p as number)}
+                        className={`inline-flex h-8 w-8 items-center justify-center rounded-xl text-xs font-medium transition ${
+                          page === p
+                            ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950"
+                            : "border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    )
+                  )}
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                >
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       <AnimatePresence>
         {purchaseAlert && (
-          <Modal title="Create Purchase Request" onClose={() => setPurchaseAlert(null)}>
+          <Modal title={t("createPurchaseRequest")} onClose={() => setPurchaseAlert(null)}>
             <div className="space-y-4">
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/40">
-                <p className="text-[11px] uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">Product</p>
+                <p className="text-[11px] uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">{t("product")}</p>
                 <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
                   {purchaseAlert.productId?.name}
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  SKU: {purchaseAlert.productId?.sku} · Current stock: {purchaseAlert.currentQuantity}
+                  SKU: {purchaseAlert.productId?.sku} · {t("currentStock")}: {purchaseAlert.currentQuantity}
                 </p>
               </div>
 
@@ -427,7 +494,7 @@ export default function StockAlertsPage() {
               )}
 
               <div>
-                <label className={labelClass}>Quantity to Request</label>
+                <label className={labelClass}>{t("quantityToRequest")}</label>
                 <input
                   className={inputClass}
                   type="number"
@@ -439,20 +506,20 @@ export default function StockAlertsPage() {
               </div>
 
               <div>
-                <label className={labelClass}>Priority</label>
+                <label className={labelClass}>{t("priority")}</label>
                 <select
                   className={inputClass}
                   value={prPriority}
                   onChange={(e) => setPrPriority(e.target.value as typeof prPriority)}
                 >
-                  <option value="LOW">Low</option>
-                  <option value="NORMAL">Normal</option>
-                  <option value="URGENT">Urgent</option>
+                  <option value="LOW">{t("low")}</option>
+                  <option value="NORMAL">{t("normal")}</option>
+                  <option value="URGENT">{t("urgent")}</option>
                 </select>
               </div>
 
               <div>
-                <label className={labelClass}>Notes (optional)</label>
+                <label className={labelClass}>{t("notesOptional")}</label>
                 <textarea
                   className={`${inputClass} resize-none`}
                   rows={2}
@@ -473,14 +540,14 @@ export default function StockAlertsPage() {
                   ) : (
                     <ShoppingCart size={14} />
                   )}
-                  Send Purchase Request
+                  {t("sendPurchaseRequest")}
                 </button>
                 <button
                   onClick={() => setPurchaseAlert(null)}
                   disabled={prSubmitting}
                   className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                 >
-                  Cancel
+                  {t("cancel")}
                 </button>
               </div>
             </div>

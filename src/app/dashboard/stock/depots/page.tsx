@@ -166,7 +166,7 @@ export default function StockDepotsPage() {
 
   const scopeLabel: Record<string, string> = { MP: "Matière Première", PF: "Produit Fini", MP_PF: "MP + PF" };
 
-  const DepotFormFields = () => (
+  const depotFormFields = (
     <div className="space-y-4">
       {formError && (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-400">
@@ -350,7 +350,7 @@ export default function StockDepotsPage() {
       <AnimatePresence>
         {showCreate && (
           <Modal title={t("newDepot")} onClose={() => setShowCreate(false)}>
-            <DepotFormFields />
+            {depotFormFields}
             <div className="mt-6 flex justify-end gap-3">
               <button onClick={() => setShowCreate(false)} className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800">{t("cancel")}</button>
               <button onClick={handleCreate} disabled={saving} className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60 dark:bg-white dark:text-slate-950">
@@ -361,7 +361,7 @@ export default function StockDepotsPage() {
         )}
         {editDepot && (
           <Modal title={t("editDepotTitle")} onClose={() => setEditDepot(null)}>
-            <DepotFormFields />
+            {depotFormFields}
             <div className="mt-6 flex justify-end gap-3">
               <button onClick={() => setEditDepot(null)} className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800">{t("cancel")}</button>
               <button onClick={handleEdit} disabled={saving} className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60 dark:bg-white dark:text-slate-950">
