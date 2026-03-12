@@ -9,6 +9,7 @@ import {
 } from "@/services/commercial/deliveryPlanService";
 import { SalesOrder } from "@/services/commercial/salesOrderService";
 import { carrierService, Carrier } from "@/services/commercial/carrierService";
+import { vehicleService, Vehicle } from "@/services/commercial/vehicleService";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
@@ -23,7 +24,6 @@ import {
   ChevronDown,
   Package,
   MapPin,
-  User,
 } from "lucide-react";
 
 const surface =
@@ -44,14 +44,23 @@ function statusBadge(status: string) {
 }
 
 const emptyForm: CreateDeliveryPlanPayload = {
-  planNo: "",
   planDate: "",
   carrierId: "",
+  vehicleId: "",
   zone: "",
-  driver: "",
+  startDate: "",
   orderIds: [],
   notes: "",
 };
+
+function planNoPreview(planDate: string) {
+  if (!planDate) return "Auto: PLAN-1-03/2026, PLAN-2-03/2026...";
+  const date = new Date(planDate);
+  if (Number.isNaN(date.getTime())) return "Auto";
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const year = String(date.getUTCFullYear());
+  return `Auto: PLAN-1-${month}/${year}, PLAN-2-${month}/${year}...`;
+}
 
 export default function PlanningPage() {
   const { t } = useLanguage();
@@ -59,6 +68,7 @@ export default function PlanningPage() {
   const [plans, setPlans] = useState<DeliveryPlan[]>([]);
   const [unassigned, setUnassigned] = useState<SalesOrder[]>([]);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionId, setActionId] = useState<string | null>(null);
@@ -71,14 +81,16 @@ export default function PlanningPage() {
     try {
       setLoading(true);
       setError("");
-      const [plansData, unassignedData, carriersData] = await Promise.all([
+      const [plansData, unassignedData, carriersData, vehiclesData] = await Promise.all([
         deliveryPlanService.getAll(),
         deliveryPlanService.getUnassigned(),
         carrierService.getActive(),
+        vehicleService.getActive(),
       ]);
       setPlans(plansData);
       setUnassigned(unassignedData);
       setCarriers(carriersData);
+      setVehicles(vehiclesData);
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to load planning data");
     } finally {
@@ -111,8 +123,8 @@ export default function PlanningPage() {
   };
 
   const handleCreate = async () => {
-    if (!form.planNo.trim() || !form.planDate) {
-      setError("Plan number and date are required");
+    if (!form.planDate) {
+      setError("Plan date is required");
       return;
     }
     try {
@@ -121,6 +133,7 @@ export default function PlanningPage() {
       await deliveryPlanService.create({
         ...form,
         carrierId: form.carrierId || undefined,
+        vehicleId: form.vehicleId || undefined,
       });
       setShowForm(false);
       setForm(emptyForm);
@@ -311,13 +324,12 @@ export default function PlanningPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                      {t("planNo") || "Plan No."} *
+                      {t("planNo") || "Plan No."}
                     </label>
                     <input
-                      value={form.planNo}
-                      onChange={(e) => setForm((f) => ({ ...f, planNo: e.target.value.toUpperCase() }))}
-                      placeholder="EX: PLAN-2026-001"
-                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                      value={planNoPreview(form.planDate)}
+                      disabled
+                      className="w-full cursor-not-allowed rounded-2xl border border-slate-200 bg-slate-100 px-4 py-2.5 text-sm text-slate-500 outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400"
                     />
                   </div>
                   <div>
@@ -328,6 +340,17 @@ export default function PlanningPage() {
                       type="date"
                       value={form.planDate}
                       onChange={(e) => setForm((f) => ({ ...f, planDate: e.target.value }))}
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                      {t("startDate") || "Start Date"}
+                    </label>
+                    <input
+                      type="date"
+                      value={form.startDate || ""}
+                      onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))}
                       className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
                     />
                   </div>
@@ -350,23 +373,29 @@ export default function PlanningPage() {
                   </div>
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                      {t("fleetTitle") || "Vehicle"}
+                    </label>
+                    <select
+                      value={form.vehicleId || ""}
+                      onChange={(e) => setForm((f) => ({ ...f, vehicleId: e.target.value }))}
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                    >
+                      <option value="">— {t("fleetTitle") || "Vehicle"} —</option>
+                      {vehicles.map((v) => (
+                        <option key={v._id} value={v._id}>
+                          {v.matricule} ({v.capacityKg} kg / {v.capacityPackets} colis)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
                       {t("zone") || "Zone / Region"}
                     </label>
                     <input
                       value={form.zone || ""}
                       onChange={(e) => setForm((f) => ({ ...f, zone: e.target.value }))}
                       placeholder="Ex: Grand Tunis, Sfax..."
-                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                      {t("driver") || "Driver"}
-                    </label>
-                    <input
-                      value={form.driver || ""}
-                      onChange={(e) => setForm((f) => ({ ...f, driver: e.target.value }))}
-                      placeholder="Driver name"
                       className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
                     />
                   </div>
@@ -499,14 +528,15 @@ export default function PlanningPage() {
                             <CalendarDays size={10} />
                             {new Date(plan.planDate).toLocaleDateString("fr-TN")}
                           </span>
+                          {plan.startDate && (
+                            <span className="flex items-center gap-1">
+                              <CalendarDays size={10} />
+                              Start: {new Date(plan.startDate).toLocaleDateString("fr-TN")}
+                            </span>
+                          )}
                           {plan.zone && (
                             <span className="flex items-center gap-1">
                               <MapPin size={10} /> {plan.zone}
-                            </span>
-                          )}
-                          {plan.driver && (
-                            <span className="flex items-center gap-1">
-                              <User size={10} /> {plan.driver}
                             </span>
                           )}
                           {plan.carrierId && (

@@ -4,6 +4,7 @@ export interface SalesOrderLine {
   productId: { _id: string; name: string; sku: string } | null;
   quantity: number;
   unitPrice: number;
+  discount?: number;
 }
 
 export interface ShipApproval {
@@ -40,11 +41,13 @@ export interface SalesOrderLinePayload {
   productId: string;
   quantity: number;
   unitPrice?: number;
+  discount?: number;
 }
 
 export interface CreateSalesOrderPayload {
   orderNo: string;
-  customerName: string;
+  customerId?: string;
+  customerName?: string;
   notes?: string;
   promisedDate?: string;
   lines: SalesOrderLinePayload[];

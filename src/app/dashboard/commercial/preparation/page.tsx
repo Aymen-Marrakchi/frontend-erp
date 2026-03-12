@@ -30,6 +30,12 @@ function statusBadge(status: string) {
   return map[status] ?? "bg-slate-100 text-slate-600";
 }
 
+function lineAmount(line: { quantity: number; unitPrice: number; discount?: number }) {
+  const subtotal = line.quantity * line.unitPrice;
+  const discountPct = Math.min(100, Math.max(0, line.discount || 0));
+  return subtotal * (1 - discountPct / 100);
+}
+
 export default function CommercialPreparationPage() {
   const { t } = useLanguage();
 
@@ -107,7 +113,7 @@ export default function CommercialPreparationPage() {
   );
 
   const orderTotal = (order: SalesOrder) =>
-    order.lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
+    order.lines.reduce((sum, l) => sum + lineAmount(l), 0);
 
   const printPickingSlip = (order: SalesOrder) => {
     const rows = order.lines
@@ -212,7 +218,7 @@ export default function CommercialPreparationPage() {
   };
 
   return (
-    <ProtectedRoute allowedRoles={["ADMIN", "COMMERCIAL_MANAGER"]}>
+    <ProtectedRoute allowedRoles={["ADMIN", "COMMERCIAL_MANAGER", "WAREHOUSE_OPERATOR"]}>
       <div className="space-y-6">
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
           <div>
@@ -414,7 +420,7 @@ export default function CommercialPreparationPage() {
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="border-b border-slate-200 dark:border-slate-800">
-                              {["Product", t("quantity"), t("unitPrice"), t("amount")].map((h) => (
+                              {["Product", t("quantity"), t("unitPrice"), "Remise", t("amount")].map((h) => (
                                 <th
                                   key={h}
                                   className="pb-2 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400"
@@ -444,8 +450,11 @@ export default function CommercialPreparationPage() {
                                   })}{" "}
                                   TND
                                 </td>
+                                <td className="py-2.5 text-slate-600 dark:text-slate-300">
+                                  {line.discount || 0}%
+                                </td>
                                 <td className="py-2.5 font-medium text-slate-900 dark:text-white">
-                                  {(line.quantity * line.unitPrice).toLocaleString("fr-TN", {
+                                  {lineAmount(line).toLocaleString("fr-TN", {
                                     minimumFractionDigits: 2,
                                   })}{" "}
                                   TND
@@ -456,7 +465,7 @@ export default function CommercialPreparationPage() {
                           <tfoot>
                             <tr className="border-t border-slate-200 dark:border-slate-800">
                               <td
-                                colSpan={3}
+                                colSpan={4}
                                 className="pt-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500"
                               >
                                 {t("totalTnd")}

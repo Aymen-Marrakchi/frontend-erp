@@ -1,6 +1,7 @@
 import api from "../api";
 import { SalesOrder } from "./salesOrderService";
 import { Carrier } from "./carrierService";
+import { Vehicle } from "./vehicleService";
 
 export type DeliveryPlanStatus = "PLANNED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
 
@@ -9,8 +10,9 @@ export interface DeliveryPlan {
   planNo: string;
   planDate: string;
   carrierId?: Carrier | null;
+  vehicleId?: Pick<Vehicle, "_id" | "matricule" | "capacityKg" | "capacityPackets"> | null;
   zone?: string;
-  driver?: string;
+  startDate?: string | null;
   orderIds: SalesOrder[];
   status: DeliveryPlanStatus;
   notes?: string;
@@ -21,11 +23,12 @@ export interface DeliveryPlan {
 }
 
 export interface CreateDeliveryPlanPayload {
-  planNo: string;
+  planNo?: string;
   planDate: string;
   carrierId?: string;
+  vehicleId?: string;
   zone?: string;
-  driver?: string;
+  startDate?: string;
   orderIds?: string[];
   notes?: string;
 }

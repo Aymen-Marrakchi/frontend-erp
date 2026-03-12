@@ -28,18 +28,22 @@ import {
   Send,
 } from "lucide-react";
 import { backorderService } from "@/services/commercial/backorderService";
+import { customerService, type Customer } from "@/services/commercial/customerService";
 
 interface Product {
   _id: string;
   sku: string;
   name: string;
+  type: string;
   status: "ACTIVE" | "INACTIVE";
+  salePrice?: number;
 }
 
 interface OrderLine {
   productId: string;
   quantity: string;
   unitPrice: string;
+  discount: string;
 }
 
 interface ShipApproval {
@@ -65,6 +69,7 @@ interface Order {
     productId: Product;
     quantity: number;
     unitPrice: number;
+    discount?: number;
   }[];
 }
 
@@ -100,6 +105,12 @@ function StatusIcon({ status }: { status: string }) {
 
 const ACTIVE_STATUSES = ["DRAFT", "CONFIRMED", "PREPARED", "SHIPPED"];
 
+function lineAmount(line: { quantity: number; unitPrice: number; discount?: number }) {
+  const subtotal = line.quantity * line.unitPrice;
+  const discountPct = Math.min(100, Math.max(0, line.discount || 0));
+  return subtotal * (1 - discountPct / 100);
+}
+
 function isLate(order: Order): boolean {
   if (!order.promisedDate) return false;
   if (!ACTIVE_STATUSES.includes(order.status)) return false;
@@ -113,6 +124,7 @@ export default function CommercialOrdersPage() {
   const isManager = user?.role === "ADMIN" || user?.role === "COMMERCIAL_MANAGER";
 
   const [products, setProducts] = useState<Product[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [backorderedIds, setBackorderedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -125,9 +137,9 @@ export default function CommercialOrdersPage() {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
 
-  const [form, setForm] = useState({ orderNo: "", customerName: "", notes: "" });
+  const [form, setForm] = useState({ orderNoSuffix: "", customerId: "", notes: "" });
   const [lines, setLines] = useState<OrderLine[]>([
-    { productId: "", quantity: "", unitPrice: "" },
+    { productId: "", quantity: "", unitPrice: "", discount: "" },
   ]);
   const [showForm, setShowForm] = useState(false);
 
@@ -139,13 +151,15 @@ export default function CommercialOrdersPage() {
     try {
       setLoading(true);
       setError("");
-      const [productData, orderData, backorderData] = await Promise.all([
+      const [productData, orderData, backorderData, customerData] = await Promise.all([
         stockProductService.getAll(),
         salesOrderService.getAll(),
         backorderService.getAll(),
+        customerService.getActive(),
       ]);
-      setProducts(productData.filter((p: Product) => p.status === "ACTIVE"));
+      setProducts(productData.filter((p: Product) => p.status === "ACTIVE" && p.type === "PRODUIT_FINI"));
       setOrders(orderData);
+      setCustomers(customerData);
       setBackorderedIds(
         new Set(
           backorderData
@@ -169,12 +183,16 @@ export default function CommercialOrdersPage() {
   };
 
   const addLine = () => {
-    setLines((prev) => [...prev, { productId: "", quantity: "", unitPrice: "" }]);
+    setLines((prev) => [...prev, { productId: "", quantity: "", unitPrice: "", discount: "" }]);
   };
 
   const handleCreate = async () => {
-    if (!form.orderNo || !form.customerName) {
-      setError("Order number and customer name are required");
+    if (!form.orderNoSuffix.trim()) {
+      setError("Order number is required");
+      return;
+    }
+    if (!form.customerId) {
+      setError("Please select a customer");
       return;
     }
     const validLines = lines.filter((l) => l.productId && Number(l.quantity) > 0);
@@ -186,17 +204,18 @@ export default function CommercialOrdersPage() {
       setSubmitting(true);
       setError("");
       await salesOrderService.create({
-        orderNo: form.orderNo,
-        customerName: form.customerName,
+        orderNo: `ORD-${form.orderNoSuffix.trim()}`,
+        customerId: form.customerId,
         notes: form.notes,
         lines: validLines.map((l) => ({
           productId: l.productId,
           quantity: Number(l.quantity),
           unitPrice: Number(l.unitPrice) || 0,
+          discount: Number(l.discount) || 0,
         })),
       });
-      setForm({ orderNo: "", customerName: "", notes: "" });
-      setLines([{ productId: "", quantity: "", unitPrice: "" }]);
+      setForm({ orderNoSuffix: "", customerId: "", notes: "" });
+      setLines([{ productId: "", quantity: "", unitPrice: "", discount: "" }]);
       setShowForm(false);
       await fetchAll();
     } catch (err: any) {
@@ -249,7 +268,7 @@ export default function CommercialOrdersPage() {
   };
 
   const orderTotal = (order: Order) =>
-    order.lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
+    order.lines.reduce((sum, l) => sum + lineAmount(l), 0);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -345,21 +364,32 @@ export default function CommercialOrdersPage() {
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <label className={labelClass}>{t("orderNumber")}</label>
-                <input
-                  className={inputClass}
-                  placeholder="ORD-001"
-                  value={form.orderNo}
-                  onChange={(e) => setForm((f) => ({ ...f, orderNo: e.target.value }))}
-                />
+                <div className="flex items-center gap-0">
+                  <span className="flex h-[42px] items-center rounded-l-2xl border border-r-0 border-slate-200 bg-slate-100 px-3 text-sm font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-800 dark:text-slate-400">
+                    ORD-
+                  </span>
+                  <input
+                    className="flex-1 rounded-l-none rounded-r-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 dark:border-slate-800 dark:bg-slate-950 dark:text-white dark:focus:border-slate-600"
+                    placeholder="001"
+                    value={form.orderNoSuffix}
+                    onChange={(e) => setForm((f) => ({ ...f, orderNoSuffix: e.target.value }))}
+                  />
+                </div>
               </div>
               <div>
                 <label className={labelClass}>{t("customerName")}</label>
-                <input
+                <select
                   className={inputClass}
-                  placeholder={t("customerName")}
-                  value={form.customerName}
-                  onChange={(e) => setForm((f) => ({ ...f, customerName: e.target.value }))}
-                />
+                  value={form.customerId}
+                  onChange={(e) => setForm((f) => ({ ...f, customerId: e.target.value }))}
+                >
+                  <option value="">{t("selectCustomer") || "Select customer…"}</option>
+                  {customers.map((c) => (
+                    <option key={c._id} value={c._id}>
+                      {c.name}{c.company ? ` — ${c.company}` : ""}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
@@ -379,18 +409,33 @@ export default function CommercialOrdersPage() {
               <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
                 {t("orderLines")}
               </p>
+              <div className="mb-1 hidden grid-cols-[1fr_100px_120px_100px_36px] gap-3 md:grid">
+                {["Product", t("quantity") || "Qty", t("unitPrice") || "Unit Price", "Remise", ""].map((h, i) => (
+                  <span key={i} className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">{h}</span>
+                ))}
+              </div>
               <div className="space-y-3">
                 {lines.map((line, index) => (
-                  <div key={index} className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_120px_140px_36px]">
+                  <div key={index} className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_100px_120px_100px_36px]">
                     <select
                       className={inputClass}
                       value={line.productId}
-                      onChange={(e) => updateLine(index, "productId", e.target.value)}
+                      onChange={(e) => {
+                        const pid = e.target.value;
+                        const product = products.find((p) => p._id === pid);
+                        setLines((prev) =>
+                          prev.map((l, i) =>
+                            i === index
+                              ? { ...l, productId: pid, unitPrice: product?.salePrice ? String(product.salePrice) : l.unitPrice }
+                              : l
+                          )
+                        );
+                      }}
                     >
                       <option value="">{t("selectProduct")}</option>
                       {products.map((p) => (
                         <option key={p._id} value={p._id}>
-                          {p.sku} · {p.name}
+                          {p.sku} · {p.name}{p.salePrice ? ` — ${p.salePrice} DA` : ""}
                         </option>
                       ))}
                     </select>
@@ -403,13 +448,26 @@ export default function CommercialOrdersPage() {
                       onChange={(e) => updateLine(index, "quantity", e.target.value)}
                     />
                     <input
-                      className={inputClass}
+                      className={`${inputClass} cursor-not-allowed opacity-70`}
                       type="number"
                       min="0"
-                      placeholder={t("unitPrice")}
+                      placeholder="—"
                       value={line.unitPrice}
-                      onChange={(e) => updateLine(index, "unitPrice", e.target.value)}
+                      readOnly
+                      tabIndex={-1}
                     />
+                    <div className="relative">
+                      <input
+                        className={inputClass}
+                        type="number"
+                        min="0"
+                        max="100"
+                        placeholder="0"
+                        value={line.discount}
+                        onChange={(e) => updateLine(index, "discount", e.target.value)}
+                      />
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-400">%</span>
+                    </div>
                     <button
                       onClick={() => removeLine(index)}
                       disabled={lines.length === 1}
@@ -760,7 +818,7 @@ export default function CommercialOrdersPage() {
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="border-b border-slate-200 dark:border-slate-800">
-                              {[t("product"), t("quantity"), t("unitPrice"), t("amount")].map((h) => (
+                              {[t("product"), t("quantity"), t("unitPrice"), "Remise", t("amount")].map((h) => (
                                 <th
                                   key={h}
                                   className="pb-2 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400"
@@ -787,8 +845,11 @@ export default function CommercialOrdersPage() {
                                 <td className="py-2.5 text-slate-600 dark:text-slate-300">
                                   {line.unitPrice.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
                                 </td>
+                                <td className="py-2.5 text-slate-600 dark:text-slate-300">
+                                  {line.discount || 0}%
+                                </td>
                                 <td className="py-2.5 font-medium text-slate-900 dark:text-white">
-                                  {(line.quantity * line.unitPrice).toLocaleString("fr-TN", {
+                                  {lineAmount(line).toLocaleString("fr-TN", {
                                     minimumFractionDigits: 2,
                                   })}{" "}
                                   TND
@@ -798,7 +859,7 @@ export default function CommercialOrdersPage() {
                           </tbody>
                           <tfoot>
                             <tr className="border-t border-slate-200 dark:border-slate-800">
-                              <td colSpan={3} className="pt-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                              <td colSpan={4} className="pt-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
                                 {t("totalTnd")}
                               </td>
                               <td className="pt-3 font-bold text-slate-900 dark:text-white">

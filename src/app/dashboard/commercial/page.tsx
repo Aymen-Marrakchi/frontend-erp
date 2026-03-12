@@ -131,6 +131,12 @@ export default function CommercialDashboardPage() {
 
   const quickLinks = [
     {
+      label: t("customersTitle") || "Customers",
+      desc: t("customersSub") || "Manage your customer database",
+      href: "/dashboard/commercial/customers",
+      icon: <Users size={18} className="text-sky-500" />,
+    },
+    {
       label: t("commercialOrdersTitle"),
       desc: t("commercialOrdersSubtitle"),
       href: "/dashboard/commercial/orders",

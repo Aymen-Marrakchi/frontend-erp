@@ -29,6 +29,12 @@ const badgeClass = (status: SalesOrder["status"]) => {
   }
 };
 
+function lineAmount(line: { quantity: number; unitPrice: number; discount?: number }) {
+  const subtotal = line.quantity * (line.unitPrice || 0);
+  const discountPct = Math.min(100, Math.max(0, line.discount || 0));
+  return subtotal * (1 - discountPct / 100);
+}
+
 export default function CommercialOrderDetailsPage() {
   const params = useParams<{ id: string }>();
   const [order, setOrder] = useState<SalesOrder | null>(null);
@@ -54,10 +60,7 @@ export default function CommercialOrderDetailsPage() {
 
   const total = useMemo(() => {
     if (!order) return 0;
-    return order.lines.reduce(
-      (sum, line) => sum + line.quantity * (line.unitPrice || 0),
-      0
-    );
+    return order.lines.reduce((sum, line) => sum + lineAmount(line), 0);
   }, [order]);
 
   return (
@@ -178,6 +181,7 @@ export default function CommercialOrderDetailsPage() {
                       <th className="px-6 py-3 font-medium">SKU</th>
                       <th className="px-6 py-3 font-medium">Quantity</th>
                       <th className="px-6 py-3 font-medium">Unit Price</th>
+                      <th className="px-6 py-3 font-medium">Remise</th>
                       <th className="px-6 py-3 font-medium">Amount</th>
                     </tr>
                   </thead>
@@ -200,8 +204,11 @@ export default function CommercialOrderDetailsPage() {
                           })}{" "}
                           TND
                         </td>
+                        <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
+                          {line.discount || 0}%
+                        </td>
                         <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">
-                          {(line.quantity * line.unitPrice).toLocaleString("fr-TN", {
+                          {lineAmount(line).toLocaleString("fr-TN", {
                             minimumFractionDigits: 2,
                           })}{" "}
                           TND
@@ -213,7 +220,7 @@ export default function CommercialOrderDetailsPage() {
                   <tfoot>
                     <tr className="border-t border-slate-200 dark:border-slate-800">
                       <td
-                        colSpan={4}
+                        colSpan={5}
                         className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400"
                       >
                         Total

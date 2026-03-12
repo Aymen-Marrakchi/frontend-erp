@@ -5,6 +5,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import Link from "next/link";
 import { salesOrderService, SalesOrder } from "@/services/commercial/salesOrderService";
 import { carrierService, Carrier } from "@/services/commercial/carrierService";
+import { vehicleService, Vehicle } from "@/services/commercial/vehicleService";
 import { useEffect, useMemo, useState } from "react";
 import {
   Truck,
@@ -30,17 +31,24 @@ function statusBadge(status: string) {
   return map[status] ?? "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300";
 }
 
+function lineAmount(line: { quantity: number; unitPrice: number; discount?: number }) {
+  const subtotal = line.quantity * line.unitPrice;
+  const discountPct = Math.min(100, Math.max(0, line.discount || 0));
+  return subtotal * (1 - discountPct / 100);
+}
+
 export default function CommercialShipmentsPage() {
   const { t } = useLanguage();
 
   const [orders, setOrders] = useState<SalesOrder[]>([]);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [trackingInputs, setTrackingInputs] = useState<Record<string, string>>({});
+  const [vehicleInputs, setVehicleInputs] = useState<Record<string, string>>({});
   const [carrierInputs, setCarrierInputs] = useState<Record<string, string>>({});
   const [costInputs, setCostInputs] = useState<Record<string, string>>({});
 
@@ -60,6 +68,7 @@ export default function CommercialShipmentsPage() {
   useEffect(() => {
     fetchOrders();
     carrierService.getActive().then(setCarriers).catch(() => {});
+    vehicleService.getActive().then(setVehicles).catch(() => {});
   }, []);
 
   const preparedOrders = useMemo(
@@ -94,8 +103,9 @@ export default function CommercialShipmentsPage() {
     try {
       setActionId(order._id);
       setError("");
+      const selectedVehicle = vehicles.find((vehicle) => vehicle._id === vehicleInputs[order._id]);
       await salesOrderService.ship(order._id, {
-        trackingNumber: trackingInputs[order._id] || "",
+        trackingNumber: selectedVehicle?.matricule || "",
         carrierId: carrierInputs[order._id] || undefined,
         shippingCost: parseFloat(costInputs[order._id] || "0") || 0,
       });
@@ -121,10 +131,10 @@ export default function CommercialShipmentsPage() {
   };
 
   const orderTotal = (order: SalesOrder) =>
-    order.lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
+    order.lines.reduce((sum, l) => sum + lineAmount(l), 0);
 
   return (
-    <ProtectedRoute allowedRoles={["ADMIN", "COMMERCIAL_MANAGER"]}>
+    <ProtectedRoute allowedRoles={["ADMIN", "COMMERCIAL_MANAGER", "WAREHOUSE_OPERATOR"]}>
       <div className="space-y-6">
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
           <div>
@@ -298,18 +308,24 @@ export default function CommercialShipmentsPage() {
                           />
                         </div>
 
-                        {/* Tracking number */}
-                        <input
-                          value={trackingInputs[order._id] || ""}
+                        {/* Vehicle selector */}
+                        <select
+                          value={vehicleInputs[order._id] || ""}
                           onChange={(e) =>
-                            setTrackingInputs((prev) => ({
+                            setVehicleInputs((prev) => ({
                               ...prev,
                               [order._id]: e.target.value,
                             }))
                           }
-                          placeholder="Tracking number"
                           className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
-                        />
+                        >
+                          <option value="">- Car -</option>
+                          {vehicles.map((vehicle) => (
+                            <option key={vehicle._id} value={vehicle._id}>
+                              {vehicle.matricule}
+                            </option>
+                          ))}
+                        </select>
                       </div>
 
                       <div className="text-right">
@@ -335,7 +351,7 @@ export default function CommercialShipmentsPage() {
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="border-b border-slate-200 dark:border-slate-800">
-                              {["Product", t("quantity"), t("unitPrice"), t("amount")].map((h) => (
+                              {["Product", t("quantity"), t("unitPrice"), "Remise", t("amount")].map((h) => (
                                 <th
                                   key={h}
                                   className="pb-2 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400"
@@ -365,8 +381,11 @@ export default function CommercialShipmentsPage() {
                                   })}{" "}
                                   TND
                                 </td>
+                                <td className="py-2.5 text-slate-600 dark:text-slate-300">
+                                  {line.discount || 0}%
+                                </td>
                                 <td className="py-2.5 font-medium text-slate-900 dark:text-white">
-                                  {(line.quantity * line.unitPrice).toLocaleString("fr-TN", {
+                                  {lineAmount(line).toLocaleString("fr-TN", {
                                     minimumFractionDigits: 2,
                                   })}{" "}
                                   TND
@@ -432,7 +451,7 @@ export default function CommercialShipmentsPage() {
                             Shipped: {new Date(order.shippedAt).toLocaleDateString("fr-TN")}
                           </span>
                         )}
-                        {order.trackingNumber && <span>Tracking: {order.trackingNumber}</span>}
+                        {order.trackingNumber && <span>Car: {order.trackingNumber}</span>}
                         {order.carrierId && (
                           <span className="flex items-center gap-1">
                             <Truck size={10} />

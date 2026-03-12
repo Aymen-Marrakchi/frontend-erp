@@ -52,7 +52,7 @@ const AVATAR_COLORS = [
   "bg-pink-50 text-pink-700 dark:bg-pink-950/30 dark:text-pink-300",
 ];
 
-const POSITIONS = ["Employee", "Commercial Manager"];
+const POSITIONS = ["Employee", "Commercial Manager", "Warehouse Operator"];
 
 function Modal({
   title,
