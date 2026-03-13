@@ -13,7 +13,7 @@ import {
   CheckCircle,
   XCircle,
   AlertTriangle,
-  ShoppingCart,
+  DollarSign,
   Package,
 } from "lucide-react";
 
@@ -84,9 +84,20 @@ export default function CommercialReportsPage() {
     const delivered = filtered.filter((o) => o.status === "DELIVERED");
     const cancelled = filtered.filter((o) => o.status === "CANCELLED");
     const nonCancelled = filtered.filter((o) => o.status !== "CANCELLED");
+    const logisticsOrders = filtered.filter(
+      (o) =>
+        ["SHIPPED", "DELIVERED", "CLOSED"].includes(o.status) &&
+        typeof o.shippingCost === "number"
+    );
 
     const revenue = nonCancelled.reduce((s, o) => s + orderRevenue(o), 0);
     const avgOrderValue = nonCancelled.length > 0 ? revenue / nonCancelled.length : 0;
+    const totalShippingCost = logisticsOrders.reduce(
+      (sum, order) => sum + (order.shippingCost || 0),
+      0
+    );
+    const avgShippingCost =
+      logisticsOrders.length > 0 ? totalShippingCost / logisticsOrders.length : 0;
 
     // On-time delivery rate
     const deliveredWithPromise = delivered.filter((o) => o.promisedDate && o.deliveredAt);
@@ -121,6 +132,8 @@ export default function CommercialReportsPage() {
       total,
       revenue,
       avgOrderValue,
+      totalShippingCost,
+      avgShippingCost,
       onTimeRate,
       avgDeliveryDays,
       cancelRate,
@@ -162,6 +175,7 @@ export default function CommercialReportsPage() {
     PREPARED: "bg-violet-500",
     SHIPPED: "bg-emerald-500",
     DELIVERED: "bg-teal-500",
+    CLOSED: "bg-slate-500",
     CANCELLED: "bg-rose-500",
   };
 
@@ -171,6 +185,7 @@ export default function CommercialReportsPage() {
     PREPARED: t("prepared") || "Prepared",
     SHIPPED: t("shipped"),
     DELIVERED: t("delivered") || "Delivered",
+    CLOSED: "Clôturée",
     CANCELLED: t("cancelled"),
   };
 
@@ -310,7 +325,7 @@ export default function CommercialReportsPage() {
             </div>
 
             {/* ── Secondary KPIs ── */}
-            <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
               <div className={`${surface} px-6 py-5`}>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">
                   {t("avgOrderValue") || "Avg Order Value"}
@@ -325,6 +340,20 @@ export default function CommercialReportsPage() {
                 </p>
                 <p className="mt-2 text-2xl font-bold text-teal-700 dark:text-teal-400">
                   {metrics.deliveredCount}
+                </p>
+              </div>
+              <div className={`${surface} px-6 py-5`}>
+                <div className="inline-flex rounded-2xl bg-amber-50 p-2.5 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400">
+                  <DollarSign size={16} />
+                </div>
+                <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">
+                  {t("avgShippingCost") || "Avg Shipping Cost"}
+                </p>
+                <p className="mt-2 text-2xl font-bold text-slate-950 dark:text-white">
+                  {metrics.avgShippingCost.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
+                </p>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  {metrics.totalShippingCost.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND total
                 </p>
               </div>
               <div className={`${surface} px-6 py-5`}>

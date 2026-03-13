@@ -7,7 +7,7 @@ export interface Carrier {
   contactEmail?: string;
   contactPhone?: string;
   baseRateFlat: number;
-  baseRatePerKg: number;
+  transitDays?: number;
   active: boolean;
   notes?: string;
   createdAt?: string;
@@ -19,7 +19,7 @@ export interface CreateCarrierPayload {
   contactEmail?: string;
   contactPhone?: string;
   baseRateFlat?: number;
-  baseRatePerKg?: number;
+  transitDays?: number;
   notes?: string;
 }
 

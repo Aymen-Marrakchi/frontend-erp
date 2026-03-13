@@ -2,651 +2,680 @@
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useLanguage } from "@/context/LanguageContext";
-import { motion, AnimatePresence } from "framer-motion";
+import { useEffect, useState, useMemo } from "react";
+import { productionOrderService, ProductionOrder } from "@/services/production/productionOrderService";
+import { cyclicOrderService, CyclicOrder } from "@/services/production/cyclicOrderService";
+import { deliveryPlanService, DeliveryPlan } from "@/services/commercial/deliveryPlanService";
+import { workCenterService, WorkCenter } from "@/services/production/workCenterService";
 import {
-  Plus,
-  X,
-  Loader2,
-  ChevronLeft,
-  ChevronRight,
-  Factory,
-  Clock,
-  CheckCircle2,
-  PlayCircle,
-  CalendarDays,
-  Zap,
-  Settings,
+  Factory, CalendarDays, RefreshCw, Truck, Package,
+  Loader2, X, ChevronDown, PlayCircle, CheckCircle,
+  AlertCircle, Clock, RotateCcw, Settings,
 } from "lucide-react";
-import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import { productionOrderService, type ProductionOrder } from "@/services/production/productionOrderService";
-import { workCenterService, type WorkCenter } from "@/services/production/workCenterService";
-import { stockProductService } from "@/services/stock/stockProductService";
-import { salesOrderService } from "@/services/commercial/salesOrderService";
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+const surface = "rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900";
+
 const PRIORITY_COLOR: Record<string, string> = {
-  LOW: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
-  NORMAL: "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
-  HIGH: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-  URGENT: "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
-};
-
-const PRIORITY_BAR: Record<string, string> = {
-  LOW: "bg-slate-400",
-  NORMAL: "bg-blue-500",
-  HIGH: "bg-amber-500",
-  URGENT: "bg-rose-500",
+  URGENT: "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300",
+  HIGH:   "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
+  NORMAL: "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
+  LOW:    "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  DRAFT: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
-  SCHEDULED: "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300",
+  DRAFT:       "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
+  SCHEDULED:   "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
   IN_PROGRESS: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-  COMPLETED: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
-  CANCELLED: "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
+  COMPLETED:   "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
+  CANCELLED:   "bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500",
 };
 
-const getMonday = (weekOffset: number) => {
-  const d = new Date();
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1) + weekOffset * 7;
-  d.setDate(diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
-};
-
-const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+function CapacityBar({ used, total }: { used: number; total: number }) {
+  const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+  const color = pct > 90 ? "bg-red-500" : pct > 70 ? "bg-amber-500" : "bg-emerald-500";
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.97, y: 8 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: 8 }}
-        transition={{ duration: 0.16 }}
-        className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900"
-      >
-        <div className="mb-5 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-slate-950 dark:text-white">{title}</h3>
-          <button
-            onClick={onClose}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-2xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-          >
-            <X size={18} />
-          </button>
-        </div>
-        {children}
-      </motion.div>
+    <div className="mt-1.5">
+      <div className="flex justify-between text-[10px] text-slate-500 dark:text-slate-400 mb-1">
+        <span>{used} / {total} colis</span>
+        <span className={pct > 90 ? "text-red-500 font-semibold" : ""}>{pct}%</span>
+      </div>
+      <div className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800">
+        <div className={`h-1.5 rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
+      </div>
     </div>
   );
 }
 
+const PRIO_RANK: Record<string, number> = { LOW: 0, NORMAL: 1, HIGH: 2, URGENT: 3 };
+
+function derivePriority(order: { isUrgent?: boolean; promisedDate?: string }, planDate: string): string {
+  if (order.isUrgent) return "URGENT";
+  if (order.promisedDate) {
+    const days = (new Date(order.promisedDate).getTime() - new Date(planDate).getTime()) / 86400000;
+    if (days <= 3) return "HIGH";
+  }
+  return "NORMAL";
+}
+
+type Tab = "plans" | "cyclics" | "orders";
+
 export default function ProductionPage() {
   const { t } = useLanguage();
+  const [tab, setTab] = useState<Tab>("plans");
 
-  const surface = "rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900";
-  const inputClass = "w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100 dark:border-slate-800 dark:bg-slate-950 dark:text-white dark:focus:border-slate-600 dark:focus:ring-slate-800";
-  const labelClass = "mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400";
-
-  // ── state ──
-  const [weekOffset, setWeekOffset] = useState(0);
-  const [allOrders, setAllOrders] = useState<ProductionOrder[]>([]);
-  const [timelineOrders, setTimelineOrders] = useState<ProductionOrder[]>([]);
+  const [plans, setPlans] = useState<DeliveryPlan[]>([]);
+  const [orders, setOrders] = useState<ProductionOrder[]>([]);
+  const [cyclics, setCyclics] = useState<CyclicOrder[]>([]);
   const [workCenters, setWorkCenters] = useState<WorkCenter[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
-  const [salesOrders, setSalesOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
-  // modals
-  const [showCreate, setShowCreate] = useState(false);
-  const [showSchedule, setShowSchedule] = useState<ProductionOrder | null>(null);
-  const [showComplete, setShowComplete] = useState<ProductionOrder | null>(null);
-  const [formError, setFormError] = useState("");
+  const [generatingPlanId, setGeneratingPlanId] = useState<string | null>(null);
+  const [expandedPlanId, setExpandedPlanId] = useState<string | null>(null);
+  const [generatedResult, setGeneratedResult] = useState<Record<string, number>>({});
 
-  // forms
-  const emptyCreate = { productId: "", quantity: "", priority: "NORMAL", estimatedHours: "", salesOrderId: "", notes: "" };
-  const [createForm, setCreateForm] = useState(emptyCreate);
-  const emptySchedule = { workCenterId: "", scheduledStart: "", scheduledEnd: "" };
-  const [scheduleForm, setScheduleForm] = useState(emptySchedule);
-  const [completeQty, setCompleteQty] = useState("");
+  const [firingId, setFiringId] = useState<string | null>(null);
+  const [actionId, setActionId] = useState<string | null>(null);
+  const [scheduleForm, setScheduleForm] = useState<{
+    orderId: string; workCenterId: string; scheduledStart: string; scheduledEnd: string;
+  } | null>(null);
+  const [statusFilter, setStatusFilter] = useState("ALL");
 
-  // ── week ──
-  const weekStart = useMemo(() => getMonday(weekOffset), [weekOffset]);
-  const weekEnd = useMemo(() => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + 6);
-    d.setHours(23, 59, 59, 999);
-    return d;
-  }, [weekStart]);
-  const weekDays = useMemo(() =>
-    Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; }),
-    [weekStart]
-  );
-  const weekLabel = `${weekDays[0].getDate()} ${MONTH_NAMES[weekDays[0].getMonth()]} — ${weekDays[6].getDate()} ${MONTH_NAMES[weekDays[6].getMonth()]} ${weekDays[6].getFullYear()}`;
-
-  // ── fetch ──
   const fetchAll = async () => {
     try {
       setLoading(true);
-      const [orders, wcs, prods, soData] = await Promise.all([
+      setError("");
+      const [plansData, ordersData, cyclicsData, wcData] = await Promise.all([
+        deliveryPlanService.getAll(),
         productionOrderService.getAll(),
-        workCenterService.getAll(),
-        stockProductService.getAll(),
-        salesOrderService.getAll(),
+        cyclicOrderService.getDue(),
+        workCenterService.getActive(),
       ]);
-      setAllOrders(orders);
-      setWorkCenters(wcs);
-      setProducts(prods);
-      setSalesOrders(soData.filter((o: any) => o.status === "CONFIRMED"));
+      setPlans(plansData);
+      setOrders(ordersData);
+      setCyclics(cyclicsData);
+      setWorkCenters(wcData);
     } catch {
+      setError("Erreur lors du chargement des données");
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchTimeline = async () => {
-    try {
-      const orders = await productionOrderService.getTimeline(weekStart.toISOString(), weekEnd.toISOString());
-      setTimelineOrders(orders);
-    } catch {}
-  };
-
   useEffect(() => { fetchAll(); }, []);
-  useEffect(() => { fetchTimeline(); }, [weekOffset]);
 
-  // ── KPIs ──
+  const shipmentPlans = useMemo(
+    () => plans.filter((p) => p.planType === "SHIPMENT" && p.status !== "CANCELLED" && p.status !== "COMPLETED"),
+    [plans]
+  );
+
   const kpis = useMemo(() => ({
-    total: allOrders.length,
-    draft: allOrders.filter(o => o.status === "DRAFT").length,
-    scheduled: allOrders.filter(o => o.status === "SCHEDULED").length,
-    inProgress: allOrders.filter(o => o.status === "IN_PROGRESS").length,
-    completed: allOrders.filter(o => o.status === "COMPLETED").length,
-  }), [allOrders]);
+    total:      orders.length,
+    draft:      orders.filter((o) => o.status === "DRAFT").length,
+    scheduled:  orders.filter((o) => o.status === "SCHEDULED").length,
+    inProgress: orders.filter((o) => o.status === "IN_PROGRESS").length,
+    completed:  orders.filter((o) => o.status === "COMPLETED").length,
+  }), [orders]);
 
-  // ── Gantt helpers ──
-  const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-  const getOrderPosition = (order: ProductionOrder) => {
-    if (!order.scheduledStart || !order.scheduledEnd) return null;
-    const start = new Date(order.scheduledStart).getTime();
-    const end = new Date(order.scheduledEnd).getTime();
-    const ws = weekStart.getTime();
-    const we = weekEnd.getTime() + 1;
-    const clampedStart = Math.max(start, ws);
-    const clampedEnd = Math.min(end, we);
-    if (clampedEnd <= clampedStart) return null;
-    const leftPct = ((clampedStart - ws) / WEEK_MS) * 100;
-    const widthPct = ((clampedEnd - clampedStart) / WEEK_MS) * 100;
-    return { left: `${leftPct.toFixed(2)}%`, width: `${Math.max(widthPct, 1).toFixed(2)}%` };
-  };
+  function planTotalQty(plan: DeliveryPlan) {
+    return plan.orderIds.reduce((sum, o) => sum + o.lines.reduce((s, l) => s + l.quantity, 0), 0);
+  }
 
-  const ordersPerWC = useMemo(() => {
-    const map: Record<string, ProductionOrder[]> = {};
-    for (const wc of workCenters) map[wc._id] = [];
-    for (const o of timelineOrders) {
-      const wcId = o.workCenterId?._id;
-      if (wcId && map[wcId]) map[wcId].push(o);
-    }
-    return map;
-  }, [workCenters, timelineOrders]);
-
-  // ── actions ──
-  const runAction = async (action: () => Promise<any>, key: string) => {
-    setActionLoading(key);
+  const handleGenerate = async (planId: string) => {
     try {
-      await action();
+      setGeneratingPlanId(planId);
+      setError("");
+      const result = await productionOrderService.createFromDeliveryPlan(planId);
+      setGeneratedResult((prev) => ({ ...prev, [planId]: result.orders.length }));
+      setTab("orders");
       await fetchAll();
-      await fetchTimeline();
-    } catch (err: any) {
-      alert(err.response?.data?.message || "Error");
+    } catch (e: any) {
+      setError(e?.response?.data?.message || "Erreur lors de la génération");
     } finally {
-      setActionLoading(null);
+      setGeneratingPlanId(null);
     }
   };
 
-  const handleCreate = async () => {
-    if (!createForm.productId || !createForm.quantity) { setFormError("Product and quantity are required"); return; }
+  const handleFire = async (cyclicId: string) => {
     try {
-      setSubmitting(true); setFormError("");
-      await productionOrderService.create({
-        productId: createForm.productId,
-        quantity: Number(createForm.quantity),
-        priority: createForm.priority,
-        estimatedHours: Number(createForm.estimatedHours) || 0,
-        salesOrderId: createForm.salesOrderId || undefined,
-        notes: createForm.notes,
-      });
+      setFiringId(cyclicId);
+      setError("");
+      await cyclicOrderService.fire(cyclicId);
+      setTab("orders");
       await fetchAll();
-      setShowCreate(false);
-      setCreateForm(emptyCreate);
-    } catch (err: any) {
-      setFormError(err.response?.data?.message || "Failed to create");
-    } finally { setSubmitting(false); }
+    } catch (e: any) {
+      setError(e?.response?.data?.message || "Erreur");
+    } finally {
+      setFiringId(null);
+    }
+  };
+
+  const handleStart = async (id: string) => {
+    try { setActionId(id); await productionOrderService.start(id); await fetchAll(); }
+    catch (e: any) { setError(e?.response?.data?.message || "Erreur"); }
+    finally { setActionId(null); }
+  };
+
+  const handleComplete = async (id: string) => {
+    try { setActionId(id); await productionOrderService.complete(id); await fetchAll(); }
+    catch (e: any) { setError(e?.response?.data?.message || "Erreur"); }
+    finally { setActionId(null); }
+  };
+
+  const handleCancel = async (id: string) => {
+    try { setActionId(id); await productionOrderService.cancel(id); await fetchAll(); }
+    catch (e: any) { setError(e?.response?.data?.message || "Erreur"); }
+    finally { setActionId(null); }
   };
 
   const handleSchedule = async () => {
-    if (!scheduleForm.workCenterId || !scheduleForm.scheduledStart || !scheduleForm.scheduledEnd) {
-      setFormError("All schedule fields are required"); return;
-    }
+    if (!scheduleForm) return;
     try {
-      setSubmitting(true); setFormError("");
-      await productionOrderService.schedule(showSchedule!._id, {
+      setActionId(scheduleForm.orderId);
+      await productionOrderService.schedule(scheduleForm.orderId, {
         workCenterId: scheduleForm.workCenterId,
         scheduledStart: scheduleForm.scheduledStart,
         scheduledEnd: scheduleForm.scheduledEnd,
       });
-      await fetchAll(); await fetchTimeline();
-      setShowSchedule(null); setScheduleForm(emptySchedule);
-    } catch (err: any) {
-      setFormError(err.response?.data?.message || "Failed to schedule");
-    } finally { setSubmitting(false); }
+      setScheduleForm(null);
+      await fetchAll();
+    } catch (e: any) {
+      setError(e?.response?.data?.message || "Erreur");
+    } finally {
+      setActionId(null);
+    }
   };
 
-  const handleComplete = async () => {
-    try {
-      setSubmitting(true);
-      await productionOrderService.complete(showComplete!._id, completeQty ? Number(completeQty) : undefined);
-      await fetchAll(); await fetchTimeline();
-      setShowComplete(null); setCompleteQty("");
-    } catch (err: any) {
-      setFormError(err.response?.data?.message || "Failed to complete");
-    } finally { setSubmitting(false); }
-  };
+  const filteredOrders = useMemo(
+    () => statusFilter === "ALL" ? orders : orders.filter((o) => o.status === statusFilter),
+    [orders, statusFilter]
+  );
 
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const dueSoon = cyclics.filter((c) => new Date(c.nextDueDate) <= new Date());
+  const upcoming = cyclics.filter((c) => new Date(c.nextDueDate) > new Date());
 
   return (
     <ProtectedRoute allowedRoles={["ADMIN", "STOCK_MANAGER", "COMMERCIAL_MANAGER"]}>
       <div className="space-y-6">
+
         {/* Header */}
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
           <div>
             <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-              Production
+              Production · ERP
             </p>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-950 dark:text-white">
-              Scheduling{" "}
-              <span className="text-slate-400 dark:text-slate-500">& Planning</span>
-            </h1>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800">
+                <Factory size={18} className="text-slate-600 dark:text-slate-300" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
+                  Planification Production
+                </h1>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Basé sur les plans de livraison, priorités et capacité véhicule
+                </p>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex gap-2">
+            <Link
+              href="/dashboard/production/cyclic-orders"
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              <RotateCcw size={14} /> Gérer Cycliques
+            </Link>
             <Link
               href="/dashboard/production/work-centers"
-              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
             >
-              <Settings size={15} />
-              Work Centers
+              <Settings size={14} /> Centres
             </Link>
-            <button
-              onClick={() => { setCreateForm(emptyCreate); setFormError(""); setShowCreate(true); }}
-              className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
-            >
-              <Plus size={15} />
-              New Production Order
-            </button>
           </div>
         </div>
+
+        {error && (
+          <div className="flex items-start justify-between rounded-3xl border border-rose-200 bg-rose-50 px-6 py-4 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400">
+            {error}
+            <button onClick={() => setError("")} className="ml-4 shrink-0 hover:opacity-70"><X size={14} /></button>
+          </div>
+        )}
 
         {/* KPIs */}
         <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
           {[
-            { label: "Total", value: kpis.total, icon: <Factory size={16} />, color: "bg-slate-50 text-slate-700 dark:bg-slate-800 dark:text-slate-300" },
-            { label: "Draft", value: kpis.draft, icon: <Clock size={16} />, color: "bg-slate-50 text-slate-600 dark:bg-slate-800 dark:text-slate-400" },
-            { label: "Scheduled", value: kpis.scheduled, icon: <CalendarDays size={16} />, color: "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300" },
-            { label: "In Progress", value: kpis.inProgress, icon: <PlayCircle size={16} />, color: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" },
-            { label: "Completed", value: kpis.completed, icon: <CheckCircle2 size={16} />, color: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300" },
-          ].map((kpi, i) => (
-            <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-              className={`${surface} flex items-center gap-3 px-4 py-4`}>
-              <div className={`rounded-2xl p-2.5 ${kpi.color}`}>{kpi.icon}</div>
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{kpi.label}</p>
-                <p className="mt-1 text-2xl font-bold tracking-tight text-slate-950 dark:text-white">{kpi.value}</p>
-              </div>
-            </motion.div>
+            { label: "Total", value: kpis.total, color: "text-slate-900 dark:text-white" },
+            { label: "Brouillon", value: kpis.draft, color: "text-slate-500" },
+            { label: "Planifié", value: kpis.scheduled, color: "text-blue-700 dark:text-blue-400" },
+            { label: "En cours", value: kpis.inProgress, color: "text-amber-700 dark:text-amber-400" },
+            { label: "Terminé", value: kpis.completed, color: "text-emerald-700 dark:text-emerald-400" },
+          ].map((k) => (
+            <div key={k.label} className={`${surface} px-5 py-4`}>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{k.label}</p>
+              <p className={`mt-2 text-3xl font-bold ${k.color}`}>{k.value}</p>
+            </div>
           ))}
         </div>
 
-        {/* Gantt Timeline */}
-        <div className={surface}>
-          {/* Gantt header */}
-          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-800">
-            <div>
-              <h2 className="text-base font-semibold text-slate-950 dark:text-white">Production Timeline</h2>
-              <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{weekLabel}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setWeekOffset(0)}
-                className="rounded-2xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
-                Today
-              </button>
-              <button onClick={() => setWeekOffset(w => w - 1)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-slate-200 text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
-                <ChevronLeft size={15} />
-              </button>
-              <button onClick={() => setWeekOffset(w => w + 1)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-slate-200 text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
-                <ChevronRight size={15} />
-              </button>
-            </div>
+        {/* Tabs */}
+        <div className="flex gap-1 rounded-2xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-950">
+          {([
+            { id: "plans" as Tab,  label: "Plans de Livraison", badge: shipmentPlans.length },
+            { id: "cyclics" as Tab, label: "Cycliques",          badge: dueSoon.length },
+            { id: "orders" as Tab,  label: "Ordres de Production", badge: kpis.inProgress },
+          ]).map((tb) => (
+            <button
+              key={tb.id}
+              onClick={() => setTab(tb.id)}
+              className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2 text-xs font-medium transition ${
+                tab === tb.id
+                  ? "bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-white"
+                  : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"
+              }`}
+            >
+              {tb.label}
+              {tb.badge > 0 && (
+                <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold text-slate-700 dark:bg-slate-700 dark:text-slate-300">
+                  {tb.badge}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {loading ? (
+          <div className={`${surface} flex items-center justify-center gap-2 py-20 text-sm text-slate-400`}>
+            <Loader2 size={18} className="animate-spin" /> Chargement…
           </div>
+        ) : (
+          <>
+            {/* ── TAB: Plans de Livraison ── */}
+            {tab === "plans" && (
+              <div className="space-y-4">
+                {shipmentPlans.length === 0 ? (
+                  <div className={`${surface} flex flex-col items-center justify-center gap-2 py-16 text-sm text-slate-400`}>
+                    <Truck size={32} className="opacity-30" />
+                    <p>Aucun plan de livraison actif</p>
+                    <Link href="/dashboard/commercial/planning" className="text-xs text-slate-400 underline hover:text-slate-600">
+                      Créer un plan →
+                    </Link>
+                  </div>
+                ) : (
+                  shipmentPlans.map((plan) => {
+                    const totalQty = planTotalQty(plan);
+                    const vehicleCap = plan.vehicleId?.capacityPackets ?? 0;
+                    const isExpanded = expandedPlanId === plan._id;
+                    const isGenerating = generatingPlanId === plan._id;
+                    const generated = generatedResult[plan._id];
+                    const urgentCount = plan.orderIds.filter((o) => derivePriority(o as any, plan.planDate) === "URGENT").length;
+                    const highCount   = plan.orderIds.filter((o) => derivePriority(o as any, plan.planDate) === "HIGH").length;
+                    const overCapacity = vehicleCap > 0 && totalQty > vehicleCap;
 
-          {/* Gantt body */}
-          <div className="overflow-x-auto">
-            <div style={{ minWidth: 700 }}>
-              {/* Day header row */}
-              <div className="flex border-b border-slate-200 dark:border-slate-800">
-                <div className="w-44 flex-shrink-0 border-r border-slate-200 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                  Work Center
-                </div>
-                <div className="flex flex-1">
-                  {weekDays.map((d, i) => {
-                    const isToday = d.toDateString() === today.toDateString();
                     return (
-                      <div key={i} className={`flex-1 border-r border-slate-100 py-2 text-center text-[11px] font-medium dark:border-slate-800/60 ${isToday ? "text-blue-600 dark:text-blue-400" : "text-slate-500 dark:text-slate-400"}`}>
-                        <div className="uppercase tracking-wide">{DAY_LABELS[i]}</div>
-                        <div className={`mt-0.5 text-base font-bold ${isToday ? "text-blue-600 dark:text-blue-400" : "text-slate-700 dark:text-slate-300"}`}>{d.getDate()}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+                      <div key={plan._id} className={`${surface} overflow-hidden`}>
+                        <div className="flex flex-wrap items-start gap-4 p-5">
+                          <button
+                            onClick={() => setExpandedPlanId(isExpanded ? null : plan._id)}
+                            className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          >
+                            <ChevronDown size={14} className={`transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                          </button>
 
-              {/* Work center rows */}
-              {workCenters.length === 0 ? (
-                <div className="px-6 py-8 text-center text-sm text-slate-400 dark:text-slate-500">
-                  No work centers configured.{" "}
-                  <Link href="/dashboard/production/work-centers" className="text-blue-600 underline dark:text-blue-400">Add one</Link>
-                </div>
-              ) : (
-                workCenters.map((wc) => {
-                  const wcOrders = ordersPerWC[wc._id] || [];
-                  return (
-                    <div key={wc._id} className="flex border-b border-slate-100 dark:border-slate-800/60 last:border-0">
-                      <div className="w-44 flex-shrink-0 border-r border-slate-100 px-4 py-3 dark:border-slate-800/60">
-                        <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{wc.name}</p>
-                        <p className="text-xs text-slate-400 dark:text-slate-500">{wc.code}</p>
-                      </div>
-                      <div className="relative flex-1 py-2" style={{ minHeight: 52 }}>
-                        {/* Day grid lines */}
-                        <div className="absolute inset-0 flex pointer-events-none">
-                          {weekDays.map((d, i) => {
-                            const isToday = d.toDateString() === today.toDateString();
-                            return (
-                              <div key={i} className={`flex-1 border-r border-slate-100 dark:border-slate-800/60 ${isToday ? "bg-blue-50/40 dark:bg-blue-950/10" : ""}`} />
-                            );
-                          })}
-                        </div>
-                        {/* Order bars */}
-                        {wcOrders.map(order => {
-                          const pos = getOrderPosition(order);
-                          if (!pos) return null;
-                          return (
-                            <div
-                              key={order._id}
-                              style={{ left: pos.left, width: pos.width }}
-                              className={`absolute top-2 h-8 rounded-lg px-2 text-[11px] font-medium text-white flex items-center gap-1 overflow-hidden shadow-sm cursor-default ${PRIORITY_BAR[order.priority]}`}
-                              title={`${order.orderNo} · ${order.productId.name} · ${order.quantity} ${order.productId.unit}`}
-                            >
-                              <span className="truncate">{order.orderNo}</span>
-                              <span className="opacity-75 hidden sm:inline">· {order.productId.name}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-semibold text-slate-900 dark:text-white">{plan.planNo}</span>
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                plan.status === "PLANNED"
+                                  ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+                                  : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                              }`}>{plan.status}</span>
+                              {urgentCount > 0 && (
+                                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-300">
+                                  {urgentCount} URGENT
+                                </span>
+                              )}
+                              {highCount > 0 && (
+                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                                  {highCount} HIGH
+                                </span>
+                              )}
+                              {overCapacity && (
+                                <span className="flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-300">
+                                  <AlertCircle size={9} /> Dépasse capacité
+                                </span>
+                              )}
                             </div>
-                          );
-                        })}
-                        {wcOrders.length === 0 && (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="text-xs text-slate-300 dark:text-slate-600">No orders this week</span>
+
+                            <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-400">
+                              <span className="flex items-center gap-1">
+                                <CalendarDays size={10} /> {new Date(plan.planDate).toLocaleDateString("fr-TN")}
+                              </span>
+                              {plan.zone && <span>📍 {plan.zone}</span>}
+                              {plan.carrierId && (
+                                <span className="flex items-center gap-1"><Truck size={10} /> {plan.carrierId.name}</span>
+                              )}
+                              <span className="flex items-center gap-1">
+                                <Package size={10} /> {plan.orderIds.length} cmds · {totalQty} unités
+                              </span>
+                            </div>
+
+                            {plan.vehicleId && (
+                              <div className="mt-2 max-w-xs">
+                                <p className="text-[10px] text-slate-400">
+                                  Véhicule: {plan.vehicleId.matricule} · capacité {vehicleCap} colis
+                                </p>
+                                <CapacityBar used={totalQty} total={vehicleCap} />
+                              </div>
+                            )}
+
+                            {generated !== undefined && (
+                              <p className="mt-2 text-[11px] text-emerald-600 dark:text-emerald-400">
+                                ✓ {generated} ordre{generated !== 1 ? "s" : ""} de production générés → onglet Ordres
+                              </p>
+                            )}
+                          </div>
+
+                          <button
+                            onClick={() => handleGenerate(plan._id)}
+                            disabled={isGenerating || overCapacity}
+                            title={overCapacity ? "Quantité totale dépasse la capacité du véhicule" : ""}
+                            className="inline-flex shrink-0 items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2 text-xs font-medium text-white transition hover:bg-slate-800 disabled:opacity-40 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+                          >
+                            {isGenerating ? <Loader2 size={12} className="animate-spin" /> : <Factory size={12} />}
+                            Générer Production
+                          </button>
+                        </div>
+
+                        {/* Expanded orders */}
+                        {isExpanded && plan.orderIds.length > 0 && (
+                          <div className="border-t border-slate-100 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-950/50">
+                            <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                              Commandes — triées par priorité
+                            </p>
+                            <div className="space-y-2">
+                              {[...plan.orderIds]
+                                .sort((a, b) =>
+                                  (PRIO_RANK[derivePriority(b as any, plan.planDate)] ?? 0) -
+                                  (PRIO_RANK[derivePriority(a as any, plan.planDate)] ?? 0)
+                                )
+                                .map((order) => {
+                                  const priority = derivePriority(order as any, plan.planDate);
+                                  const qty = order.lines.reduce((s, l) => s + l.quantity, 0);
+                                  return (
+                                    <div
+                                      key={order._id}
+                                      className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900"
+                                    >
+                                      <div>
+                                        <div className="flex items-center gap-2">
+                                          <p className="text-sm font-medium text-slate-900 dark:text-white">{order.orderNo}</p>
+                                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${PRIORITY_COLOR[priority]}`}>
+                                            {priority}
+                                          </span>
+                                        </div>
+                                        <p className="text-xs text-slate-500">{order.customerName}</p>
+                                      </div>
+                                      <p className="text-xs font-medium text-slate-900 dark:text-white">{qty} unités</p>
+                                    </div>
+                                  );
+                                })}
+                            </div>
                           </div>
                         )}
                       </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+
+            {/* ── TAB: Cycliques ── */}
+            {tab === "cyclics" && (
+              <div className="space-y-4">
+                {cyclics.length === 0 ? (
+                  <div className={`${surface} flex flex-col items-center justify-center gap-2 py-16 text-sm text-slate-400`}>
+                    <RotateCcw size={32} className="opacity-30" />
+                    <p>Aucune commande cyclique dans les 14 prochains jours</p>
+                    <Link href="/dashboard/production/cyclic-orders" className="text-xs text-slate-400 underline hover:text-slate-600">
+                      Gérer les cycliques →
+                    </Link>
+                  </div>
+                ) : (
+                  <>
+                    {dueSoon.length > 0 && (
+                      <div>
+                        <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-rose-500">
+                          En retard / À déclencher ({dueSoon.length})
+                        </p>
+                        <div className="space-y-3">
+                          {dueSoon.map((c) => (
+                            <CyclicCard key={c._id} cyclic={c} isFiring={firingId === c._id} onFire={() => handleFire(c._id)} overdue />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {upcoming.length > 0 && (
+                      <div>
+                        <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-amber-600">
+                          Prochainement ({upcoming.length})
+                        </p>
+                        <div className="space-y-3">
+                          {upcoming.map((c) => (
+                            <CyclicCard key={c._id} cyclic={c} isFiring={firingId === c._id} onFire={() => handleFire(c._id)} overdue={false} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex justify-end">
+                      <Link
+                        href="/dashboard/production/cyclic-orders"
+                        className="text-xs text-slate-400 underline underline-offset-2 hover:text-slate-700 dark:hover:text-slate-300"
+                      >
+                        Gérer toutes les commandes cycliques →
+                      </Link>
                     </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
+                  </>
+                )}
+              </div>
+            )}
 
-          {/* Legend */}
-          <div className="flex flex-wrap items-center gap-4 border-t border-slate-100 px-6 py-3 dark:border-slate-800">
-            <span className="text-xs text-slate-400 dark:text-slate-500">Priority:</span>
-            {[["LOW","bg-slate-400"],["NORMAL","bg-blue-500"],["HIGH","bg-amber-500"],["URGENT","bg-rose-500"]].map(([p, c]) => (
-              <span key={p} className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
-                <span className={`h-3 w-3 rounded-sm ${c}`} />{p}
-              </span>
-            ))}
-          </div>
-        </div>
+            {/* ── TAB: Ordres de Production ── */}
+            {tab === "orders" && (
+              <div className={`${surface} overflow-hidden`}>
+                <div className="flex flex-wrap gap-2 border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+                  {["ALL", "DRAFT", "SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED"].map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setStatusFilter(s)}
+                      className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                        statusFilter === s
+                          ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                      }`}
+                    >
+                      {s === "ALL" ? "Tous" : s.replace("_", " ")}
+                    </button>
+                  ))}
+                </div>
 
-        {/* Orders list */}
-        <div className={surface}>
-          <div className="border-b border-slate-200 px-6 py-5 dark:border-slate-800">
-            <h2 className="text-base font-semibold text-slate-950 dark:text-white">All Production Orders</h2>
-            <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{allOrders.length} orders total</p>
-          </div>
+                {filteredOrders.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center gap-2 py-16 text-sm text-slate-400">
+                    <Factory size={28} className="opacity-30" />
+                    Aucun ordre
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {filteredOrders.map((order) => (
+                      <div key={order._id} className="flex flex-wrap items-center gap-4 px-5 py-4">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-slate-900 dark:text-white">{order.orderNo}</span>
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_COLOR[order.status]}`}>
+                              {order.status.replace("_", " ")}
+                            </span>
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${PRIORITY_COLOR[order.priority]}`}>
+                              {order.priority}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                            {order.productId.name} · {order.quantity} {order.productId.unit}
+                            {order.workCenterId ? ` · ${order.workCenterId.name}` : ""}
+                            {order.scheduledStart ? ` · Prévu ${new Date(order.scheduledStart).toLocaleDateString("fr-TN")}` : ""}
+                          </p>
+                          {order.notes && (
+                            <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500 truncate max-w-xs">{order.notes}</p>
+                          )}
+                        </div>
 
-          {loading ? (
-            <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500 dark:text-slate-400">
-              <Loader2 size={16} className="animate-spin" /> Loading...
-            </div>
-          ) : allOrders.length === 0 ? (
-            <div className="py-12 text-center text-sm text-slate-400 dark:text-slate-500">No production orders yet</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 dark:bg-slate-800/50">
-                  <tr className="text-left text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                    <th className="px-6 py-3 font-medium">Order</th>
-                    <th className="px-6 py-3 font-medium">Product</th>
-                    <th className="px-6 py-3 font-medium">Qty</th>
-                    <th className="px-6 py-3 font-medium">Priority</th>
-                    <th className="px-6 py-3 font-medium">Status</th>
-                    <th className="px-6 py-3 font-medium">Work Center</th>
-                    <th className="px-6 py-3 font-medium">Scheduled</th>
-                    <th className="px-6 py-3 font-medium">Sales Order</th>
-                    <th className="px-6 py-3 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                  {allOrders.map((order, i) => (
-                    <motion.tr key={order._id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.03 }}
-                      className="transition hover:bg-slate-50 dark:hover:bg-slate-800/30">
-                      <td className="px-6 py-4 font-mono text-xs font-medium text-slate-700 dark:text-slate-300">{order.orderNo}</td>
-                      <td className="px-6 py-4">
-                        <p className="font-medium text-slate-900 dark:text-white">{order.productId.name}</p>
-                        <p className="text-xs text-slate-400">{order.productId.sku}</p>
-                      </td>
-                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{order.quantity} <span className="text-slate-400">{order.productId.unit}</span></td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex items-center gap-1 rounded-xl px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${PRIORITY_COLOR[order.priority]}`}>
-                          {order.priority === "URGENT" && <Zap size={10} />}{order.priority}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`rounded-xl px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${STATUS_COLOR[order.status]}`}>
-                          {order.status.replace("_", " ")}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{order.workCenterId?.name || <span className="text-slate-400">—</span>}</td>
-                      <td className="px-6 py-4 text-xs text-slate-500 dark:text-slate-400">
-                        {order.scheduledStart ? (
-                          <span>{new Date(order.scheduledStart).toLocaleDateString()} → {new Date(order.scheduledEnd!).toLocaleDateString()}</span>
-                        ) : "—"}
-                      </td>
-                      <td className="px-6 py-4 text-xs text-slate-500 dark:text-slate-400">
-                        {order.salesOrderId?.orderNo || "—"}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex shrink-0 flex-wrap items-center gap-2">
                           {order.status === "DRAFT" && (
-                            <button onClick={() => { setScheduleForm(emptySchedule); setFormError(""); setShowSchedule(order); }}
-                              className="rounded-xl bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 transition hover:bg-violet-100 dark:bg-violet-950/30 dark:text-violet-300">
-                              Schedule
+                            <button
+                              onClick={() => setScheduleForm({ orderId: order._id, workCenterId: "", scheduledStart: "", scheduledEnd: "" })}
+                              className="inline-flex items-center gap-1 rounded-2xl border border-blue-200 px-3 py-1.5 text-xs text-blue-700 hover:bg-blue-50 dark:border-blue-900/40 dark:text-blue-400"
+                            >
+                              <CalendarDays size={11} /> Planifier
                             </button>
                           )}
                           {order.status === "SCHEDULED" && (
-                            <>
-                              <button onClick={() => { setScheduleForm(emptySchedule); setFormError(""); setShowSchedule(order); }}
-                                className="rounded-xl bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300">
-                                Reschedule
-                              </button>
-                              <button
-                                disabled={actionLoading === order._id}
-                                onClick={() => runAction(() => productionOrderService.start(order._id), order._id)}
-                                className="rounded-xl bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-100 dark:bg-amber-950/30 dark:text-amber-300 disabled:opacity-50">
-                                {actionLoading === order._id ? <Loader2 size={11} className="animate-spin" /> : "Start"}
-                              </button>
-                            </>
-                          )}
-                          {order.status === "IN_PROGRESS" && (
-                            <button onClick={() => { setCompleteQty(""); setFormError(""); setShowComplete(order); }}
-                              className="rounded-xl bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-300">
-                              Complete
+                            <button
+                              onClick={() => handleStart(order._id)}
+                              disabled={actionId === order._id}
+                              className="inline-flex items-center gap-1 rounded-2xl bg-amber-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+                            >
+                              {actionId === order._id ? <Loader2 size={11} className="animate-spin" /> : <PlayCircle size={11} />}
+                              Démarrer
                             </button>
                           )}
-                          {!["COMPLETED", "CANCELLED"].includes(order.status) && (
+                          {order.status === "IN_PROGRESS" && (
                             <button
-                              disabled={actionLoading === `cancel-${order._id}`}
-                              onClick={() => runAction(() => productionOrderService.cancel(order._id), `cancel-${order._id}`)}
-                              className="rounded-xl bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 transition hover:bg-rose-100 dark:bg-rose-950/30 dark:text-rose-300 disabled:opacity-50">
-                              Cancel
+                              onClick={() => handleComplete(order._id)}
+                              disabled={actionId === order._id}
+                              className="inline-flex items-center gap-1 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                            >
+                              {actionId === order._id ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
+                              Terminer
+                            </button>
+                          )}
+                          {["DRAFT", "SCHEDULED", "IN_PROGRESS"].includes(order.status) && (
+                            <button
+                              onClick={() => handleCancel(order._id)}
+                              disabled={actionId === order._id}
+                              className="inline-flex items-center gap-1 rounded-2xl border border-rose-200 px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900/40 dark:text-rose-400"
+                            >
+                              <X size={11} /> Annuler
                             </button>
                           )}
                         </div>
-                      </td>
-                    </motion.tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <AnimatePresence>
-        {/* Create modal */}
-        {showCreate && (
-          <Modal title="New Production Order" onClose={() => setShowCreate(false)}>
-            <div className="space-y-4">
-              <div>
-                <label className={labelClass}>Product *</label>
-                <select className={inputClass} value={createForm.productId} onChange={e => setCreateForm(f => ({ ...f, productId: e.target.value }))}>
-                  <option value="">— Select product —</option>
-                  {products.map((p: any) => <option key={p._id} value={p._id}>{p.name} ({p.sku})</option>)}
-                </select>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={labelClass}>Quantity *</label>
-                  <input className={inputClass} type="number" min={1} placeholder="0" value={createForm.quantity}
-                    onChange={e => setCreateForm(f => ({ ...f, quantity: e.target.value }))} />
-                </div>
-                <div>
-                  <label className={labelClass}>Est. Hours</label>
-                  <input className={inputClass} type="number" min={0} placeholder="0" value={createForm.estimatedHours}
-                    onChange={e => setCreateForm(f => ({ ...f, estimatedHours: e.target.value }))} />
-                </div>
-              </div>
-              <div>
-                <label className={labelClass}>Priority</label>
-                <select className={inputClass} value={createForm.priority} onChange={e => setCreateForm(f => ({ ...f, priority: e.target.value }))}>
-                  <option value="LOW">Low</option>
-                  <option value="NORMAL">Normal</option>
-                  <option value="HIGH">High</option>
-                  <option value="URGENT">Urgent</option>
-                </select>
-              </div>
-              <div>
-                <label className={labelClass}>Link to Sales Order (optional)</label>
-                <select className={inputClass} value={createForm.salesOrderId} onChange={e => setCreateForm(f => ({ ...f, salesOrderId: e.target.value }))}>
-                  <option value="">— None —</option>
-                  {salesOrders.map((o: any) => <option key={o._id} value={o._id}>{o.orderNo}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className={labelClass}>Notes</label>
-                <textarea className={inputClass} rows={2} placeholder="Optional notes..." value={createForm.notes}
-                  onChange={e => setCreateForm(f => ({ ...f, notes: e.target.value }))} />
-              </div>
-              {formError && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400">{formError}</div>}
-              <div className="flex gap-3 pt-1">
-                <button onClick={() => setShowCreate(false)} className="flex-1 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800">Cancel</button>
-                <button onClick={handleCreate} disabled={submitting} className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200">
-                  {submitting ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Create
-                </button>
-              </div>
-            </div>
-          </Modal>
+            )}
+          </>
         )}
 
         {/* Schedule modal */}
-        {showSchedule && (
-          <Modal title={`Schedule ${showSchedule.orderNo}`} onClose={() => setShowSchedule(null)}>
-            <div className="space-y-4">
-              <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm dark:bg-slate-800">
-                <p className="font-medium text-slate-900 dark:text-white">{showSchedule.productId.name}</p>
-                <p className="text-slate-500 dark:text-slate-400">Qty: {showSchedule.quantity} {showSchedule.productId.unit} · {showSchedule.estimatedHours}h estimated</p>
+        {scheduleForm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+              <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 dark:border-slate-800">
+                <h2 className="font-semibold text-slate-950 dark:text-white">Planifier l&apos;ordre</h2>
+                <button onClick={() => setScheduleForm(null)} className="text-slate-400 hover:text-slate-600">
+                  <X size={16} />
+                </button>
               </div>
-              <div>
-                <label className={labelClass}>Work Center *</label>
-                <select className={inputClass} value={scheduleForm.workCenterId} onChange={e => setScheduleForm(f => ({ ...f, workCenterId: e.target.value }))}>
-                  <option value="">— Select work center —</option>
-                  {workCenters.filter(w => w.active).map(wc => <option key={wc._id} value={wc._id}>{wc.name} ({wc.code})</option>)}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-4 p-6">
                 <div>
-                  <label className={labelClass}>Start Date *</label>
-                  <input type="datetime-local" className={inputClass} value={scheduleForm.scheduledStart}
-                    onChange={e => setScheduleForm(f => ({ ...f, scheduledStart: e.target.value }))} />
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">Centre de travail</label>
+                  <select
+                    value={scheduleForm.workCenterId}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, workCenterId: e.target.value })}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                  >
+                    <option value="">— Sélectionner —</option>
+                    {workCenters.map((wc) => <option key={wc._id} value={wc._id}>{wc.name} ({wc.code})</option>)}
+                  </select>
                 </div>
                 <div>
-                  <label className={labelClass}>End Date *</label>
-                  <input type="datetime-local" className={inputClass} value={scheduleForm.scheduledEnd}
-                    onChange={e => setScheduleForm(f => ({ ...f, scheduledEnd: e.target.value }))} />
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">Date début</label>
+                  <input type="date" value={scheduleForm.scheduledStart}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, scheduledStart: e.target.value })}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">Date fin</label>
+                  <input type="date" value={scheduleForm.scheduledEnd}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, scheduledEnd: e.target.value })}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                  />
                 </div>
               </div>
-              {formError && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400">{formError}</div>}
-              <div className="flex gap-3 pt-1">
-                <button onClick={() => setShowSchedule(null)} className="flex-1 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800">Cancel</button>
-                <button onClick={handleSchedule} disabled={submitting} className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-60">
-                  {submitting ? <Loader2 size={14} className="animate-spin" /> : <CalendarDays size={14} />} Schedule
+              <div className="flex justify-end gap-3 border-t border-slate-100 px-6 py-4 dark:border-slate-800">
+                <button onClick={() => setScheduleForm(null)}
+                  className="rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300">
+                  Annuler
+                </button>
+                <button onClick={handleSchedule} disabled={!!actionId}
+                  className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-950">
+                  {actionId ? <Loader2 size={13} className="animate-spin" /> : null}
+                  Confirmer
                 </button>
               </div>
             </div>
-          </Modal>
+          </div>
         )}
 
-        {/* Complete modal */}
-        {showComplete && (
-          <Modal title={`Complete ${showComplete.orderNo}`} onClose={() => setShowComplete(null)}>
-            <div className="space-y-4">
-              <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm dark:bg-slate-800">
-                <p className="font-medium text-slate-900 dark:text-white">{showComplete.productId.name}</p>
-                <p className="text-slate-500 dark:text-slate-400">Planned qty: {showComplete.quantity} {showComplete.productId.unit}</p>
-              </div>
-              <div>
-                <label className={labelClass}>Completed Qty (leave blank for full quantity)</label>
-                <input className={inputClass} type="number" min={1} placeholder={String(showComplete.quantity)} value={completeQty}
-                  onChange={e => setCompleteQty(e.target.value)} />
-              </div>
-              <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                Completing this order will add <strong>{completeQty || showComplete.quantity} {showComplete.productId.unit}</strong> of <strong>{showComplete.productId.name}</strong> to stock automatically.
-              </p>
-              {formError && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400">{formError}</div>}
-              <div className="flex gap-3 pt-1">
-                <button onClick={() => setShowComplete(null)} className="flex-1 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800">Cancel</button>
-                <button onClick={handleComplete} disabled={submitting} className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-60">
-                  {submitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />} Complete & Add to Stock
-                </button>
-              </div>
-            </div>
-          </Modal>
-        )}
-      </AnimatePresence>
+      </div>
     </ProtectedRoute>
+  );
+}
+
+function CyclicCard({
+  cyclic, isFiring, onFire, overdue,
+}: {
+  cyclic: CyclicOrder; isFiring: boolean; onFire: () => void; overdue: boolean;
+}) {
+  const daysUntil = Math.ceil((new Date(cyclic.nextDueDate).getTime() - Date.now()) / 86400000);
+  return (
+    <div className={`rounded-3xl border p-4 ${
+      overdue
+        ? "border-rose-200 bg-rose-50 dark:border-rose-900/40 dark:bg-rose-950/20"
+        : "border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/20"
+    }`}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-semibold text-slate-900 dark:text-white">{cyclic.customerName}</p>
+            {overdue ? (
+              <span className="flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                <AlertCircle size={9} /> En retard
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                <Clock size={9} /> Dans {daysUntil} j
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+            <span className="font-medium">{cyclic.productId.name}</span> · {cyclic.quantity} {cyclic.productId.unit}
+          </p>
+          <p className="text-[11px] text-slate-400 dark:text-slate-500">
+            Tous les {cyclic.frequencyDays} jours · Prochain: {new Date(cyclic.nextDueDate).toLocaleDateString("fr-TN")}
+            {cyclic.lastFiredAt && ` · Dernier: ${new Date(cyclic.lastFiredAt).toLocaleDateString("fr-TN")}`}
+          </p>
+        </div>
+        <button
+          onClick={onFire}
+          disabled={isFiring}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-2xl bg-slate-950 px-3 py-2 text-xs font-medium text-white transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-950"
+        >
+          {isFiring ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+          Déclencher
+        </button>
+      </div>
+    </div>
   );
 }

@@ -321,20 +321,16 @@ export default function CustomersPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className={labelClass}>{t("city") || "City"}</label>
-                    <input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="Tunis" className={inputClass} />
+                    <label className={labelClass}>Région</label>
+                    <select value={form.governorate} onChange={(e) => setForm({ ...form, governorate: e.target.value })} className={inputClass}>
+                      <option value="">— Sélectionner —</option>
+                      {TUNISIA_GOVERNORATES.map((g) => <option key={g} value={g}>{g}</option>)}
+                    </select>
                   </div>
                   <div>
                     <label className={labelClass}>{t("address") || "Address"}</label>
                     <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="123 Rue…" className={inputClass} />
                   </div>
-                </div>
-                <div>
-                  <label className={labelClass}>Gouvernorat</label>
-                  <select value={form.governorate} onChange={(e) => setForm({ ...form, governorate: e.target.value })} className={inputClass}>
-                    <option value="">— Sélectionner —</option>
-                    {TUNISIA_GOVERNORATES.map((g) => <option key={g} value={g}>{g}</option>)}
-                  </select>
                 </div>
                 <div>
                   <label className={labelClass}>{t("notes") || "Notes"}</label>

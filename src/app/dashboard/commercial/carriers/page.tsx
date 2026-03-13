@@ -26,7 +26,6 @@ const emptyForm: CreateCarrierPayload = {
   contactEmail: "",
   contactPhone: "",
   baseRateFlat: 0,
-  baseRatePerKg: 0,
   notes: "",
 };
 
@@ -79,7 +78,6 @@ export default function CarriersPage() {
       contactEmail: carrier.contactEmail || "",
       contactPhone: carrier.contactPhone || "",
       baseRateFlat: carrier.baseRateFlat,
-      baseRatePerKg: carrier.baseRatePerKg,
       notes: carrier.notes || "",
     });
     setShowForm(true);
@@ -254,19 +252,6 @@ export default function CarriersPage() {
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
                 />
               </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                  {t("baseRatePerKg") || "Rate per kg (TND/kg)"}
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={form.baseRatePerKg ?? 0}
-                  onChange={(e) => setForm((f) => ({ ...f, baseRatePerKg: parseFloat(e.target.value) || 0 }))}
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
-                />
-              </div>
               <div className="md:col-span-2">
                 <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
                   {t("notes") || "Notes"}
@@ -375,11 +360,6 @@ export default function CarriersPage() {
                         {carrier.baseRateFlat.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
                       </span>{" "}
                       {t("flatRate") || "flat"}
-                    </p>
-                    <p>
-                      <span className="font-medium text-slate-900 dark:text-white">
-                        {carrier.baseRatePerKg.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND/kg
-                      </span>
                     </p>
                   </div>
 

@@ -12,7 +12,9 @@ import {
   XCircle,
   ChevronDown,
   X,
+  ExternalLink,
 } from "lucide-react";
+import Link from "next/link";
 
 const surface =
   "rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900";
@@ -200,9 +202,13 @@ export default function BackordersPage() {
                       {/* Info */}
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold text-slate-900 dark:text-white">
+                          <Link
+                            href={`/dashboard/commercial/backorders/${bo._id}`}
+                            className="inline-flex items-center gap-1 font-semibold text-slate-900 hover:text-blue-600 dark:text-white dark:hover:text-blue-400"
+                          >
                             {bo.orderNo}
-                          </span>
+                            <ExternalLink size={11} className="opacity-40" />
+                          </Link>
                           <span
                             className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${statusBadge(bo.status)}`}
                           >

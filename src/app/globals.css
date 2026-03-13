@@ -57,13 +57,13 @@ body {
 }
 
 .font-title {
-  font-family: var(--font-syne);
+  font-family: var(--font-syne, "Segoe UI", "Trebuchet MS", sans-serif);
 }
 
 .font-sans {
-  font-family: var(--font-inter);
+  font-family: var(--font-inter, "Segoe UI", Tahoma, Geneva, Verdana, sans-serif);
 }
 
 .font-mono {
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, "Consolas", "Courier New", monospace);
 }

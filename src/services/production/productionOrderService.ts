@@ -66,4 +66,11 @@ export const productionOrderService = {
     const { data } = await api.post(`${PREFIX}/${id}/cancel`);
     return data;
   },
+
+  createFromDeliveryPlan: async (
+    planId: string
+  ): Promise<{ orders: ProductionOrder[]; planNo: string; totalQty: number; vehicleCapacity: number | null }> => {
+    const { data } = await api.post(`${PREFIX}/from-plan/${planId}`);
+    return data;
+  },
 };

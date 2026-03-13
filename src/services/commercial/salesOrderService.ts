@@ -13,6 +13,7 @@ export interface ShipApproval {
   requestedBy?: { _id: string; name: string } | null;
   approvedAt?: string;
   approvedBy?: { _id: string; name: string } | null;
+  approverNotes?: string;
   rejectedAt?: string;
   rejectedBy?: { _id: string; name: string } | null;
   rejectionReason?: string;
@@ -22,14 +23,17 @@ export interface SalesOrder {
   _id: string;
   orderNo: string;
   customerName: string;
-  status: "DRAFT" | "CONFIRMED" | "PREPARED" | "SHIPPED" | "DELIVERED" | "CANCELLED";
+  status: "DRAFT" | "CONFIRMED" | "PREPARED" | "SHIPPED" | "DELIVERED" | "CLOSED" | "CANCELLED";
   promisedDate?: string;
   preparedAt?: string;
   shippedAt?: string;
   deliveredAt?: string;
+  closedAt?: string;
   trackingNumber?: string;
   carrierId?: { _id: string; name: string; code: string } | null;
+  vehicleId?: { _id: string; matricule: string; capacityPackets: number; capacityKg: number } | null;
   shippingCost?: number;
+  shipmentAddress?: string;
   isUrgent?: boolean;
   shipApproval?: ShipApproval;
   notes?: string;
@@ -71,11 +75,14 @@ export const salesOrderService = {
   cancel: async (id: string) =>
     (await api.post(`/commercial/orders/${id}/cancel`)).data,
 
-  ship: async (id: string, payload?: { trackingNumber?: string; carrierId?: string; shippingCost?: number }) =>
+  ship: async (id: string, payload?: { trackingNumber?: string; carrierId?: string; vehicleId?: string; shippingCost?: number; shipmentAddress?: string }) =>
     (await api.post(`/commercial/orders/${id}/ship`, payload || {})).data,
 
   deliver: async (id: string) =>
     (await api.post(`/commercial/orders/${id}/deliver`)).data,
+
+  close: async (id: string) =>
+    (await api.post(`/commercial/orders/${id}/close`)).data,
 
   markUrgent: async (id: string, urgent: boolean) =>
     (await api.post(`/commercial/orders/${id}/mark-urgent`, { urgent })).data,

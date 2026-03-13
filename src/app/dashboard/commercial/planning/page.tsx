@@ -7,9 +7,9 @@ import {
   DeliveryPlan,
   CreateDeliveryPlanPayload,
 } from "@/services/commercial/deliveryPlanService";
+import { customerService } from "@/services/commercial/customerService";
 import { SalesOrder } from "@/services/commercial/salesOrderService";
 import { carrierService, Carrier } from "@/services/commercial/carrierService";
-import { vehicleService, Vehicle } from "@/services/commercial/vehicleService";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
@@ -43,14 +43,21 @@ function statusBadge(status: string) {
   return map[status] ?? "bg-slate-100 text-slate-600";
 }
 
+const TUNISIA_GOVERNORATES = [
+  "Ariana","Béja","Ben Arous","Bizerte","Gabès","Gafsa","Jendouba",
+  "Kairouan","Kasserine","Kébili","Le Kef","Mahdia","La Manouba","Médenine",
+  "Monastir","Nabeul","Sfax","Sidi Bouzid","Siliana","Sousse",
+  "Tataouine","Tozeur","Tunis","Zaghouan",
+];
+
 const emptyForm: CreateDeliveryPlanPayload = {
   planDate: "",
   carrierId: "",
-  vehicleId: "",
   zone: "",
   startDate: "",
   orderIds: [],
   notes: "",
+  planType: "SHIPMENT",
 };
 
 function planNoPreview(planDate: string) {
@@ -68,7 +75,8 @@ export default function PlanningPage() {
   const [plans, setPlans] = useState<DeliveryPlan[]>([]);
   const [unassigned, setUnassigned] = useState<SalesOrder[]>([]);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [discoveredZones, setDiscoveredZones] = useState<string[]>([]);
+  const [coveredGovs, setCoveredGovs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionId, setActionId] = useState<string | null>(null);
@@ -81,16 +89,20 @@ export default function PlanningPage() {
     try {
       setLoading(true);
       setError("");
-      const [plansData, unassignedData, carriersData, vehiclesData] = await Promise.all([
+      const [plansData, unassignedData, carriersData, discoveredData, customersData] = await Promise.all([
         deliveryPlanService.getAll(),
         deliveryPlanService.getUnassigned(),
         carrierService.getActive(),
-        vehicleService.getActive(),
+        deliveryPlanService.getDiscoveredZones(),
+        customerService.getAll(),
       ]);
       setPlans(plansData);
       setUnassigned(unassignedData);
       setCarriers(carriersData);
-      setVehicles(vehiclesData);
+      setDiscoveredZones(discoveredData);
+      // governorates that already have at least 1 customer
+      const govWithCustomers = [...new Set(customersData.map((c) => c.governorate).filter(Boolean))];
+      setCoveredGovs(govWithCustomers as string[]);
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to load planning data");
     } finally {
@@ -133,7 +145,6 @@ export default function PlanningPage() {
       await deliveryPlanService.create({
         ...form,
         carrierId: form.carrierId || undefined,
-        vehicleId: form.vehicleId || undefined,
       });
       setShowForm(false);
       setForm(emptyForm);
@@ -321,6 +332,26 @@ export default function PlanningPage() {
                   </button>
                 </div>
 
+                {/* Plan type toggle */}
+                <div className="mb-5 flex gap-2">
+                  {(["SHIPMENT", "DISCOVER"] as const).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, planType: type, zone: "", orderIds: [] }))}
+                      className={`flex-1 rounded-2xl border py-2.5 text-sm font-medium transition ${
+                        form.planType === type
+                          ? type === "SHIPMENT"
+                            ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+                            : "border-amber-500 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                          : "border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                      }`}
+                    >
+                      {type === "SHIPMENT" ? "🚚 Plan Livraison" : "🔍 Plan Découverte"}
+                    </button>
+                  ))}
+                </div>
+
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
@@ -373,31 +404,29 @@ export default function PlanningPage() {
                   </div>
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                      {t("fleetTitle") || "Vehicle"}
+                      {t("zone") || "Zone / Région"}
                     </label>
                     <select
-                      value={form.vehicleId || ""}
-                      onChange={(e) => setForm((f) => ({ ...f, vehicleId: e.target.value }))}
-                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
-                    >
-                      <option value="">— {t("fleetTitle") || "Vehicle"} —</option>
-                      {vehicles.map((v) => (
-                        <option key={v._id} value={v._id}>
-                          {v.matricule} ({v.capacityKg} kg / {v.capacityPackets} colis)
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                      {t("zone") || "Zone / Region"}
-                    </label>
-                    <input
                       value={form.zone || ""}
                       onChange={(e) => setForm((f) => ({ ...f, zone: e.target.value }))}
-                      placeholder="Ex: Grand Tunis, Sfax..."
                       className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
-                    />
+                    >
+                      <option value="">— Sélectionner —</option>
+                      {TUNISIA_GOVERNORATES
+                        .filter((g) =>
+                          form.planType !== "DISCOVER" ||
+                          (!coveredGovs.some((c) => c.toLowerCase() === g.toLowerCase()) &&
+                           !discoveredZones.some((d) => d.toLowerCase() === g.toLowerCase()))
+                        )
+                        .map((g) => (
+                          <option key={g} value={g}>{g}</option>
+                        ))}
+                    </select>
+                    {form.planType === "DISCOVER" && (
+                      <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                        Seules les régions non encore visitées sont affichées
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
@@ -411,8 +440,8 @@ export default function PlanningPage() {
                   </div>
                 </div>
 
-                {/* Order selection */}
-                {unassigned.length > 0 && (
+                {/* Order selection — only for SHIPMENT plans */}
+                {form.planType === "SHIPMENT" && unassigned.length > 0 && (
                   <div className="mt-4">
                     <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-300">
                       {t("selectOrders") || "Select orders to include"}{" "}
@@ -498,6 +527,9 @@ export default function PlanningPage() {
               plans.map((plan) => {
                 const isExpanded = expandedId === plan._id;
                 const busy = actionId === plan._id;
+                const canComplete = plan.orderIds.every((order) =>
+                  ["DELIVERED", "CLOSED", "CANCELLED"].includes(order.status)
+                );
 
                 return (
                   <div key={plan._id} className={`${surface} overflow-hidden`}>
@@ -522,6 +554,11 @@ export default function PlanningPage() {
                           >
                             {plan.status.replace("_", " ")}
                           </span>
+                          {plan.planType === "DISCOVER" && (
+                            <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                              Découverte
+                            </span>
+                          )}
                         </div>
                         <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-400">
                           <span className="flex items-center gap-1">
@@ -565,7 +602,8 @@ export default function PlanningPage() {
                         {plan.status === "IN_PROGRESS" && (
                           <button
                             onClick={() => handleComplete(plan._id)}
-                            disabled={busy}
+                            disabled={busy || !canComplete}
+                            title={!canComplete ? "Deliver all linked orders before completing the plan" : undefined}
                             className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
                           >
                             {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
@@ -603,9 +641,14 @@ export default function PlanningPage() {
                                 className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900"
                               >
                                 <div>
-                                  <p className="text-sm font-medium text-slate-900 dark:text-white">
-                                    {order.orderNo}
-                                  </p>
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-sm font-medium text-slate-900 dark:text-white">
+                                      {order.orderNo}
+                                    </p>
+                                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadge(order.status)}`}>
+                                      {order.status}
+                                    </span>
+                                  </div>
                                   <p className="text-xs text-slate-500 dark:text-slate-400">
                                     {order.customerName}
                                   </p>
@@ -622,7 +665,7 @@ export default function PlanningPage() {
                         </div>
                         {plan.completedAt && (
                           <p className="mt-3 text-[11px] text-emerald-600 dark:text-emerald-400">
-                            ✓ Completed {new Date(plan.completedAt).toLocaleDateString("fr-TN")} — all orders marked as delivered
+                            Completed {new Date(plan.completedAt).toLocaleDateString("fr-TN")}
                           </p>
                         )}
                       </div>

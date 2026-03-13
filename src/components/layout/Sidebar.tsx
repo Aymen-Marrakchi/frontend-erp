@@ -28,6 +28,7 @@ import {
   Tag,
   Car,
   Globe,
+  ShieldAlert,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -104,6 +105,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/commercial/customers", label: t("customersTitle") || "Customers", icon: Users },
     { href: "/dashboard/commercial/prices", label: t("pricesTitle") || "Sale Prices", icon: Tag },
     { href: "/dashboard/commercial/orders", label: t("onlineOrders"), icon: FileText },
+    { href: "/dashboard/commercial/returns", label: t("returnsRefunds"), icon: RotateCcw },
     { href: "/dashboard/commercial/preparation", label: t("prepared") || "Preparation", icon: Package },
     { href: "/dashboard/commercial/shipments", label: t("shipped") || "Shipments", icon: Truck },
     { href: "/dashboard/commercial/carriers", label: t("carriersTitle") || "Carriers", icon: Truck },
@@ -111,6 +113,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/commercial/planning", label: t("deliveryPlanning") || "Delivery Planning", icon: CalendarDays },
     { href: "/dashboard/commercial/regions", label: t("regionsTitle") || "Régions", icon: Globe },
     { href: "/dashboard/commercial/backorders", label: t("backorders") || "Backorders", icon: RotateCcw },
+    { href: "/dashboard/commercial/approvals", label: "Approbations", icon: ShieldAlert },
     { href: "/dashboard/commercial/reports", label: t("reportsKpi") || "Reports", icon: BarChart3 },
     { href: "/dashboard/production", label: "Production", icon: Factory },
   ];

@@ -20,7 +20,6 @@ export interface VehicleDelivery {
   planDate: string;
   status: string;
   zone: string;
-  driver: string;
   orderIds: {
     _id: string;
     orderNo: string;

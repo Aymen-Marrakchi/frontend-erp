@@ -8,7 +8,6 @@ import {
   Package,
   Loader2,
   Search,
-  CheckCircle,
   XCircle,
   ChevronDown,
   ShoppingCart,
@@ -218,7 +217,7 @@ export default function CommercialPreparationPage() {
   };
 
   return (
-    <ProtectedRoute allowedRoles={["ADMIN", "COMMERCIAL_MANAGER", "WAREHOUSE_OPERATOR"]}>
+    <ProtectedRoute allowedRoles={["ADMIN", "COMMERCIAL_MANAGER"]}>
       <div className="space-y-6">
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
           <div>

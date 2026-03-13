@@ -1,0 +1,121 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - generic [ref=e7]:
+            - generic [ref=e8]: ERP Workspace
+            - generic [ref=e9]: ERP.
+          - button [ref=e10]:
+            - img [ref=e11]
+        - generic [ref=e12]:
+          - generic [ref=e13]: Logged in as
+          - generic [ref=e14]: Admin User
+          - generic [ref=e15]: ADMIN
+        - navigation [ref=e16]:
+          - link "Dashboard" [ref=e17] [cursor=pointer]:
+            - /url: /dashboard/admin
+            - img [ref=e18]
+            - generic [ref=e23]: Dashboard
+          - link "HR" [ref=e24] [cursor=pointer]:
+            - /url: /dashboard/admin/hr
+            - img [ref=e25]
+            - generic [ref=e30]: HR
+          - link "Marketing" [ref=e31] [cursor=pointer]:
+            - /url: /dashboard/admin/marketing
+            - img [ref=e32]
+            - generic [ref=e35]: Marketing
+          - link "Online Sales" [ref=e36] [cursor=pointer]:
+            - /url: /dashboard/admin/sales
+            - img [ref=e37]
+            - generic [ref=e41]: Online Sales
+          - link "Stock" [ref=e42] [cursor=pointer]:
+            - /url: /dashboard/admin/stock
+            - img [ref=e43]
+            - generic [ref=e47]: Stock
+          - link "Commercial" [ref=e48] [cursor=pointer]:
+            - /url: /dashboard/admin/commercial
+            - img [ref=e49]
+            - generic [ref=e53]: Commercial
+          - link "Finance" [ref=e54] [cursor=pointer]:
+            - /url: /dashboard/admin/finance
+            - img [ref=e55]
+            - generic [ref=e57]: Finance
+          - link "Purchasing" [ref=e58] [cursor=pointer]:
+            - /url: /dashboard/admin/purchase
+            - img [ref=e59]
+            - generic [ref=e64]: Purchasing
+    - main [ref=e65]:
+      - generic [ref=e66]:
+        - generic [ref=e68]:
+          - generic [ref=e69]:
+            - generic [ref=e70]: EMM Hardware ERP · V2.4
+            - generic [ref=e71]: Admin
+          - generic [ref=e72]:
+            - button "FR" [ref=e73]
+            - button [ref=e74]:
+              - img [ref=e75]
+            - button "AU Admin User Admin" [ref=e82]:
+              - generic [ref=e83]: AU
+              - generic [ref=e84]:
+                - generic [ref=e85]: Admin User
+                - generic [ref=e86]: Admin
+              - img [ref=e87]
+        - generic [ref=e90]:
+          - generic [ref=e91]:
+            - generic [ref=e92]:
+              - paragraph [ref=e93]: Commercial · ERP
+              - generic [ref=e94]:
+                - img [ref=e96]
+                - generic [ref=e100]:
+                  - heading "Commercial Orders" [level=1] [ref=e101]
+                  - paragraph [ref=e102]: Manage sales orders, confirmations and shipments
+            - button "Create Sales Order" [ref=e103]:
+              - img [ref=e104]
+              - text: Create Sales Order
+          - generic [ref=e105]:
+            - text: Failed to load orders
+            - button [ref=e106]:
+              - img [ref=e107]
+          - generic [ref=e110]:
+            - generic [ref=e111]:
+              - paragraph [ref=e112]: Total Orders
+              - paragraph [ref=e113]: "0"
+            - generic [ref=e114]:
+              - paragraph [ref=e115]: Draft
+              - paragraph [ref=e116]: "0"
+            - generic [ref=e117]:
+              - paragraph [ref=e118]: Confirmed
+              - paragraph [ref=e119]: "0"
+            - generic [ref=e120]:
+              - paragraph [ref=e121]: Prepared
+              - paragraph [ref=e122]: "0"
+            - generic [ref=e123]:
+              - paragraph [ref=e124]: Late Orders
+              - paragraph [ref=e125]: "0"
+          - generic [ref=e126]:
+            - generic [ref=e127]:
+              - heading "All Orders0" [level=2] [ref=e128]
+              - generic [ref=e129]:
+                - generic [ref=e130]:
+                  - img [ref=e131]
+                  - textbox "Search orders..." [active] [ref=e134]: ORD-PW-1773424636679
+                - combobox [ref=e135]:
+                  - option "All Status" [selected]
+                  - option "Late"
+                  - option "Draft"
+                  - option "Confirmed"
+                  - option "Prepared"
+                  - option "Shipped"
+                  - option "Delivered"
+                  - option "Cancelled"
+            - generic [ref=e136]:
+              - img [ref=e137]
+              - text: No orders yet
+  - button "Open Next.js Dev Tools" [ref=e146] [cursor=pointer]:
+    - img [ref=e147]
+  - alert [ref=e150]
+```

@@ -46,6 +46,34 @@ interface OrderLine {
   discount: string;
 }
 
+const EMPTY_ORDER_LINE: OrderLine = {
+  productId: "",
+  quantity: "",
+  unitPrice: "",
+  discount: "",
+};
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function suggestedPromiseDate(lines: OrderLine[]) {
+  const totalQuantity = lines.reduce(
+    (sum, line) => sum + (Number(line.quantity) || 0),
+    0
+  );
+
+  if (totalQuantity <= 10) return addDays(new Date(), 2);
+  if (totalQuantity <= 50) return addDays(new Date(), 4);
+  return addDays(new Date(), 7);
+}
+
+function toDateInputValue(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
 interface ShipApproval {
   status: "NONE" | "PENDING" | "APPROVED" | "REJECTED";
   rejectionReason?: string;
@@ -55,7 +83,7 @@ interface Order {
   _id: string;
   orderNo: string;
   customerName: string;
-  status: "DRAFT" | "CONFIRMED" | "PREPARED" | "SHIPPED" | "DELIVERED" | "CANCELLED";
+  status: "DRAFT" | "CONFIRMED" | "PREPARED" | "SHIPPED" | "DELIVERED" | "CLOSED" | "CANCELLED";
   preparedAt?: string;
   shippedAt?: string;
   deliveredAt?: string;
@@ -89,6 +117,7 @@ function statusBadge(status: string) {
     PREPARED: "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300",
     SHIPPED: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
     DELIVERED: "bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300",
+    CLOSED: "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300",
     CANCELLED: "bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300",
   };
   return map[status] ?? "bg-slate-100 text-slate-600";
@@ -137,11 +166,24 @@ export default function CommercialOrdersPage() {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
 
-  const [form, setForm] = useState({ orderNoSuffix: "", customerId: "", notes: "" });
-  const [lines, setLines] = useState<OrderLine[]>([
-    { productId: "", quantity: "", unitPrice: "", discount: "" },
-  ]);
+  const [form, setForm] = useState({
+    orderNoSuffix: "",
+    customerId: "",
+    notes: "",
+    promisedDate: toDateInputValue(suggestedPromiseDate([EMPTY_ORDER_LINE])),
+  });
+  const [lines, setLines] = useState<OrderLine[]>([EMPTY_ORDER_LINE]);
   const [showForm, setShowForm] = useState(false);
+
+  useEffect(() => {
+    setForm((prev) => {
+      if (prev.promisedDate) return prev;
+      return {
+        ...prev,
+        promisedDate: toDateInputValue(suggestedPromiseDate(lines)),
+      };
+    });
+  }, [lines]);
 
   useEffect(() => {
     fetchAll();
@@ -151,22 +193,42 @@ export default function CommercialOrdersPage() {
     try {
       setLoading(true);
       setError("");
-      const [productData, orderData, backorderData, customerData] = await Promise.all([
+      const [productResult, orderResult, backorderResult, customerResult] = await Promise.allSettled([
         stockProductService.getAll(),
         salesOrderService.getAll(),
         backorderService.getAll(),
         customerService.getActive(),
       ]);
-      setProducts(productData.filter((p: Product) => p.status === "ACTIVE" && p.type === "PRODUIT_FINI"));
-      setOrders(orderData);
-      setCustomers(customerData);
+
+      if (orderResult.status !== "fulfilled") {
+        throw orderResult.reason;
+      }
+
+      const productData =
+        productResult.status === "fulfilled"
+          ? productResult.value
+          : [];
+      const backorderData =
+        backorderResult.status === "fulfilled"
+          ? backorderResult.value
+          : [];
+      const customerData =
+        customerResult.status === "fulfilled"
+          ? customerResult.value
+          : [];
+
+      setProducts(
+        productData.filter((p: Product) => p.status === "ACTIVE" && p.type === "PRODUIT_FINI")
+      );
+      setOrders(orderResult.value);
       setBackorderedIds(
         new Set(
           backorderData
             .filter((b: any) => b.status === "PENDING")
-            .map((b: any) => String(b.salesOrderId))
+            .map((b: any) => String(b.salesOrderId?._id || b.salesOrderId))
         )
       );
+      setCustomers(customerData);
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to load orders");
     } finally {
@@ -183,7 +245,7 @@ export default function CommercialOrdersPage() {
   };
 
   const addLine = () => {
-    setLines((prev) => [...prev, { productId: "", quantity: "", unitPrice: "", discount: "" }]);
+    setLines((prev) => [...prev, { ...EMPTY_ORDER_LINE }]);
   };
 
   const handleCreate = async () => {
@@ -207,6 +269,7 @@ export default function CommercialOrdersPage() {
         orderNo: `ORD-${form.orderNoSuffix.trim()}`,
         customerId: form.customerId,
         notes: form.notes,
+        promisedDate: form.promisedDate ? new Date(form.promisedDate).toISOString() : undefined,
         lines: validLines.map((l) => ({
           productId: l.productId,
           quantity: Number(l.quantity),
@@ -214,8 +277,13 @@ export default function CommercialOrdersPage() {
           discount: Number(l.discount) || 0,
         })),
       });
-      setForm({ orderNoSuffix: "", customerId: "", notes: "" });
-      setLines([{ productId: "", quantity: "", unitPrice: "", discount: "" }]);
+      setForm({
+        orderNoSuffix: "",
+        customerId: "",
+        notes: "",
+        promisedDate: toDateInputValue(suggestedPromiseDate([EMPTY_ORDER_LINE])),
+      });
+      setLines([{ ...EMPTY_ORDER_LINE }]);
       setShowForm(false);
       await fetchAll();
     } catch (err: any) {
@@ -226,7 +294,7 @@ export default function CommercialOrdersPage() {
   };
 
   const runAction = async (
-    action: "confirm" | "prepare" | "cancel" | "ship" | "deliver" | "markUrgent" | "unmarkUrgent" | "requestApproval" | "approveShip",
+    action: "confirm" | "prepare" | "cancel" | "deliver" | "close" | "markUrgent" | "unmarkUrgent" | "requestApproval" | "approveShip",
     id: string
   ) => {
     try {
@@ -236,8 +304,8 @@ export default function CommercialOrdersPage() {
       if (action === "confirm") await salesOrderService.confirm(id);
       if (action === "prepare") await salesOrderService.prepare(id);
       if (action === "cancel") await salesOrderService.cancel(id);
-      if (action === "ship") await salesOrderService.ship(id);
       if (action === "deliver") await salesOrderService.deliver(id);
+      if (action === "close") await salesOrderService.close(id);
       if (action === "markUrgent") await salesOrderService.markUrgent(id, true);
       if (action === "unmarkUrgent") await salesOrderService.markUrgent(id, false);
       if (action === "requestApproval") await salesOrderService.requestApproval(id);
@@ -294,7 +362,7 @@ export default function CommercialOrdersPage() {
   }), [orders]);
 
   return (
-    <ProtectedRoute allowedRoles={["ADMIN", "COMMERCIAL_MANAGER", "WAREHOUSE_OPERATOR"]}>
+    <ProtectedRoute allowedRoles={["ADMIN", "COMMERCIAL_MANAGER"]}>
       <div className="space-y-6">
         {/* ── Header ── */}
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
@@ -390,6 +458,23 @@ export default function CommercialOrdersPage() {
                     </option>
                   ))}
                 </select>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className={labelClass}>Promised Date</label>
+                  <input
+                    type="date"
+                    className={inputClass}
+                    value={form.promisedDate}
+                    onChange={(e) => setForm((f) => ({ ...f, promisedDate: e.target.value }))}
+                  />
+                </div>
+                <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-300">
+                  Suggested SLA date: {toDateInputValue(suggestedPromiseDate(lines))}
+                </div>
               </div>
             </div>
 
@@ -675,37 +760,43 @@ export default function CommercialOrdersPage() {
                           </button>
                         )}
 
-                        {/* Prepare: both roles on CONFIRMED */}
+                        {/* Prepare on CONFIRMED */}
                         {order.status === "CONFIRMED" && (
-                          <button
-                            onClick={() => runAction("prepare", order._id)}
-                            disabled={busy}
-                            className="inline-flex items-center gap-1.5 rounded-2xl bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
-                          >
-                            {busy ? <Loader2 size={11} className="animate-spin" /> : <Package size={11} />}
-                            {t("prepared") || "Prepare"}
-                          </button>
+                          backorderedIds.has(order._id) ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-2xl bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 dark:bg-amber-950/20 dark:text-amber-400">
+                              <RotateCcw size={11} />
+                              Backorder pending
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => runAction("prepare", order._id)}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1.5 rounded-2xl bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
+                            >
+                              {busy ? <Loader2 size={11} className="animate-spin" /> : <Package size={11} />}
+                              {t("prepared") || "Prepare"}
+                            </button>
+                          )
                         )}
 
-                        {/* Ship / approval flow on PREPARED */}
+                        {/* Shipment / approval flow on PREPARED */}
                         {order.status === "PREPARED" && (() => {
                           const approval = order.shipApproval?.status ?? "NONE";
-                          const canShipDirectly = !order.isUrgent || isManager || approval === "APPROVED";
+                          const canOpenShipment = !order.isUrgent || approval === "APPROVED";
 
-                          if (canShipDirectly) {
+                          if (canOpenShipment) {
                             return (
-                              <button
-                                onClick={() => runAction("ship", order._id)}
-                                disabled={busy}
+                              <Link
+                                href={`/dashboard/commercial/shipments?order=${order._id}`}
                                 className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
                               >
-                                {busy ? <Loader2 size={11} className="animate-spin" /> : <Truck size={11} />}
-                                {t("ship")}
-                              </button>
+                                <Truck size={11} />
+                                Open Shipment
+                              </Link>
                             );
                           }
 
-                          // Urgent + WAREHOUSE_OPERATOR
+                          // Urgent — awaiting manager decision
                           if (approval === "PENDING") {
                             return (
                               <span className="inline-flex items-center gap-1.5 rounded-2xl bg-yellow-50 px-3 py-1.5 text-xs font-medium text-yellow-700 dark:bg-yellow-950/20 dark:text-yellow-400">
@@ -796,6 +887,18 @@ export default function CommercialOrdersPage() {
                             {t("delivered") || "Deliver"}
                           </button>
                         )}
+
+                        {/* Close: managers only */}
+                        {order.status === "DELIVERED" && isManager && (
+                          <button
+                            onClick={() => runAction("close", order._id)}
+                            disabled={busy}
+                            className="inline-flex items-center gap-1.5 rounded-2xl bg-slate-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-700 disabled:opacity-50"
+                          >
+                            {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
+                            Clôturer
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -813,7 +916,8 @@ export default function CommercialOrdersPage() {
   {order.preparedAt && <span>Prepared: {new Date(order.preparedAt).toLocaleDateString("fr-TN")}</span>}
   {order.shippedAt && <span>Shipped: {new Date(order.shippedAt).toLocaleDateString("fr-TN")}</span>}
   {order.deliveredAt && <span>Delivered: {new Date(order.deliveredAt).toLocaleDateString("fr-TN")}</span>}
-  {order.trackingNumber && <span>Tracking: {order.trackingNumber}</span>}
+  {order.vehicleId?.matricule && <span>Car: {order.vehicleId.matricule}</span>}
+  {!order.vehicleId?.matricule && order.trackingNumber && <span>Tracking: {order.trackingNumber}</span>}
 </div>
                         <table className="w-full text-sm">
                           <thead>

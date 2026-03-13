@@ -2,7 +2,9 @@
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useLanguage } from "@/context/LanguageContext";
+import { useAuth } from "@/context/AuthContext";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { salesOrderService, SalesOrder } from "@/services/commercial/salesOrderService";
 import { carrierService, Carrier } from "@/services/commercial/carrierService";
 import { vehicleService, Vehicle } from "@/services/commercial/vehicleService";
@@ -17,6 +19,10 @@ import {
   X,
   DollarSign,
   CalendarDays,
+  AlertTriangle,
+  ShieldCheck,
+  ShieldX,
+  Clock,
 } from "lucide-react";
 
 const surface =
@@ -37,8 +43,37 @@ function lineAmount(line: { quantity: number; unitPrice: number; discount?: numb
   return subtotal * (1 - discountPct / 100);
 }
 
+function estimatedCarrierCost(carrier: Carrier, order: SalesOrder) {
+  void order;
+  return carrier.baseRateFlat;
+}
+
+function recommendedCarrier(order: SalesOrder, carriers: Carrier[]) {
+  if (carriers.length === 0) return null;
+
+  return carriers.reduce((best, carrier) => {
+    const currentCost = estimatedCarrierCost(carrier, order);
+    if (!best) {
+      return { carrier, cost: currentCost };
+    }
+
+    if (currentCost < best.cost) {
+      return { carrier, cost: currentCost };
+    }
+
+    if (currentCost === best.cost && carrier.name.localeCompare(best.carrier.name) < 0) {
+      return { carrier, cost: currentCost };
+    }
+
+    return best;
+  }, null as { carrier: Carrier; cost: number } | null);
+}
+
 export default function CommercialShipmentsPage() {
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const searchParams = useSearchParams();
+  const isManager = user?.role === "ADMIN" || user?.role === "COMMERCIAL_MANAGER";
 
   const [orders, setOrders] = useState<SalesOrder[]>([]);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
@@ -51,6 +86,15 @@ export default function CommercialShipmentsPage() {
   const [vehicleInputs, setVehicleInputs] = useState<Record<string, string>>({});
   const [carrierInputs, setCarrierInputs] = useState<Record<string, string>>({});
   const [costInputs, setCostInputs] = useState<Record<string, string>>({});
+  const [rejectModal, setRejectModal] = useState<{ id: string } | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+
+  useEffect(() => {
+    const orderId = searchParams.get("order");
+    if (orderId) {
+      setSearch(orderId);
+    }
+  }, [searchParams]);
 
   const fetchOrders = async () => {
     try {
@@ -86,7 +130,8 @@ export default function CommercialShipmentsPage() {
     return preparedOrders.filter(
       (o) =>
         o.orderNo.toLowerCase().includes(q) ||
-        o.customerName.toLowerCase().includes(q)
+        o.customerName.toLowerCase().includes(q) ||
+        o._id.toLowerCase().includes(q)
     );
   }, [preparedOrders, search]);
 
@@ -95,17 +140,51 @@ export default function CommercialShipmentsPage() {
     return shippedOrders.filter(
       (o) =>
         o.orderNo.toLowerCase().includes(q) ||
-        o.customerName.toLowerCase().includes(q)
+        o.customerName.toLowerCase().includes(q) ||
+        o._id.toLowerCase().includes(q)
     );
   }, [shippedOrders, search]);
+
+  useEffect(() => {
+    if (carriers.length === 0 || preparedOrders.length === 0) return;
+
+    setCarrierInputs((prev) => {
+      const next = { ...prev };
+      let changed = false;
+
+      for (const order of preparedOrders) {
+        if (next[order._id]) continue;
+        const suggestion = recommendedCarrier(order, carriers);
+        if (!suggestion) continue;
+        next[order._id] = suggestion.carrier._id;
+        changed = true;
+      }
+
+      return changed ? next : prev;
+    });
+
+    setCostInputs((prev) => {
+      const next = { ...prev };
+      let changed = false;
+
+      for (const order of preparedOrders) {
+        if (next[order._id]) continue;
+        const suggestion = recommendedCarrier(order, carriers);
+        if (!suggestion) continue;
+        next[order._id] = suggestion.cost.toFixed(2);
+        changed = true;
+      }
+
+      return changed ? next : prev;
+    });
+  }, [carriers, preparedOrders]);
 
   const handleShip = async (order: SalesOrder) => {
     try {
       setActionId(order._id);
       setError("");
-      const selectedVehicle = vehicles.find((vehicle) => vehicle._id === vehicleInputs[order._id]);
       await salesOrderService.ship(order._id, {
-        trackingNumber: selectedVehicle?.matricule || "",
+        vehicleId: vehicleInputs[order._id] || undefined,
         carrierId: carrierInputs[order._id] || undefined,
         shippingCost: parseFloat(costInputs[order._id] || "0") || 0,
       });
@@ -130,11 +209,53 @@ export default function CommercialShipmentsPage() {
     }
   };
 
+  const handleRequestApproval = async (id: string) => {
+    try {
+      setActionId(id);
+      setError("");
+      await salesOrderService.requestApproval(id);
+      await fetchOrders();
+    } catch (err: any) {
+      setError(err.response?.data?.message || "Failed to request approval");
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const handleApproveShip = async (id: string) => {
+    try {
+      setActionId(id);
+      setError("");
+      await salesOrderService.approveShip(id);
+      await fetchOrders();
+    } catch (err: any) {
+      setError(err.response?.data?.message || "Failed to approve");
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const handleRejectShip = async () => {
+    if (!rejectModal) return;
+    try {
+      setActionId(rejectModal.id);
+      setError("");
+      await salesOrderService.rejectShip(rejectModal.id, rejectReason);
+      setRejectModal(null);
+      setRejectReason("");
+      await fetchOrders();
+    } catch (err: any) {
+      setError(err.response?.data?.message || "Failed to reject");
+    } finally {
+      setActionId(null);
+    }
+  };
+
   const orderTotal = (order: SalesOrder) =>
     order.lines.reduce((sum, l) => sum + lineAmount(l), 0);
 
   return (
-    <ProtectedRoute allowedRoles={["ADMIN", "COMMERCIAL_MANAGER", "WAREHOUSE_OPERATOR"]}>
+    <ProtectedRoute allowedRoles={["ADMIN", "COMMERCIAL_MANAGER"]}>
       <div className="space-y-6">
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
           <div>
@@ -240,6 +361,11 @@ export default function CommercialShipmentsPage() {
                 const isExpanded = expandedId === order._id;
                 const busy = actionId === order._id;
                 const total = orderTotal(order);
+                const suggestion = recommendedCarrier(order, carriers);
+                const selectedCarrier =
+                  carriers.find((carrier) => carrier._id === (carrierInputs[order._id] || "")) || null;
+                const displayedEstimatedCost =
+                  costInputs[order._id] || (suggestion ? suggestion.cost.toFixed(2) : "");
 
                 return (
                   <div key={order._id}>
@@ -264,6 +390,26 @@ export default function CommercialShipmentsPage() {
                           >
                             {order.status}
                           </span>
+                          {order.isUrgent && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                              <AlertTriangle size={9} /> URGENT
+                            </span>
+                          )}
+                          {order.isUrgent && order.shipApproval?.status === "PENDING" && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                              <Clock size={9} /> En attente d&apos;approbation
+                            </span>
+                          )}
+                          {order.isUrgent && order.shipApproval?.status === "APPROVED" && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                              <ShieldCheck size={9} /> Approuvé
+                            </span>
+                          )}
+                          {order.isUrgent && order.shipApproval?.status === "REJECTED" && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                              <ShieldX size={9} /> Rejeté
+                            </span>
+                          )}
                         </div>
                         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
                           {order.customerName}
@@ -273,15 +419,34 @@ export default function CommercialShipmentsPage() {
                             Prepared: {new Date(order.preparedAt).toLocaleDateString("fr-TN")}
                           </p>
                         )}
+                        {suggestion && (
+                          <p className="mt-0.5 text-[11px] text-blue-500">
+                            Suggested carrier: {suggestion.carrier.name} ({suggestion.cost.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND estimated)
+                          </p>
+                        )}
+                        {order.isUrgent && order.shipApproval?.status === "REJECTED" && order.shipApproval.rejectionReason && (
+                          <p className="mt-0.5 text-[11px] text-rose-500">
+                            Motif: {order.shipApproval.rejectionReason}
+                          </p>
+                        )}
                       </div>
 
                       <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row">
                         {/* Carrier selector */}
                         <select
                           value={carrierInputs[order._id] || ""}
-                          onChange={(e) =>
-                            setCarrierInputs((prev) => ({ ...prev, [order._id]: e.target.value }))
-                          }
+                          onChange={(e) => {
+                            const nextCarrierId = e.target.value;
+                            setCarrierInputs((prev) => ({ ...prev, [order._id]: nextCarrierId }));
+
+                            const nextCarrier = carriers.find((carrier) => carrier._id === nextCarrierId);
+                            if (nextCarrier) {
+                              setCostInputs((prev) => ({
+                                ...prev,
+                                [order._id]: estimatedCarrierCost(nextCarrier, order).toFixed(2),
+                              }));
+                            }
+                          }}
                           className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
                         >
                           <option value="">— Carrier —</option>
@@ -299,7 +464,7 @@ export default function CommercialShipmentsPage() {
                             type="number"
                             min={0}
                             step={0.01}
-                            value={costInputs[order._id] || ""}
+                            value={displayedEstimatedCost}
                             onChange={(e) =>
                               setCostInputs((prev) => ({ ...prev, [order._id]: e.target.value }))
                             }
@@ -334,10 +499,46 @@ export default function CommercialShipmentsPage() {
                         </p>
                       </div>
 
-                      <div className="flex shrink-0 items-center gap-2">
+                      <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        {/* Urgent: request approval (not yet requested) */}
+                        {order.isUrgent && (!order.shipApproval || order.shipApproval.status === "NONE") && (
+                          <button
+                            onClick={() => handleRequestApproval(order._id)}
+                            disabled={busy}
+                            className="inline-flex items-center gap-1.5 rounded-2xl bg-amber-500 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-amber-600 disabled:opacity-50"
+                          >
+                            {busy ? <Loader2 size={11} className="animate-spin" /> : <ShieldCheck size={11} />}
+                            Demander approbation
+                          </button>
+                        )}
+
+                        {/* Manager: approve / reject when pending */}
+                        {order.isUrgent && order.shipApproval?.status === "PENDING" && isManager && (
+                          <>
+                            <button
+                              onClick={() => handleApproveShip(order._id)}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                            >
+                              {busy ? <Loader2 size={11} className="animate-spin" /> : <ShieldCheck size={11} />}
+                              Approuver
+                            </button>
+                            <button
+                              onClick={() => { setRejectModal({ id: order._id }); setRejectReason(""); }}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1.5 rounded-2xl bg-rose-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-rose-700 disabled:opacity-50"
+                            >
+                              <ShieldX size={11} />
+                              Rejeter
+                            </button>
+                          </>
+                        )}
+
+                        {/* Ship button: disabled for urgent without approval */}
                         <button
                           onClick={() => handleShip(order)}
-                          disabled={busy}
+                          disabled={busy || (order.isUrgent && order.shipApproval?.status !== "APPROVED")}
+                          title={order.isUrgent && order.shipApproval?.status !== "APPROVED" ? "Approbation requise pour les commandes urgentes" : undefined}
                           className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
                         >
                           {busy ? <Loader2 size={11} className="animate-spin" /> : <Truck size={11} />}
@@ -394,6 +595,19 @@ export default function CommercialShipmentsPage() {
                             ))}
                           </tbody>
                         </table>
+                        {(selectedCarrier || suggestion) && (
+                          <div className="mt-4 flex flex-wrap gap-4 text-[11px] text-slate-500 dark:text-slate-400">
+                            <span>
+                              Carrier used: {(selectedCarrier || suggestion?.carrier)?.name || "—"}
+                            </span>
+                            <span>
+                              Estimated cost: {displayedEstimatedCost ? `${Number(displayedEstimatedCost).toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND` : "—"}
+                            </span>
+                            <span>
+                              Flat-rate basis
+                            </span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -488,6 +702,40 @@ export default function CommercialShipmentsPage() {
           )}
         </div>
       </div>
+
+      {/* Reject modal */}
+      {rejectModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className={`${surface} w-full max-w-md p-6`}>
+            <h3 className="mb-4 text-base font-semibold text-slate-900 dark:text-white">
+              Motif du rejet
+            </h3>
+            <textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Expliquez pourquoi la demande est rejetée..."
+              rows={3}
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setRejectModal(null)}
+                className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleRejectShip}
+                disabled={!rejectReason.trim()}
+                className="inline-flex items-center gap-1.5 rounded-2xl bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-50"
+              >
+                <ShieldX size={13} />
+                Confirmer le rejet
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </ProtectedRoute>
   );
 }
