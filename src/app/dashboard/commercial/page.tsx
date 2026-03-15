@@ -18,6 +18,8 @@ import {
   Loader2,
   RotateCcw,
   CalendarDays,
+  Sparkles,
+  Bell,
 } from "lucide-react";
 
 const surface =
@@ -36,8 +38,19 @@ export default function CommercialDashboardPage() {
         setError("");
         const data = await salesOrderService.getAll();
         setOrders(data);
-      } catch (err: any) {
-        setError(err.response?.data?.message || "Failed to load commercial dashboard");
+      } catch (error: unknown) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "response" in error &&
+          typeof (error as { response?: { data?: { message?: unknown } } }).response?.data?.message === "string"
+        ) {
+          setError((error as { response?: { data?: { message?: string } } }).response?.data?.message || "Failed to load commercial dashboard");
+        } else if (error instanceof Error) {
+          setError(error.message || "Failed to load commercial dashboard");
+        } else {
+          setError("Failed to load commercial dashboard");
+        }
       } finally {
         setLoading(false);
       }
@@ -137,6 +150,18 @@ export default function CommercialDashboardPage() {
       icon: <Users size={18} className="text-sky-500" />,
     },
     {
+      label: "Ordonnancement",
+      desc: "Allocate stock visually across draft orders before confirmation",
+      href: "/dashboard/commercial/ordonnancement",
+      icon: <Sparkles size={18} className="text-amber-500" />,
+    },
+    {
+      label: "Recurring Orders",
+      desc: "Generate draft customer orders monthly or every 3 months",
+      href: "/dashboard/commercial/cyclic-orders",
+      icon: <RotateCcw size={18} className="text-sky-500" />,
+    },
+    {
       label: t("commercialOrdersTitle"),
       desc: t("commercialOrdersSubtitle"),
       href: "/dashboard/commercial/orders",
@@ -165,6 +190,12 @@ export default function CommercialDashboardPage() {
       desc: t("deliveryPlanningSub") || "Schedule and group shipments for delivery runs",
       href: "/dashboard/commercial/planning",
       icon: <CalendarDays size={18} className="text-indigo-500" />,
+    },
+    {
+      label: "Notifications",
+      desc: "Review commercial shipment and delivery notifications",
+      href: "/dashboard/commercial/notifications",
+      icon: <Bell size={18} className="text-amber-500" />,
     },
     {
       label: t("backorders") || "Backorders",

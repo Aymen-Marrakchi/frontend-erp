@@ -149,7 +149,7 @@ export default function PricesPage() {
             {filtered.length === 0 ? (
               <div className="py-16 text-center">
                 <Tag size={28} className="mx-auto mb-3 text-slate-300 dark:text-slate-600" />
-                <p className="text-sm text-slate-500 dark:text-slate-400">No finished products found</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">{t("noFinishedProductsFound")}</p>
               </div>
             ) : (
               <div className="divide-y divide-slate-100 dark:divide-slate-800">

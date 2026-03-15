@@ -26,8 +26,32 @@ const emptyForm: CreateCarrierPayload = {
   contactEmail: "",
   contactPhone: "",
   baseRateFlat: 0,
+  transitDays: 2,
   notes: "",
 };
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "response" in error &&
+    error.response &&
+    typeof error.response === "object" &&
+    "data" in error.response &&
+    error.response.data &&
+    typeof error.response.data === "object" &&
+    "message" in error.response.data &&
+    typeof error.response.data.message === "string"
+  ) {
+    return error.response.data.message;
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return fallback;
+}
 
 export default function CarriersPage() {
   const { t } = useLanguage();
@@ -47,8 +71,8 @@ export default function CarriersPage() {
       setError("");
       const data = await carrierService.getAll();
       setCarriers(data);
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to load carriers");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to load carriers"));
     } finally {
       setLoading(false);
     }
@@ -78,6 +102,7 @@ export default function CarriersPage() {
       contactEmail: carrier.contactEmail || "",
       contactPhone: carrier.contactPhone || "",
       baseRateFlat: carrier.baseRateFlat,
+      transitDays: carrier.transitDays ?? 2,
       notes: carrier.notes || "",
     });
     setShowForm(true);
@@ -85,7 +110,7 @@ export default function CarriersPage() {
 
   const handleSave = async () => {
     if (!form.name.trim() || !form.code.trim()) {
-      setError("Name and code are required");
+      setError(t("nameAndCodeRequired"));
       return;
     }
     try {
@@ -100,8 +125,8 @@ export default function CarriersPage() {
       setEditingId(null);
       setForm(emptyForm);
       await fetchCarriers();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to save carrier");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to save carrier"));
     } finally {
       setSaving(false);
     }
@@ -112,8 +137,8 @@ export default function CarriersPage() {
       setTogglingId(id);
       await carrierService.toggleActive(id);
       await fetchCarriers();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to toggle carrier");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to toggle carrier"));
     } finally {
       setTogglingId(null);
     }
@@ -207,7 +232,7 @@ export default function CarriersPage() {
               </div>
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                  {t("carrierCode") || "Code"} *
+                  {t("codeLabel")} *
                 </label>
                 <input
                   value={form.code}
@@ -249,6 +274,24 @@ export default function CarriersPage() {
                   step={0.01}
                   value={form.baseRateFlat ?? 0}
                   onChange={(e) => setForm((f) => ({ ...f, baseRateFlat: parseFloat(e.target.value) || 0 }))}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                  Transit Days
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={form.transitDays ?? 2}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      transitDays: parseInt(e.target.value || "0", 10) || 0,
+                    }))
+                  }
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
                 />
               </div>
@@ -296,7 +339,7 @@ export default function CarriersPage() {
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder={t("search") || "Search carriers"}
+                placeholder={t("searchCarriers")}
                 className="w-52 rounded-2xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-4 text-xs text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
               />
             </div>
@@ -360,6 +403,9 @@ export default function CarriersPage() {
                         {carrier.baseRateFlat.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
                       </span>{" "}
                       {t("flatRate") || "flat"}
+                    </p>
+                    <p className="mt-1">
+                      Transit: <span className="font-medium text-slate-900 dark:text-white">{carrier.transitDays ?? 2}</span> day(s)
                     </p>
                   </div>
 

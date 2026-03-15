@@ -4,6 +4,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
 import { salesOrderService, SalesOrder } from "@/services/commercial/salesOrderService";
 import { useParams } from "next/navigation";
+import { useLanguage } from "@/context/LanguageContext";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
@@ -27,6 +28,7 @@ const surface =
 
 const statusColors: Record<string, string> = {
   DRAFT: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+  ORDONNANCED: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
   CONFIRMED: "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
   PREPARED: "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300",
   SHIPPED: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
@@ -46,8 +48,33 @@ function isLate(order: SalesOrder): boolean {
   return new Date(order.promisedDate) < new Date();
 }
 
+function hasPlanningRisk(order: SalesOrder): boolean {
+  if (!order.promisedDate || !order.plannedEndDate) return false;
+  return new Date(order.plannedEndDate) > new Date(order.promisedDate);
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "response" in error &&
+    typeof (error as { response?: unknown }).response === "object" &&
+    (error as { response?: { data?: unknown } }).response !== null
+  ) {
+    const response = (error as { response?: { data?: { message?: unknown } } }).response;
+    if (typeof response?.data?.message === "string") {
+      return response.data.message;
+    }
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return fallback;
+}
+
 export default function CommercialOrderDetailsPage() {
   const params = useParams<{ id: string }>();
+  const { t } = useLanguage();
   const { user } = useAuth();
   const isManager = user?.role === "ADMIN" || user?.role === "COMMERCIAL_MANAGER";
 
@@ -64,8 +91,8 @@ export default function CommercialOrderDetailsPage() {
       setError("");
       const data = await salesOrderService.getById(params.id);
       setOrder(data);
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to load order");
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, "Failed to load order"));
     } finally {
       setLoading(false);
     }
@@ -86,8 +113,8 @@ export default function CommercialOrderDetailsPage() {
       setError("");
       await fn();
       await fetchOrder();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Action failed");
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, "Action failed"));
     } finally {
       setActionId(null);
     }
@@ -108,7 +135,7 @@ export default function CommercialOrderDetailsPage() {
               Commercial · ERP
             </p>
             <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-              Order Details
+              {t("orderDetailsTitle")}
             </h1>
           </div>
         </div>
@@ -117,7 +144,7 @@ export default function CommercialOrderDetailsPage() {
           href="/dashboard/commercial/orders"
           className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
         >
-          <ArrowLeft size={14} /> Back to orders
+          <ArrowLeft size={14} /> {t("backToOrders")}
         </Link>
 
         {error && (
@@ -131,10 +158,10 @@ export default function CommercialOrderDetailsPage() {
 
         {loading ? (
           <div className={`${surface} flex items-center justify-center gap-2 py-16 text-sm text-slate-500`}>
-            <Loader2 size={16} className="animate-spin" /> Loading…
+            <Loader2 size={16} className="animate-spin" /> {t("loading")}
           </div>
         ) : !order ? (
-          <div className={`${surface} px-6 py-12 text-sm text-slate-500`}>Order not found.</div>
+          <div className={`${surface} px-6 py-12 text-sm text-slate-500`}>{t("noOrdersYet")}</div>
         ) : (
           <>
             <div className="grid gap-6 xl:grid-cols-3">
@@ -143,7 +170,7 @@ export default function CommercialOrderDetailsPage() {
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
                     <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                      Order No
+                      {t("orderNumber")}
                     </p>
                     <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
                       {order.orderNo}
@@ -151,35 +178,56 @@ export default function CommercialOrderDetailsPage() {
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                       {order.customerName}
                     </p>
+                    {(order.plannedStartDate || order.plannedEndDate) && (
+                      <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                        {order.plannedStartDate
+                          ? `${t("plannedStartLabel")}: ${new Date(order.plannedStartDate).toLocaleDateString("fr-TN")}`
+                          : ""}
+                        {order.plannedStartDate && order.plannedEndDate ? " · " : ""}
+                        {order.plannedEndDate
+                          ? `${t("plannedEndLabel")}: ${new Date(order.plannedEndDate).toLocaleDateString("fr-TN")}`
+                          : ""}
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
+                    {order.source === "RECURRING" && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
+                        {t("recurringLabel")}
+                      </span>
+                    )}
                     <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusColors[order.status] ?? statusColors.DRAFT}`}>
                       {order.status}
                     </span>
                     {order.isUrgent && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-700 dark:bg-orange-950/40 dark:text-orange-400">
-                        <Zap size={11} /> URGENT
+                        <Zap size={11} /> {t("urgent")}
                       </span>
                     )}
                     {isLate(order) && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
-                        <Clock size={11} /> Late
+                        <Clock size={11} /> {t("lateStatus")}
+                      </span>
+                    )}
+                    {hasPlanningRisk(order) && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
+                        <Clock size={11} /> {t("planningRiskLabel")}
                       </span>
                     )}
                     {order.isUrgent && order.shipApproval?.status === "PENDING" && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
-                        <Clock size={11} /> Awaiting Approval
+                        <Clock size={11} /> {t("awaitingApprovalBadge")}
                       </span>
                     )}
                     {order.isUrgent && order.shipApproval?.status === "APPROVED" && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
-                        <ShieldCheck size={11} /> Ship Approved
+                        <ShieldCheck size={11} /> {t("shipApprovedBadge")}
                       </span>
                     )}
                     {order.isUrgent && order.shipApproval?.status === "REJECTED" && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
-                        <ShieldX size={11} /> Approval Rejected
+                        <ShieldX size={11} /> {t("approvalRejectedBadge")}
                       </span>
                     )}
                   </div>
@@ -187,23 +235,23 @@ export default function CommercialOrderDetailsPage() {
 
                 {/* Timestamps */}
                 <div className="mt-5 flex flex-wrap gap-4 text-[11px] text-slate-500 dark:text-slate-400">
-                  {order.createdAt && <span>Créé: {new Date(order.createdAt).toLocaleDateString("fr-TN")}</span>}
+                  {order.createdAt && <span>{t("createdOnLabel")}: {new Date(order.createdAt).toLocaleDateString("fr-TN")}</span>}
                   {order.promisedDate && (
                     <span className={isLate(order) ? "text-rose-500 dark:text-rose-400" : ""}>
-                      Promis: {new Date(order.promisedDate).toLocaleDateString("fr-TN")}
+                      {t("promisedDateLabel")}: {new Date(order.promisedDate).toLocaleDateString("fr-TN")}
                     </span>
                   )}
-                  {order.preparedAt && <span>Préparé: {new Date(order.preparedAt).toLocaleDateString("fr-TN")}</span>}
-                  {order.shippedAt && <span>Expédié: {new Date(order.shippedAt).toLocaleDateString("fr-TN")}</span>}
-                  {order.deliveredAt && <span>Livré: {new Date(order.deliveredAt).toLocaleDateString("fr-TN")}</span>}
-                  {order.closedAt && <span>Clôturé: {new Date(order.closedAt).toLocaleDateString("fr-TN")}</span>}
-                  {order.vehicleId?.matricule && <span>Car: {order.vehicleId.matricule}</span>}
-                  {!order.vehicleId?.matricule && order.trackingNumber && <span>Tracking: {order.trackingNumber}</span>}
+                  {order.preparedAt && <span>{t("preparedOnLabel")}: {new Date(order.preparedAt).toLocaleDateString("fr-TN")}</span>}
+                  {order.shippedAt && <span>{t("shippedOnLabel")}: {new Date(order.shippedAt).toLocaleDateString("fr-TN")}</span>}
+                  {order.deliveredAt && <span>{t("deliveredOnLabel")}: {new Date(order.deliveredAt).toLocaleDateString("fr-TN")}</span>}
+                  {order.closedAt && <span>{t("closedAtLabel")}: {new Date(order.closedAt).toLocaleDateString("fr-TN")}</span>}
+                  {order.vehicleId?.matricule && <span>{t("carrier")}: {order.vehicleId.matricule}</span>}
+                  {!order.vehicleId?.matricule && order.trackingNumber && <span>{t("trackingNo")}: {order.trackingNumber}</span>}
                 </div>
 
                 {order.isUrgent && order.shipApproval?.status === "REJECTED" && order.shipApproval.rejectionReason && (
                   <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400">
-                    Motif rejet: {order.shipApproval.rejectionReason}
+                    {t("rejectionReason")}: {order.shipApproval.rejectionReason}
                   </div>
                 )}
 
@@ -218,31 +266,41 @@ export default function CommercialOrderDetailsPage() {
               <div className="space-y-4">
                 <div className={`${surface} p-6`}>
                   <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                    Total
+                    {t("totalLabel")}
                   </p>
                   <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950 dark:text-white">
                     {total.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
                   </p>
                   <p className="mt-1 text-[11px] text-slate-400">
-                    {order.lines.length} ligne{order.lines.length !== 1 ? "s" : ""}
+                    {order.lines.length} {t("lineCountLabel")}
                   </p>
                 </div>
 
                 {/* Actions */}
                 <div className={`${surface} p-6`}>
                   <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-                    Actions
+                    {t("actionsPanelTitle")}
                   </p>
                   <div className="flex flex-col gap-2">
-                    {/* Confirm DRAFT */}
+                    {/* Ordonance DRAFT */}
                     {order.status === "DRAFT" && isManager && (
+                      <Link
+                        href="/dashboard/commercial/orders"
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-amber-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-amber-600"
+                      >
+                        <Clock size={14} />
+                        {t("ordonanceAction")}
+                      </Link>
+                    )}
+
+                    {order.status === "ORDONNANCED" && isManager && (
                       <button
                         onClick={() => runAction(() => salesOrderService.confirm(order._id))}
                         disabled={busy}
                         className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
                       >
                         {busy ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                        Confirmer
+                        {t("confirm")}
                       </button>
                     )}
 
@@ -258,7 +316,7 @@ export default function CommercialOrderDetailsPage() {
                         }`}
                       >
                         <Zap size={14} />
-                        {order.isUrgent ? "Retirer urgence" : "Marquer urgent"}
+                        {order.isUrgent ? t("unmarkUrgent") : t("markUrgent")}
                       </button>
                     )}
 
@@ -270,7 +328,7 @@ export default function CommercialOrderDetailsPage() {
                         className="inline-flex items-center justify-center gap-2 rounded-2xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
                       >
                         {busy ? <Loader2 size={14} className="animate-spin" /> : <Package size={14} />}
-                        Préparer
+                        {t("prepareOrderAction")}
                       </button>
                     )}
 
@@ -286,11 +344,11 @@ export default function CommercialOrderDetailsPage() {
                               className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700"
                             >
                               <Truck size={14} />
-                              Ouvrir expedition
+                              {t("openShipment")}
                             </Link>
                           ) : approval === "PENDING" ? (
                             <span className="inline-flex items-center justify-center gap-2 rounded-2xl bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-700 dark:bg-amber-950/20 dark:text-amber-400">
-                              <Clock size={14} /> En attente d&apos;approbation
+                              <Clock size={14} /> {t("awaitingApproval")}
                             </span>
                           ) : (
                             <button
@@ -299,7 +357,7 @@ export default function CommercialOrderDetailsPage() {
                               className="inline-flex items-center justify-center gap-2 rounded-2xl bg-amber-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-amber-600 disabled:opacity-50"
                             >
                               {busy ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                              Demander approbation
+                              {t("requestApproval")}
                             </button>
                           )}
 
@@ -312,7 +370,7 @@ export default function CommercialOrderDetailsPage() {
                                 className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
                               >
                                 {busy ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
-                                Approuver expédition
+                                {t("approveShipAction")}
                               </button>
 
                               {rejectingApproval ? (
@@ -321,7 +379,7 @@ export default function CommercialOrderDetailsPage() {
                                     autoFocus
                                     value={rejectReason}
                                     onChange={(e) => setRejectReason(e.target.value)}
-                                    placeholder="Motif du rejet…"
+                                    placeholder={t("rejectReasonPlaceholderText")}
                                     rows={2}
                                     className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs outline-none focus:border-rose-300 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
                                   />
@@ -335,7 +393,7 @@ export default function CommercialOrderDetailsPage() {
                                       disabled={!rejectReason.trim() || busy}
                                       className="flex-1 rounded-2xl bg-rose-600 px-3 py-2 text-xs font-medium text-white hover:bg-rose-700 disabled:opacity-50"
                                     >
-                                      Confirmer rejet
+                                      {t("confirmReject")}
                                     </button>
                                     <button
                                       onClick={() => { setRejectingApproval(false); setRejectReason(""); }}
@@ -350,7 +408,7 @@ export default function CommercialOrderDetailsPage() {
                                   onClick={() => setRejectingApproval(true)}
                                   className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-medium text-rose-600 transition hover:bg-rose-100 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400"
                                 >
-                                  <ShieldX size={14} /> Rejeter
+                                  <ShieldX size={14} /> {t("rejectShip")}
                                 </button>
                               )}
                             </>
@@ -367,7 +425,7 @@ export default function CommercialOrderDetailsPage() {
                         className="inline-flex items-center justify-center gap-2 rounded-2xl bg-teal-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-teal-700 disabled:opacity-50"
                       >
                         {busy ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                        Marquer livré
+                        {t("deliverOrderAction")}
                       </button>
                     )}
 
@@ -379,7 +437,7 @@ export default function CommercialOrderDetailsPage() {
                         className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700 disabled:opacity-50"
                       >
                         {busy ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                        Clôturer
+                        {t("closeOrder")}
                       </button>
                     )}
 
@@ -390,7 +448,7 @@ export default function CommercialOrderDetailsPage() {
                         disabled={busy}
                         className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-medium text-rose-600 transition hover:bg-rose-100 disabled:opacity-50 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400"
                       >
-                        <XCircle size={14} /> Annuler
+                        <XCircle size={14} /> {t("cancel")}
                       </button>
                     )}
                   </div>
@@ -401,13 +459,13 @@ export default function CommercialOrderDetailsPage() {
             {/* Order Lines */}
             <div className={`${surface} overflow-hidden`}>
               <div className="border-b border-slate-100 px-6 py-4 dark:border-slate-800">
-                <h2 className="font-semibold text-slate-950 dark:text-white">Lignes de commande</h2>
+                <h2 className="font-semibold text-slate-950 dark:text-white">{t("orderLines")}</h2>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 dark:bg-slate-800/50">
                     <tr className="text-left text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                      {["Produit", "SKU", "Qté", "Prix unit.", "Remise", "Montant"].map((h) => (
+                      {[t("product"), "SKU", t("quantity"), t("unitPrice"), "Remise %", t("amount")].map((h) => (
                         <th key={h} className="px-6 py-3 font-medium">{h}</th>
                       ))}
                     </tr>
@@ -435,7 +493,7 @@ export default function CommercialOrderDetailsPage() {
                   <tfoot>
                     <tr className="border-t border-slate-200 dark:border-slate-800">
                       <td colSpan={5} className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Total
+                        {t("totalTnd")}
                       </td>
                       <td className="px-6 py-4 font-bold text-slate-950 dark:text-white">
                         {total.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND

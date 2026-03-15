@@ -24,11 +24,11 @@ import {
   Warehouse,
   Wallet,
   CalendarDays,
-  Factory,
   Tag,
   Car,
   Globe,
   ShieldAlert,
+  Sparkles,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -105,6 +105,9 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/commercial/customers", label: t("customersTitle") || "Customers", icon: Users },
     { href: "/dashboard/commercial/prices", label: t("pricesTitle") || "Sale Prices", icon: Tag },
     { href: "/dashboard/commercial/orders", label: t("onlineOrders"), icon: FileText },
+    { href: "/dashboard/commercial/cyclic-orders", label: "Recurring Orders", icon: RotateCcw },
+    { href: "/dashboard/commercial/ordonnancement", label: "Ordonnancement", icon: Sparkles },
+    { href: "/dashboard/commercial/notifications", label: "Notifications", icon: Bell },
     { href: "/dashboard/commercial/returns", label: t("returnsRefunds"), icon: RotateCcw },
     { href: "/dashboard/commercial/preparation", label: t("prepared") || "Preparation", icon: Package },
     { href: "/dashboard/commercial/shipments", label: t("shipped") || "Shipments", icon: Truck },
@@ -115,7 +118,6 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/commercial/backorders", label: t("backorders") || "Backorders", icon: RotateCcw },
     { href: "/dashboard/commercial/approvals", label: "Approbations", icon: ShieldAlert },
     { href: "/dashboard/commercial/reports", label: t("reportsKpi") || "Reports", icon: BarChart3 },
-    { href: "/dashboard/production", label: "Production", icon: Factory },
   ];
 
   const stockItems: NavItem[] = [
@@ -128,7 +130,6 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/stock/inventories", label: t("inventories"), icon: ClipboardList },
     { href: "/dashboard/stock/depots", label: t("depots"), icon: Warehouse },
     { href: "/dashboard/stock/settings", label: t("settings"), icon: FileText },
-    { href: "/dashboard/production", label: "Production", icon: Factory },
   ];
 
   const financeItems: NavItem[] = [
@@ -163,6 +164,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
   if (user.role === "STOCK_MANAGER") items = stockItems;
   if (user.role === "DEPOT_MANAGER") items = depotItems;
   if (user.role === "COMMERCIAL_MANAGER") items = commercialItems;
+  if (user.role === "FINANCE_MANAGER") items = financeItems;
   if (user.role === "PURCHASE_MANAGER") items = purchaseItems;
   if (user.role === "WAREHOUSE_OPERATOR") items = warehouseOperatorItems;
 

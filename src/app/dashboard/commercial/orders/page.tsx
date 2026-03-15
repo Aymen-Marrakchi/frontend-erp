@@ -5,7 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { salesOrderService } from "@/services/commercial/salesOrderService";
 import { stockProductService } from "@/services/stock/stockProductService";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ShoppingCart,
@@ -83,7 +83,11 @@ interface Order {
   _id: string;
   orderNo: string;
   customerName: string;
-  status: "DRAFT" | "CONFIRMED" | "PREPARED" | "SHIPPED" | "DELIVERED" | "CLOSED" | "CANCELLED";
+  source?: "MANUAL" | "RECURRING";
+  status: "DRAFT" | "ORDONNANCED" | "CONFIRMED" | "PREPARED" | "SHIPPED" | "DELIVERED" | "CLOSED" | "CANCELLED";
+  plannedStartDate?: string;
+  plannedEndDate?: string;
+  ordonnancedAt?: string;
   preparedAt?: string;
   shippedAt?: string;
   deliveredAt?: string;
@@ -93,11 +97,14 @@ interface Order {
   createdAt?: string;
   isUrgent?: boolean;
   shipApproval?: ShipApproval;
+  vehicleId?: { _id: string; matricule: string } | null;
   lines: {
     productId: Product;
     quantity: number;
     unitPrice: number;
     discount?: number;
+    allocatedQuantity?: number;
+    plannedProductionQuantity?: number;
   }[];
 }
 
@@ -113,6 +120,7 @@ const labelClass =
 function statusBadge(status: string) {
   const map: Record<string, string> = {
     DRAFT: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+    ORDONNANCED: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
     CONFIRMED: "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
     PREPARED: "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300",
     SHIPPED: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
@@ -124,6 +132,7 @@ function statusBadge(status: string) {
 }
 
 function StatusIcon({ status }: { status: string }) {
+  if (status === "ORDONNANCED") return <Clock size={12} className="text-amber-500" />;
   if (status === "CONFIRMED") return <CheckCircle size={12} className="text-blue-500" />;
   if (status === "PREPARED") return <Package size={12} className="text-violet-500" />;
   if (status === "SHIPPED") return <Truck size={12} className="text-emerald-500" />;
@@ -132,7 +141,26 @@ function StatusIcon({ status }: { status: string }) {
   return <Package size={12} className="text-slate-400" />;
 }
 
-const ACTIVE_STATUSES = ["DRAFT", "CONFIRMED", "PREPARED", "SHIPPED"];
+const ACTIVE_STATUSES = ["DRAFT", "ORDONNANCED", "CONFIRMED", "PREPARED", "SHIPPED"];
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "response" in error &&
+    typeof (error as { response?: unknown }).response === "object" &&
+    (error as { response?: { data?: unknown } }).response !== null
+  ) {
+    const response = (error as { response?: { data?: { message?: unknown } } }).response;
+    if (typeof response?.data?.message === "string") {
+      return response.data.message;
+    }
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return fallback;
+}
 
 function lineAmount(line: { quantity: number; unitPrice: number; discount?: number }) {
   const subtotal = line.quantity * line.unitPrice;
@@ -144,6 +172,11 @@ function isLate(order: Order): boolean {
   if (!order.promisedDate) return false;
   if (!ACTIVE_STATUSES.includes(order.status)) return false;
   return new Date(order.promisedDate) < new Date();
+}
+
+function hasPlanningRisk(order: Order): boolean {
+  if (!order.promisedDate || !order.plannedEndDate) return false;
+  return new Date(order.plannedEndDate) > new Date(order.promisedDate);
 }
 
 export default function CommercialOrdersPage() {
@@ -165,6 +198,8 @@ export default function CommercialOrdersPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchRetryCountRef = useRef(0);
 
   const [form, setForm] = useState({
     orderNoSuffix: "",
@@ -187,6 +222,11 @@ export default function CommercialOrdersPage() {
 
   useEffect(() => {
     fetchAll();
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
   }, []);
 
   const fetchAll = async () => {
@@ -205,32 +245,40 @@ export default function CommercialOrdersPage() {
       }
 
       const productData =
-        productResult.status === "fulfilled"
+        productResult.status === "fulfilled" && Array.isArray(productResult.value)
           ? productResult.value
           : [];
       const backorderData =
-        backorderResult.status === "fulfilled"
+        backorderResult.status === "fulfilled" && Array.isArray(backorderResult.value)
           ? backorderResult.value
           : [];
       const customerData =
-        customerResult.status === "fulfilled"
+        customerResult.status === "fulfilled" && Array.isArray(customerResult.value)
           ? customerResult.value
           : [];
+      const orderData = Array.isArray(orderResult.value) ? orderResult.value : [];
 
       setProducts(
         productData.filter((p: Product) => p.status === "ACTIVE" && p.type === "PRODUIT_FINI")
       );
-      setOrders(orderResult.value);
+      setOrders(orderData);
       setBackorderedIds(
         new Set(
           backorderData
-            .filter((b: any) => b.status === "PENDING")
-            .map((b: any) => String(b.salesOrderId?._id || b.salesOrderId))
+            .filter((b) => b?.status === "PENDING")
+            .map((b) => String(b.salesOrderId?._id || b.salesOrderId))
         )
       );
       setCustomers(customerData);
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to load orders");
+      fetchRetryCountRef.current = 0;
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, "Failed to load orders"));
+      if (fetchRetryCountRef.current < 2) {
+        fetchRetryCountRef.current += 1;
+        retryTimeoutRef.current = setTimeout(() => {
+          fetchAll();
+        }, 1200);
+      }
     } finally {
       setLoading(false);
     }
@@ -286,8 +334,8 @@ export default function CommercialOrdersPage() {
       setLines([{ ...EMPTY_ORDER_LINE }]);
       setShowForm(false);
       await fetchAll();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to create order");
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, "Failed to create order"));
     } finally {
       setSubmitting(false);
     }
@@ -312,8 +360,8 @@ export default function CommercialOrdersPage() {
       if (action === "approveShip") await salesOrderService.approveShip(id);
 
       await fetchAll();
-    } catch (err: any) {
-      setError(err.response?.data?.message || `Failed to ${action} order`);
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, `Failed to ${action} order`));
     } finally {
       setActionId(null);
     }
@@ -328,8 +376,8 @@ export default function CommercialOrdersPage() {
       setRejectingId(null);
       setRejectReason("");
       await fetchAll();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to reject approval");
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, "Failed to reject approval"));
     } finally {
       setActionId(null);
     }
@@ -464,7 +512,7 @@ export default function CommercialOrdersPage() {
             <div className="mt-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className={labelClass}>Promised Date</label>
+                  <label className={labelClass}>{t("promisedDateLabel")}</label>
                   <input
                     type="date"
                     className={inputClass}
@@ -616,10 +664,12 @@ export default function CommercialOrdersPage() {
                 <option value="ALL">{t("allStatus")}</option>
                 <option value="LATE">{t("late") || "Late"}</option>
                 <option value="DRAFT">{t("draft")}</option>
+                <option value="ORDONNANCED">{t("ordonnancedLabel")}</option>
                 <option value="CONFIRMED">{t("confirmedOrders")}</option>
                 <option value="PREPARED">{t("prepared") || "Prepared"}</option>
                 <option value="SHIPPED">{t("shipped")}</option>
                 <option value="DELIVERED">{t("delivered") || "Delivered"}</option>
+                <option value="CLOSED">{t("closedStatus")}</option>
                 <option value="CANCELLED">{t("cancelled")}</option>
               </select>
             </div>
@@ -659,6 +709,11 @@ export default function CommercialOrdersPage() {
                       {/* Order info */}
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
+                          {order.source === "RECURRING" && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
+                              Auto
+                            </span>
+                          )}
                           <Link
                             href={`/dashboard/commercial/orders/${order._id}`}
                             className="inline-flex items-center gap-1 font-semibold text-slate-900 hover:text-blue-600 dark:text-white dark:hover:text-blue-400"
@@ -709,9 +764,20 @@ export default function CommercialOrdersPage() {
                               {t("rejected") || "Rejected"}
                             </span>
                           )}
+                          {hasPlanningRisk(order) && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
+                              <Clock size={10} />
+                              {t("planningRiskLabel")}
+                            </span>
+                          )}
                         </div>
                         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
                           {order.customerName}
+                          {order.source === "RECURRING" && (
+                            <span className="ml-2 text-[11px] font-medium text-sky-600 dark:text-sky-400">
+                              · {t("recurringLabel")}
+                            </span>
+                          )}
                           {order.promisedDate && (
                             <span className={`ml-2 text-[11px] ${isLate(order) ? "text-rose-500 dark:text-rose-400" : "text-slate-400"}`}>
                               · {new Date(order.promisedDate).toLocaleDateString("fr-TN")}
@@ -732,8 +798,18 @@ export default function CommercialOrdersPage() {
 
                       {/* Actions */}
                       <div className="flex shrink-0 flex-wrap items-center gap-2">
-                        {/* Managers only: confirm draft */}
+                        {/* Managers only: ordonance draft */}
                         {order.status === "DRAFT" && isManager && (
+                          <Link
+                            href={`/dashboard/commercial/ordonnancement?order=${order._id}`}
+                            className="inline-flex items-center gap-1.5 rounded-2xl bg-amber-500 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-amber-600"
+                          >
+                            <Clock size={11} />
+                            {t("ordonanceAction")}
+                          </Link>
+                        )}
+
+                        {order.status === "ORDONNANCED" && isManager && (
                           <button
                             onClick={() => runAction("confirm", order._id)}
                             disabled={busy}
@@ -745,7 +821,7 @@ export default function CommercialOrdersPage() {
                         )}
 
                         {/* Managers only: mark/unmark urgent on active orders */}
-                        {isManager && !["SHIPPED", "DELIVERED", "CANCELLED"].includes(order.status) && (
+                        {isManager && !["SHIPPED", "DELIVERED", "CLOSED", "CANCELLED"].includes(order.status) && (
                           <button
                             onClick={() => runAction(order.isUrgent ? "unmarkUrgent" : "markUrgent", order._id)}
                             disabled={busy}
@@ -765,7 +841,7 @@ export default function CommercialOrdersPage() {
                           backorderedIds.has(order._id) ? (
                             <span className="inline-flex items-center gap-1.5 rounded-2xl bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 dark:bg-amber-950/20 dark:text-amber-400">
                               <RotateCcw size={11} />
-                              Backorder pending
+                              {t("backorderPending")}
                             </span>
                           ) : (
                             <button
@@ -791,7 +867,7 @@ export default function CommercialOrdersPage() {
                                 className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
                               >
                                 <Truck size={11} />
-                                Open Shipment
+                                {t("openShipment")}
                               </Link>
                             );
                           }
@@ -866,7 +942,7 @@ export default function CommercialOrdersPage() {
                         )}
 
                         {/* Cancel: managers only */}
-                        {isManager && ["CONFIRMED", "PREPARED"].includes(order.status) && (
+                        {isManager && ["ORDONNANCED", "CONFIRMED", "PREPARED"].includes(order.status) && (
                           <button
                             onClick={() => runAction("cancel", order._id)}
                             disabled={busy}
@@ -896,7 +972,7 @@ export default function CommercialOrdersPage() {
                             className="inline-flex items-center gap-1.5 rounded-2xl bg-slate-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-700 disabled:opacity-50"
                           >
                             {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
-                            Clôturer
+                            {t("closeOrder")}
                           </button>
                         )}
                       </div>
@@ -911,13 +987,14 @@ export default function CommercialOrdersPage() {
                           </p>
                         )}
                         <div className="mb-3 flex flex-wrap gap-4 text-[11px] text-slate-500 dark:text-slate-400">
-  {order.createdAt && <span>Created: {new Date(order.createdAt).toLocaleDateString("fr-TN")}</span>}
-  {order.promisedDate && <span>Promised: {new Date(order.promisedDate).toLocaleDateString("fr-TN")}</span>}
-  {order.preparedAt && <span>Prepared: {new Date(order.preparedAt).toLocaleDateString("fr-TN")}</span>}
-  {order.shippedAt && <span>Shipped: {new Date(order.shippedAt).toLocaleDateString("fr-TN")}</span>}
-  {order.deliveredAt && <span>Delivered: {new Date(order.deliveredAt).toLocaleDateString("fr-TN")}</span>}
-  {order.vehicleId?.matricule && <span>Car: {order.vehicleId.matricule}</span>}
-  {!order.vehicleId?.matricule && order.trackingNumber && <span>Tracking: {order.trackingNumber}</span>}
+  {order.createdAt && <span>{t("createdOnLabel")}: {new Date(order.createdAt).toLocaleDateString("fr-TN")}</span>}
+  {order.promisedDate && <span>{t("promisedDateLabel")}: {new Date(order.promisedDate).toLocaleDateString("fr-TN")}</span>}
+  {order.ordonnancedAt && <span>{t("ordonnancedLabel")}: {new Date(order.ordonnancedAt).toLocaleDateString("fr-TN")}</span>}
+  {order.preparedAt && <span>{t("preparedOnLabel")}: {new Date(order.preparedAt).toLocaleDateString("fr-TN")}</span>}
+  {order.shippedAt && <span>{t("shippedOnLabel")}: {new Date(order.shippedAt).toLocaleDateString("fr-TN")}</span>}
+  {order.deliveredAt && <span>{t("deliveredOnLabel")}: {new Date(order.deliveredAt).toLocaleDateString("fr-TN")}</span>}
+  {order.vehicleId?.matricule && <span>{t("carrier")}: {order.vehicleId.matricule}</span>}
+  {!order.vehicleId?.matricule && order.trackingNumber && <span>{t("trackingNo")}: {order.trackingNumber}</span>}
 </div>
                         <table className="w-full text-sm">
                           <thead>
@@ -945,6 +1022,12 @@ export default function CommercialOrdersPage() {
                                 </td>
                                 <td className="py-2.5 text-slate-600 dark:text-slate-300">
                                   {line.quantity}
+                                  {(order.status === "ORDONNANCED" || order.status === "CONFIRMED") && (
+                                    <div className="mt-1 text-[11px] text-slate-400">
+                                      <div>Stock: {line.allocatedQuantity || 0}</div>
+                                      <div>Production: {line.plannedProductionQuantity || 0}</div>
+                                    </div>
+                                  )}
                                 </td>
                                 <td className="py-2.5 text-slate-600 dark:text-slate-300">
                                   {line.unitPrice.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
@@ -981,6 +1064,7 @@ export default function CommercialOrdersPage() {
           )}
         </div>
       </div>
+
     </ProtectedRoute>
   );
 }

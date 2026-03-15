@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ShoppingCart,
   Printer,
+  CheckCircle2,
 } from "lucide-react";
 
 const surface =
@@ -35,6 +36,29 @@ function lineAmount(line: { quantity: number; unitPrice: number; discount?: numb
   return subtotal * (1 - discountPct / 100);
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "response" in error &&
+    error.response &&
+    typeof error.response === "object" &&
+    "data" in error.response &&
+    error.response.data &&
+    typeof error.response.data === "object" &&
+    "message" in error.response.data &&
+    typeof error.response.data.message === "string"
+  ) {
+    return error.response.data.message;
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return fallback;
+}
+
 export default function CommercialPreparationPage() {
   const { t } = useLanguage();
 
@@ -51,8 +75,8 @@ export default function CommercialPreparationPage() {
       setError("");
       const data = await salesOrderService.getAll();
       setOrders(data);
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to load preparation orders");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to load preparation orders"));
     } finally {
       setLoading(false);
     }
@@ -68,8 +92,8 @@ export default function CommercialPreparationPage() {
       setError("");
       await salesOrderService.prepare(id);
       await fetchOrders();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to prepare order");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to prepare order"));
     } finally {
       setActionId(null);
     }
@@ -81,26 +105,26 @@ export default function CommercialPreparationPage() {
       setError("");
       await salesOrderService.cancel(id);
       await fetchOrders();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to cancel order");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to cancel order"));
     } finally {
       setActionId(null);
     }
   };
 
-  const confirmedOrders = useMemo(
-    () => orders.filter((o) => o.status === "CONFIRMED"),
+  const preparationOrders = useMemo(
+    () => orders.filter((o) => ["CONFIRMED", "PREPARED"].includes(o.status)),
     [orders]
   );
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return confirmedOrders.filter(
+    return preparationOrders.filter(
       (o) =>
         o.orderNo.toLowerCase().includes(q) ||
         o.customerName.toLowerCase().includes(q)
     );
-  }, [confirmedOrders, search]);
+  }, [preparationOrders, search]);
 
   const totalUnits = useMemo(
     () =>
@@ -114,7 +138,7 @@ export default function CommercialPreparationPage() {
   const orderTotal = (order: SalesOrder) =>
     order.lines.reduce((sum, l) => sum + lineAmount(l), 0);
 
-  const printPickingSlip = (order: SalesOrder) => {
+  const openPickingSlip = (order: SalesOrder) => {
     const rows = order.lines
       .map(
         (line) => `
@@ -216,6 +240,33 @@ export default function CommercialPreparationPage() {
     }
   };
 
+  const handlePrintPickingSlip = async (order: SalesOrder) => {
+    try {
+      setActionId(order._id);
+      setError("");
+      await salesOrderService.markPickingSlipPrinted(order._id);
+      openPickingSlip(order);
+      await fetchOrders();
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to print picking slip"));
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const handleValidatePacking = async (id: string) => {
+    try {
+      setActionId(id);
+      setError("");
+      await salesOrderService.validatePacking(id);
+      await fetchOrders();
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to validate packing"));
+    } finally {
+      setActionId(null);
+    }
+  };
+
   return (
     <ProtectedRoute allowedRoles={["ADMIN", "COMMERCIAL_MANAGER"]}>
       <div className="space-y-6">
@@ -252,23 +303,23 @@ export default function CommercialPreparationPage() {
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
           {[
             {
-              label: "Confirmed Orders",
-              value: confirmedOrders.length,
+              label: t("confirmedOrdersLabel"),
+              value: orders.filter((o) => o.status === "CONFIRMED").length,
               color: "text-blue-700 dark:text-blue-400",
             },
             {
-              label: "Filtered",
-              value: filtered.length,
-              color: "text-slate-900 dark:text-white",
+              label: t("preparedPendingPackingLabel"),
+              value: orders.filter((o) => o.status === "PREPARED" && !o.packingValidatedAt).length,
+              color: "text-amber-700 dark:text-amber-400",
             },
             {
-              label: "Units to Prepare",
+              label: t("unitsToPrepareLabel"),
               value: totalUnits,
               color: "text-violet-700 dark:text-violet-400",
             },
             {
-              label: "Ready for Shipping",
-              value: orders.filter((o) => o.status === "PREPARED").length,
+              label: t("readyForShipping"),
+              value: orders.filter((o) => o.status === "PREPARED" && !!o.packingValidatedAt).length,
               color: "text-emerald-700 dark:text-emerald-400",
             },
           ].map((kpi) => (
@@ -284,7 +335,7 @@ export default function CommercialPreparationPage() {
         <div className={`${surface} overflow-hidden`}>
           <div className="flex flex-col gap-3 border-b border-slate-200 px-6 py-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="font-semibold text-slate-950 dark:text-white">
-              Orders to Prepare
+              {t("ordersToPrepare")}
               <span className="ml-2 text-sm font-normal text-slate-400">{filtered.length}</span>
             </h2>
 
@@ -293,7 +344,7 @@ export default function CommercialPreparationPage() {
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search confirmed orders"
+                placeholder={t("searchConfirmedOrders")}
                 className="w-56 rounded-2xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-4 text-xs text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
               />
             </div>
@@ -306,9 +357,9 @@ export default function CommercialPreparationPage() {
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-20 text-sm text-slate-400 dark:text-slate-500">
               <ShoppingCart size={32} className="opacity-30" />
-              {confirmedOrders.length === 0
-                ? "No confirmed orders waiting for preparation"
-                : "No preparation orders match your search"}
+              {preparationOrders.length === 0
+                ? t("noPreparationFlow")
+                : t("noPreparationMatch")}
             </div>
           ) : (
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -347,6 +398,18 @@ export default function CommercialPreparationPage() {
                         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
                           {order.customerName}
                         </p>
+                        <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-400">
+                          {order.pickingSlipPrintedAt && (
+                            <span>
+                              Picking slip: {new Date(order.pickingSlipPrintedAt).toLocaleDateString("fr-TN")}
+                            </span>
+                          )}
+                          {order.packingValidatedAt && (
+                            <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                              Packed
+                            </span>
+                          )}
+                        </div>
                         {order.promisedDate && (
                           <p className="mt-0.5 text-[11px] text-slate-400">
                             Promised: {new Date(order.promisedDate).toLocaleDateString("fr-TN")}
@@ -365,25 +428,46 @@ export default function CommercialPreparationPage() {
 
                       <div className="flex shrink-0 items-center gap-2">
                         <button
-                          onClick={() => printPickingSlip(order)}
-                          title="Print picking slip"
+                          onClick={() => handlePrintPickingSlip(order)}
+                          disabled={busy}
+                          title={t("printPickingSlip")}
                           className="flex h-8 w-8 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
                         >
                           <Printer size={13} />
                         </button>
 
-                        <button
-                          onClick={() => handlePrepare(order._id)}
-                          disabled={busy}
-                          className="inline-flex items-center gap-1.5 rounded-2xl bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
-                        >
-                          {busy ? (
-                            <Loader2 size={11} className="animate-spin" />
-                          ) : (
-                            <Package size={11} />
-                          )}
-                          {t("prepared") || "Prepare"}
-                        </button>
+                        {order.status === "CONFIRMED" ? (
+                          <button
+                            onClick={() => handlePrepare(order._id)}
+                            disabled={busy}
+                            className="inline-flex items-center gap-1.5 rounded-2xl bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
+                          >
+                            {busy ? (
+                              <Loader2 size={11} className="animate-spin" />
+                            ) : (
+                              <Package size={11} />
+                            )}
+                            {t("prepared") || "Prepare"}
+                          </button>
+                        ) : order.packingValidatedAt ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                            <CheckCircle2 size={11} />
+                            {t("readyForShipping")}
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleValidatePacking(order._id)}
+                            disabled={busy || !order.pickingSlipPrintedAt}
+                            className="inline-flex items-center gap-1.5 rounded-2xl bg-amber-500 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-amber-600 disabled:opacity-50"
+                          >
+                            {busy ? (
+                              <Loader2 size={11} className="animate-spin" />
+                            ) : (
+                              <CheckCircle2 size={11} />
+                            )}
+                            {t("validatePacking")}
+                          </button>
+                        )}
 
                         <button
                           onClick={() => handleCancel(order._id)}
@@ -407,6 +491,16 @@ export default function CommercialPreparationPage() {
                           {order.createdAt && (
                             <span>
                               Created: {new Date(order.createdAt).toLocaleDateString("fr-TN")}
+                            </span>
+                          )}
+                          {order.preparedAt && (
+                            <span>
+                              Prepared: {new Date(order.preparedAt).toLocaleDateString("fr-TN")}
+                            </span>
+                          )}
+                          {order.packingValidatedAt && (
+                            <span>
+                              Packed: {new Date(order.packingValidatedAt).toLocaleDateString("fr-TN")}
                             </span>
                           )}
                           {order.promisedDate && (

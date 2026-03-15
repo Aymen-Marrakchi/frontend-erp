@@ -149,11 +149,11 @@ export default function CommercialReturnsPage() {
   const submitCreate = async () => {
     const lines = draft.lines.filter((line) => line.quantity > 0);
     if (!draft.salesOrderId) {
-      setError("Select a delivered order first");
+      setError(t("selectDeliveredOrder"));
       return;
     }
     if (lines.length === 0) {
-      setError("Add at least one returned line");
+      setError(t("addReturnedLineRequired"));
       return;
     }
 
@@ -217,7 +217,7 @@ export default function CommercialReturnsPage() {
                   {t("returnsRefunds")}
                 </h1>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Track customer returns, stock re-entry, and closure
+                  {t("returnsSub")}
                 </p>
               </div>
             </div>
@@ -401,7 +401,7 @@ export default function CommercialReturnsPage() {
                             disabled={busy}
                             className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
                           >
-                            <Archive size={11} /> Restock / Destroy
+                            <Archive size={11} /> {t("restockLabel")} / {t("destroyLabel")}
                           </button>
                         ) : null}
 
@@ -458,7 +458,7 @@ export default function CommercialReturnsPage() {
                     }
                     className={inputClass}
                   >
-                    <option value="">Select delivered order</option>
+                    <option value="">{t("selectDeliveredOrder")}</option>
                     {eligibleOrders.map((order) => (
                       <option key={order._id} value={order._id}>
                         {order.orderNo} - {order.customerName}
@@ -609,14 +609,14 @@ export default function CommercialReturnsPage() {
 
               <div className="space-y-4 p-6">
                 <div>
-                  <label className={labelClass}>Resolution</label>
+                  <label className={labelClass}>{t("resolutionLabel")}</label>
                   <select
                     value={processResolution}
                     onChange={(e) => setProcessResolution(e.target.value as "RESTOCK" | "DESTROY")}
                     className={inputClass}
                   >
-                    <option value="RESTOCK">Restock</option>
-                    <option value="DESTROY">Destroy</option>
+                    <option value="RESTOCK">{t("restockLabel")}</option>
+                    <option value="DESTROY">{t("destroyLabel")}</option>
                   </select>
                 </div>
                 <div>

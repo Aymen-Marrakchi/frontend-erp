@@ -19,12 +19,16 @@ interface AuthResult {
 
 const ADMIN_EMAIL = process.env.PLAYWRIGHT_ADMIN_EMAIL || "admin@erp.com";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_ADMIN_PASSWORD || "123456";
-const API_URL = process.env.PLAYWRIGHT_API_URL || "http://127.0.0.1:5000/api";
+const API_URL = process.env.PLAYWRIGHT_API_URL || "http://localhost:5000/api";
 
 function authHeaders(token: string) {
   return {
     Authorization: `Bearer ${token}`,
   };
+}
+
+export function buildAuthHeaders(token: string) {
+  return authHeaders(token);
 }
 
 export async function loginAsAdmin(page: Page, request?: APIRequestContext) {
@@ -61,6 +65,35 @@ export async function authenticateAdmin(request: APIRequestContext): Promise<Aut
 
   expect(response.ok()).toBeTruthy();
   return response.json();
+}
+
+export async function getOrderById(
+  request: APIRequestContext,
+  token: string,
+  orderId: string
+) {
+  const response = await request.get(`${API_URL}/commercial/orders/${orderId}`, {
+    headers: authHeaders(token),
+  });
+  expect(response.ok()).toBeTruthy();
+  return response.json();
+}
+
+export async function waitForOrderStatus(
+  request: APIRequestContext,
+  token: string,
+  orderId: string,
+  expectedStatus: string
+) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const order = await getOrderById(request, token, orderId);
+    if (order.status === expectedStatus) {
+      return order;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  throw new Error(`Order ${orderId} did not reach status ${expectedStatus}`);
 }
 
 export async function seedCommercialOrder(request: APIRequestContext): Promise<SeededCommercialOrder> {

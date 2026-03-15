@@ -43,15 +43,60 @@ function lineAmount(line: { quantity: number; unitPrice: number; discount?: numb
   return subtotal * (1 - discountPct / 100);
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "response" in error &&
+    error.response &&
+    typeof error.response === "object" &&
+    "data" in error.response &&
+    error.response.data &&
+    typeof error.response.data === "object" &&
+    "message" in error.response.data &&
+    typeof error.response.data.message === "string"
+  ) {
+    return error.response.data.message;
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return fallback;
+}
+
 function estimatedCarrierCost(carrier: Carrier, order: SalesOrder) {
   void order;
   return carrier.baseRateFlat;
 }
 
+function addDays(dateString: string, days: number) {
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return null;
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function estimatedDeliveryDate(order: SalesOrder, carrier: Carrier) {
+  const baseDate = order.plannedEndDate || order.preparedAt || order.createdAt;
+  if (!baseDate) return null;
+  return addDays(baseDate, carrier.transitDays ?? 2);
+}
+
 function recommendedCarrier(order: SalesOrder, carriers: Carrier[]) {
   if (carriers.length === 0) return null;
 
-  return carriers.reduce((best, carrier) => {
+  const promisedDate = order.promisedDate ? new Date(order.promisedDate) : null;
+  const eligibleCarriers = carriers.filter((carrier) => {
+    if (!promisedDate) return true;
+    const eta = estimatedDeliveryDate(order, carrier);
+    return !eta || eta <= promisedDate;
+  });
+  const carrierPool = eligibleCarriers.length > 0 ? eligibleCarriers : carriers;
+
+  return carrierPool.reduce((best, carrier) => {
     const currentCost = estimatedCarrierCost(carrier, order);
     if (!best) {
       return { carrier, cost: currentCost };
@@ -102,8 +147,8 @@ export default function CommercialShipmentsPage() {
       setError("");
       const data = await salesOrderService.getAll();
       setOrders(data);
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to load shipments");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to load shipments"));
     } finally {
       setLoading(false);
     }
@@ -116,7 +161,12 @@ export default function CommercialShipmentsPage() {
   }, []);
 
   const preparedOrders = useMemo(
-    () => orders.filter((o) => o.status === "PREPARED"),
+    () => orders.filter((o) => o.status === "PREPARED" && !!o.packingValidatedAt),
+    [orders]
+  );
+
+  const packingPendingOrders = useMemo(
+    () => orders.filter((o) => o.status === "PREPARED" && !o.packingValidatedAt),
     [orders]
   );
 
@@ -189,8 +239,8 @@ export default function CommercialShipmentsPage() {
         shippingCost: parseFloat(costInputs[order._id] || "0") || 0,
       });
       await fetchOrders();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to ship order");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to ship order"));
     } finally {
       setActionId(null);
     }
@@ -202,8 +252,8 @@ export default function CommercialShipmentsPage() {
       setError("");
       await salesOrderService.deliver(id);
       await fetchOrders();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to deliver order");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to deliver order"));
     } finally {
       setActionId(null);
     }
@@ -215,8 +265,8 @@ export default function CommercialShipmentsPage() {
       setError("");
       await salesOrderService.requestApproval(id);
       await fetchOrders();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to request approval");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to request approval"));
     } finally {
       setActionId(null);
     }
@@ -228,8 +278,8 @@ export default function CommercialShipmentsPage() {
       setError("");
       await salesOrderService.approveShip(id);
       await fetchOrders();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to approve");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to approve"));
     } finally {
       setActionId(null);
     }
@@ -244,8 +294,8 @@ export default function CommercialShipmentsPage() {
       setRejectModal(null);
       setRejectReason("");
       await fetchOrders();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to reject");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to reject"));
     } finally {
       setActionId(null);
     }
@@ -271,7 +321,7 @@ export default function CommercialShipmentsPage() {
                   {t("shipped") || "Shipments"}
                 </h1>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Manage shipment execution and delivery confirmation
+                  {t("commercialOrdersSubtitle")}
                 </p>
               </div>
             </div>
@@ -297,24 +347,24 @@ export default function CommercialShipmentsPage() {
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
           {[
             {
-              label: "Prepared Orders",
+              label: `${t("prepared")} ${t("shipments")}`,
               value: preparedOrders.length,
               color: "text-violet-700 dark:text-violet-400",
             },
             {
-              label: "Shipped Orders",
+              label: "Packing Pending",
+              value: packingPendingOrders.length,
+              color: "text-amber-700 dark:text-amber-400",
+            },
+            {
+              label: `${t("shipped")} ${t("shipments")}`,
               value: shippedOrders.length,
               color: "text-emerald-700 dark:text-emerald-400",
             },
             {
-              label: "Ready to Ship",
+              label: t("openShipment"),
               value: filteredPrepared.length,
               color: "text-slate-900 dark:text-white",
-            },
-            {
-              label: "In Transit",
-              value: filteredShipped.length,
-              color: "text-teal-700 dark:text-teal-400",
             },
           ].map((kpi) => (
             <div key={kpi.label} className={`${surface} px-6 py-5`}>
@@ -329,7 +379,7 @@ export default function CommercialShipmentsPage() {
         <div className={`${surface} overflow-hidden`}>
           <div className="flex flex-col gap-3 border-b border-slate-200 px-6 py-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="font-semibold text-slate-950 dark:text-white">
-              Shipping Queue
+              {t("shipmentTracker")}
               <span className="ml-2 text-sm font-normal text-slate-400">
                 {filteredPrepared.length}
               </span>
@@ -340,7 +390,7 @@ export default function CommercialShipmentsPage() {
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search shipment orders"
+                placeholder={t("searchShipments")}
                 className="w-56 rounded-2xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-4 text-xs text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
               />
             </div>
@@ -353,7 +403,7 @@ export default function CommercialShipmentsPage() {
           ) : filteredPrepared.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-16 text-sm text-slate-400 dark:text-slate-500">
               <Package size={30} className="opacity-30" />
-              No prepared orders waiting for shipment
+              {t("noShipmentsMatch")}
             </div>
           ) : (
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -366,6 +416,10 @@ export default function CommercialShipmentsPage() {
                   carriers.find((carrier) => carrier._id === (carrierInputs[order._id] || "")) || null;
                 const displayedEstimatedCost =
                   costInputs[order._id] || (suggestion ? suggestion.cost.toFixed(2) : "");
+                const etaCarrier = selectedCarrier || suggestion?.carrier || null;
+                const estimatedEta = etaCarrier ? estimatedDeliveryDate(order, etaCarrier) : null;
+                const promisedDate = order.promisedDate ? new Date(order.promisedDate) : null;
+                const atRisk = !!(estimatedEta && promisedDate && estimatedEta > promisedDate);
 
                 return (
                   <div key={order._id}>
@@ -392,22 +446,22 @@ export default function CommercialShipmentsPage() {
                           </span>
                           {order.isUrgent && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
-                              <AlertTriangle size={9} /> URGENT
+                              <AlertTriangle size={9} /> {t("urgent")}
                             </span>
                           )}
                           {order.isUrgent && order.shipApproval?.status === "PENDING" && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                              <Clock size={9} /> En attente d&apos;approbation
+                              <Clock size={9} /> {t("awaitingApprovalBadge")}
                             </span>
                           )}
                           {order.isUrgent && order.shipApproval?.status === "APPROVED" && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                              <ShieldCheck size={9} /> Approuvé
+                              <ShieldCheck size={9} /> {t("shipApprovedBadge")}
                             </span>
                           )}
                           {order.isUrgent && order.shipApproval?.status === "REJECTED" && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
-                              <ShieldX size={9} /> Rejeté
+                              <ShieldX size={9} /> {t("approvalRejectedBadge")}
                             </span>
                           )}
                         </div>
@@ -416,17 +470,23 @@ export default function CommercialShipmentsPage() {
                         </p>
                         {order.preparedAt && (
                           <p className="mt-0.5 text-[11px] text-slate-400">
-                            Prepared: {new Date(order.preparedAt).toLocaleDateString("fr-TN")}
+                            {t("preparedOnLabel")}: {new Date(order.preparedAt).toLocaleDateString("fr-TN")}
                           </p>
                         )}
                         {suggestion && (
                           <p className="mt-0.5 text-[11px] text-blue-500">
-                            Suggested carrier: {suggestion.carrier.name} ({suggestion.cost.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND estimated)
+                            {t("carrier")}: {suggestion.carrier.name} ({suggestion.cost.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND)
+                          </p>
+                        )}
+                        {estimatedEta && (
+                          <p className={`mt-0.5 text-[11px] ${atRisk ? "text-rose-500" : "text-emerald-600"}`}>
+                            ETA: {estimatedEta.toLocaleDateString("fr-TN")}
+                            {promisedDate ? ` · Promised: ${promisedDate.toLocaleDateString("fr-TN")}` : ""}
                           </p>
                         )}
                         {order.isUrgent && order.shipApproval?.status === "REJECTED" && order.shipApproval.rejectionReason && (
                           <p className="mt-0.5 text-[11px] text-rose-500">
-                            Motif: {order.shipApproval.rejectionReason}
+                            {t("rejectionReason")}: {order.shipApproval.rejectionReason}
                           </p>
                         )}
                       </div>
@@ -449,7 +509,7 @@ export default function CommercialShipmentsPage() {
                           }}
                           className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
                         >
-                          <option value="">— Carrier —</option>
+                          <option value="">— {t("carrier")} —</option>
                           {carriers.map((c) => (
                             <option key={c._id} value={c._id}>
                               {c.name} ({c.code})
@@ -468,7 +528,7 @@ export default function CommercialShipmentsPage() {
                             onChange={(e) =>
                               setCostInputs((prev) => ({ ...prev, [order._id]: e.target.value }))
                             }
-                            placeholder="Cost (TND)"
+                            placeholder={t("shippingCostLabel")}
                             className="w-32 rounded-2xl border border-slate-200 bg-slate-50 py-2 pl-8 pr-3 text-xs text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
                           />
                         </div>
@@ -484,7 +544,7 @@ export default function CommercialShipmentsPage() {
                           }
                           className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
                         >
-                          <option value="">- Car -</option>
+                          <option value="">— {t("selectVehicleLabel")} —</option>
                           {vehicles.map((vehicle) => (
                             <option key={vehicle._id} value={vehicle._id}>
                               {vehicle.matricule}
@@ -508,7 +568,7 @@ export default function CommercialShipmentsPage() {
                             className="inline-flex items-center gap-1.5 rounded-2xl bg-amber-500 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-amber-600 disabled:opacity-50"
                           >
                             {busy ? <Loader2 size={11} className="animate-spin" /> : <ShieldCheck size={11} />}
-                            Demander approbation
+                            {t("requestApprovalAction")}
                           </button>
                         )}
 
@@ -521,7 +581,7 @@ export default function CommercialShipmentsPage() {
                               className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
                             >
                               {busy ? <Loader2 size={11} className="animate-spin" /> : <ShieldCheck size={11} />}
-                              Approuver
+                              {t("approveShipAction")}
                             </button>
                             <button
                               onClick={() => { setRejectModal({ id: order._id }); setRejectReason(""); }}
@@ -529,7 +589,7 @@ export default function CommercialShipmentsPage() {
                               className="inline-flex items-center gap-1.5 rounded-2xl bg-rose-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-rose-700 disabled:opacity-50"
                             >
                               <ShieldX size={11} />
-                              Rejeter
+                              {t("rejectShipAction")}
                             </button>
                           </>
                         )}
@@ -538,7 +598,7 @@ export default function CommercialShipmentsPage() {
                         <button
                           onClick={() => handleShip(order)}
                           disabled={busy || (order.isUrgent && order.shipApproval?.status !== "APPROVED")}
-                          title={order.isUrgent && order.shipApproval?.status !== "APPROVED" ? "Approbation requise pour les commandes urgentes" : undefined}
+                          title={order.isUrgent && order.shipApproval?.status !== "APPROVED" ? t("awaitingApprovalBadge") : undefined}
                           className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
                         >
                           {busy ? <Loader2 size={11} className="animate-spin" /> : <Truck size={11} />}
@@ -552,7 +612,7 @@ export default function CommercialShipmentsPage() {
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="border-b border-slate-200 dark:border-slate-800">
-                              {["Product", t("quantity"), t("unitPrice"), "Remise", t("amount")].map((h) => (
+                              {[t("product"), t("quantity"), t("unitPrice"), t("discount"), t("amount")].map((h) => (
                                 <th
                                   key={h}
                                   className="pb-2 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400"
@@ -598,13 +658,18 @@ export default function CommercialShipmentsPage() {
                         {(selectedCarrier || suggestion) && (
                           <div className="mt-4 flex flex-wrap gap-4 text-[11px] text-slate-500 dark:text-slate-400">
                             <span>
-                              Carrier used: {(selectedCarrier || suggestion?.carrier)?.name || "—"}
+                              {t("carrier")}: {(selectedCarrier || suggestion?.carrier)?.name || "—"}
                             </span>
                             <span>
-                              Estimated cost: {displayedEstimatedCost ? `${Number(displayedEstimatedCost).toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND` : "—"}
+                              {t("shippingCostLabel")}: {displayedEstimatedCost ? `${Number(displayedEstimatedCost).toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND` : "—"}
                             </span>
+                            {estimatedEta && (
+                              <span>
+                                ETA: {estimatedEta.toLocaleDateString("fr-TN")}
+                              </span>
+                            )}
                             <span>
-                              Flat-rate basis
+                              Transit: {(selectedCarrier || suggestion?.carrier)?.transitDays ?? 2} day(s)
                             </span>
                           </div>
                         )}
@@ -620,7 +685,7 @@ export default function CommercialShipmentsPage() {
         <div className={`${surface} overflow-hidden`}>
           <div className="border-b border-slate-200 px-6 py-4 dark:border-slate-800">
             <h2 className="font-semibold text-slate-950 dark:text-white">
-              Orders in Transit
+              {t("inTransit")}
               <span className="ml-2 text-sm font-normal text-slate-400">
                 {filteredShipped.length}
               </span>
@@ -713,7 +778,7 @@ export default function CommercialShipmentsPage() {
             <textarea
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Expliquez pourquoi la demande est rejetée..."
+              placeholder={t("rejectRequestReasonPlaceholder")}
               rows={3}
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
             />

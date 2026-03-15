@@ -43,6 +43,9 @@ export const deliveryPlanService = {
   getUnassigned: async (): Promise<SalesOrder[]> =>
     (await api.get("/commercial/delivery-plans/unassigned")).data,
 
+  getDiscoveredZones: async (): Promise<string[]> =>
+    (await api.get("/commercial/delivery-plans/discovered-zones")).data,
+
   create: async (payload: CreateDeliveryPlanPayload): Promise<DeliveryPlan> =>
     (await api.post("/commercial/delivery-plans", payload)).data,
 
@@ -54,7 +57,4 @@ export const deliveryPlanService = {
 
   cancel: async (id: string): Promise<DeliveryPlan> =>
     (await api.post(`/commercial/delivery-plans/${id}/cancel`)).data,
-
-  getDiscoveredZones: async (): Promise<string[]> =>
-    (await api.get("/commercial/delivery-plans/discovered-zones")).data,
 };

@@ -243,7 +243,7 @@ export default function CustomersPage() {
                     </div>
                   )}
                   {!c.email && !c.phone && !c.city && !c.address && (
-                    <p className="text-xs text-slate-400 dark:text-slate-600">No contact info</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-600">{t("noContactInfo")}</p>
                   )}
                 </div>
 
@@ -302,7 +302,7 @@ export default function CustomersPage() {
               {/* Modal body */}
               <div className="space-y-4 p-6">
                 <div>
-                  <label className={labelClass}>{t("customerName") || "Full Name"} <span className="text-rose-500 normal-case tracking-normal">*</span></label>
+                  <label className={labelClass}>{t("fullNameLabel")} <span className="text-rose-500 normal-case tracking-normal">*</span></label>
                   <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="John Doe" className={inputClass} />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -311,24 +311,24 @@ export default function CustomersPage() {
                     <input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} placeholder="Acme Corp" className={inputClass} />
                   </div>
                   <div>
-                    <label className={labelClass}>{t("phone") || "Phone"}</label>
+                    <label className={labelClass}>{t("phoneLabel")}</label>
                     <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+213 …" className={inputClass} />
                   </div>
                 </div>
                 <div>
-                  <label className={labelClass}>{t("email") || "Email"}</label>
+                  <label className={labelClass}>{t("emailLabel2")}</label>
                   <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="contact@example.com" className={inputClass} />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className={labelClass}>Région</label>
+                    <label className={labelClass}>{t("regionLabel")}</label>
                     <select value={form.governorate} onChange={(e) => setForm({ ...form, governorate: e.target.value })} className={inputClass}>
-                      <option value="">— Sélectionner —</option>
+                      <option value="">{t("selectRegionPlaceholder")}</option>
                       {TUNISIA_GOVERNORATES.map((g) => <option key={g} value={g}>{g}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className={labelClass}>{t("address") || "Address"}</label>
+                    <label className={labelClass}>{t("addressLabel")}</label>
                     <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="123 Rue…" className={inputClass} />
                   </div>
                 </div>
@@ -358,7 +358,7 @@ export default function CustomersPage() {
                   className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
                 >
                   {saving && <Loader2 size={14} className="animate-spin" />}
-                  {t("save") || "Save"}
+                  {t("saveAction")}
                 </button>
               </div>
             </div>

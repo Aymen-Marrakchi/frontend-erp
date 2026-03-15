@@ -1,6 +1,7 @@
 "use client";
 
 import ProtectedRoute from "@/components/ProtectedRoute";
+import { useLanguage } from "@/context/LanguageContext";
 import { backorderService, BackOrder } from "@/services/commercial/backorderService";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -25,6 +26,7 @@ const statusColors: Record<string, string> = {
 
 export default function BackorderDetailPage() {
   const params = useParams<{ id: string }>();
+  const { t } = useLanguage();
   const [bo, setBo] = useState<BackOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<string | null>(null);
@@ -76,10 +78,10 @@ export default function BackorderDetailPage() {
           </div>
           <div>
             <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-              Commercial · ERP
+              {t("commercialModule")} · ERP
             </p>
             <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-              Backorder Detail
+              {t("backorderDetailTitle")}
             </h1>
           </div>
         </div>
@@ -88,7 +90,7 @@ export default function BackorderDetailPage() {
           href="/dashboard/commercial/backorders"
           className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
         >
-          <ArrowLeft size={14} /> Back to backorders
+          <ArrowLeft size={14} /> {t("backToOrders")}
         </Link>
 
         {error && (
@@ -102,10 +104,10 @@ export default function BackorderDetailPage() {
 
         {loading ? (
           <div className={`${surface} flex items-center justify-center gap-2 py-16 text-sm text-slate-500`}>
-            <Loader2 size={16} className="animate-spin" /> Loading…
+            <Loader2 size={16} className="animate-spin" /> {t("loading")}
           </div>
         ) : !bo ? (
-          <div className={`${surface} px-6 py-12 text-sm text-slate-500`}>Backorder not found.</div>
+          <div className={`${surface} px-6 py-12 text-sm text-slate-500`}>{t("backorderNotFound")}</div>
         ) : (
           <>
             <div className="grid gap-6 xl:grid-cols-3">
@@ -114,7 +116,7 @@ export default function BackorderDetailPage() {
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
                     <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                      Backorder
+                      {t("backorderListTitle")}
                     </p>
                     <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
                       {bo.orderNo}
@@ -138,9 +140,9 @@ export default function BackorderDetailPage() {
                 </div>
 
                 <div className="mt-5 flex flex-wrap gap-4 text-[11px] text-slate-500 dark:text-slate-400">
-                  {bo.createdAt && <span>Créé: {new Date(bo.createdAt).toLocaleDateString("fr-TN")}</span>}
-                  {bo.fulfilledAt && <span>Fulfillé: {new Date(bo.fulfilledAt).toLocaleDateString("fr-TN")}</span>}
-                  {bo.cancelledAt && <span>Annulé: {new Date(bo.cancelledAt).toLocaleDateString("fr-TN")}</span>}
+                  {bo.createdAt && <span>{t("createdOnLabel")}: {new Date(bo.createdAt).toLocaleDateString("fr-TN")}</span>}
+                  {bo.fulfilledAt && <span>{t("fulfilled")}: {new Date(bo.fulfilledAt).toLocaleDateString("fr-TN")}</span>}
+                  {bo.cancelledAt && <span>{t("cancelled")}: {new Date(bo.cancelledAt).toLocaleDateString("fr-TN")}</span>}
                 </div>
               </div>
 
@@ -149,9 +151,9 @@ export default function BackorderDetailPage() {
                 <div className={`${surface} p-6`}>
                   <div className="space-y-3">
                     {[
-                      { label: "Commandé", value: totalOrdered, color: "text-slate-900 dark:text-white" },
-                      { label: "Réservé", value: totalReserved, color: "text-teal-700 dark:text-teal-400" },
-                      { label: "En attente", value: totalBackordered, color: "text-amber-700 dark:text-amber-400" },
+                      { label: t("orderedQtyLabel"), value: totalOrdered, color: "text-slate-900 dark:text-white" },
+                      { label: t("reservedQtyLabel"), value: totalReserved, color: "text-teal-700 dark:text-teal-400" },
+                      { label: t("pendingQtyLabel"), value: totalBackordered, color: "text-amber-700 dark:text-amber-400" },
                     ].map((kpi) => (
                       <div key={kpi.label} className="flex items-center justify-between">
                         <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{kpi.label}</span>
@@ -164,7 +166,7 @@ export default function BackorderDetailPage() {
                 {bo.status === "PENDING" && (
                   <div className={`${surface} p-6`}>
                     <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-                      Actions
+                      {t("actionsCol")}
                     </p>
                     <div className="flex flex-col gap-2">
                       <button
@@ -173,14 +175,14 @@ export default function BackorderDetailPage() {
                         className="inline-flex items-center justify-center gap-2 rounded-2xl bg-teal-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-teal-700 disabled:opacity-50"
                       >
                         {actionId === "fulfill" ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                        Fulfiller
+                        {t("fulfillBackorderAction")}
                       </button>
                       <button
                         onClick={() => runAction("cancel")}
                         disabled={!!actionId}
                         className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-medium text-rose-600 transition hover:bg-rose-100 disabled:opacity-50 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400"
                       >
-                        <XCircle size={14} /> Annuler
+                        <XCircle size={14} /> {t("cancelBackorderAction")}
                       </button>
                     </div>
                   </div>
@@ -191,13 +193,13 @@ export default function BackorderDetailPage() {
             {/* Lines table */}
             <div className={`${surface} overflow-hidden`}>
               <div className="border-b border-slate-100 px-6 py-4 dark:border-slate-800">
-                <h2 className="font-semibold text-slate-950 dark:text-white">Lignes de backorder</h2>
+                <h2 className="font-semibold text-slate-950 dark:text-white">{t("backorderListTitle")} — {t("lineCountLabel")}</h2>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 dark:bg-slate-800/50">
                     <tr className="text-left text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                      {["Produit", "SKU", "Commandé", "Réservé", "En attente"].map((h) => (
+                      {[t("product"), t("sku"), t("orderedQtyLabel"), t("reservedQtyLabel"), t("pendingQtyLabel")].map((h) => (
                         <th key={h} className="px-6 py-3 font-medium">{h}</th>
                       ))}
                     </tr>

@@ -5,6 +5,7 @@ export interface ProductionOrder {
   _id: string;
   orderNo: string;
   salesOrderId?: { _id: string; orderNo: string } | null;
+  backorderId?: { _id: string; orderNo: string; status: string } | null;
   productId: { _id: string; name: string; sku: string; unit: string };
   quantity: number;
   completedQty: number;
@@ -42,6 +43,7 @@ export const productionOrderService = {
     priority?: string;
     estimatedHours?: number;
     salesOrderId?: string;
+    backorderId?: string;
     notes?: string;
   }): Promise<ProductionOrder> => {
     const { data } = await api.post(PREFIX, payload);
@@ -67,10 +69,10 @@ export const productionOrderService = {
     return data;
   },
 
-  createFromDeliveryPlan: async (
-    planId: string
-  ): Promise<{ orders: ProductionOrder[]; planNo: string; totalQty: number; vehicleCapacity: number | null }> => {
-    const { data } = await api.post(`${PREFIX}/from-plan/${planId}`);
+  createFromBackorder: async (
+    backorderId: string
+  ): Promise<{ orders: ProductionOrder[]; backorderId: string; orderNo: string; totalQty: number }> => {
+    const { data } = await api.post(`${PREFIX}/from-backorder/${backorderId}`);
     return data;
   },
 };

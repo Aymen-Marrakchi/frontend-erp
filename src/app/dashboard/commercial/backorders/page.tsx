@@ -102,10 +102,10 @@ export default function BackordersPage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-                {t("backorders") || "Backorders"}
+                {t("backorderListTitle")}
               </h1>
               <p className="text-sm text-slate-500 dark:text-slate-400">
-                {t("backordersSub") || "Orders with insufficient stock at confirmation"}
+                {t("backordersSub")}
               </p>
             </div>
           </div>
@@ -124,10 +124,10 @@ export default function BackordersPage() {
         {/* KPIs */}
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
           {[
-            { label: t("total") || "Total", value: kpis.total, color: "text-slate-900 dark:text-white" },
-            { label: t("pending") || "Pending", value: kpis.pending, color: "text-amber-700 dark:text-amber-400" },
-            { label: t("fulfilled") || "Fulfilled", value: kpis.fulfilled, color: "text-teal-700 dark:text-teal-400" },
-            { label: t("cancelled") || "Cancelled", value: kpis.cancelled, color: "text-rose-600 dark:text-rose-400" },
+            { label: t("totalLabel"), value: kpis.total, color: "text-slate-900 dark:text-white" },
+            { label: t("pending"), value: kpis.pending, color: "text-amber-700 dark:text-amber-400" },
+            { label: t("fulfilled"), value: kpis.fulfilled, color: "text-teal-700 dark:text-teal-400" },
+            { label: t("cancelled"), value: kpis.cancelled, color: "text-rose-600 dark:text-rose-400" },
           ].map((kpi) => (
             <div key={kpi.label} className={`${surface} px-6 py-5`}>
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">
@@ -142,7 +142,7 @@ export default function BackordersPage() {
         <div className={`${surface} overflow-hidden`}>
           <div className="flex flex-col gap-3 border-b border-slate-200 px-6 py-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="font-semibold text-slate-950 dark:text-white">
-              {t("backorders") || "Backorders"}
+              {t("backorderListTitle")}
               <span className="ml-2 text-sm font-normal text-slate-400">{filtered.length}</span>
             </h2>
             <div className="flex items-center gap-2">
@@ -161,8 +161,8 @@ export default function BackordersPage() {
                 className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
               >
                 <option value="ALL">{t("allStatus")}</option>
-                <option value="PENDING">{t("pending") || "Pending"}</option>
-                <option value="FULFILLED">{t("fulfilled") || "Fulfilled"}</option>
+                <option value="PENDING">{t("pending")}</option>
+                <option value="FULFILLED">{t("fulfilled")}</option>
                 <option value="CANCELLED">{t("cancelled")}</option>
               </select>
             </div>
@@ -176,8 +176,8 @@ export default function BackordersPage() {
             <div className="flex flex-col items-center justify-center gap-2 py-20 text-sm text-slate-400">
               <RotateCcw size={32} className="opacity-30" />
               {backorders.length === 0
-                ? (t("noBackorders") || "No backorders yet")
-                : (t("noMatch") || "No match")}
+                ? t("noBackorders")
+                : t("noMatch")}
             </div>
           ) : (
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -218,7 +218,7 @@ export default function BackordersPage() {
                         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
                           {bo.customerName}
                           <span className="ml-2 text-[11px] text-slate-400">
-                            · {bo.lines.length} line{bo.lines.length > 1 ? "s" : ""}
+                            · {bo.lines.length} {t("lineCountLabel")}
                           </span>
                         </p>
                       </div>
@@ -242,7 +242,7 @@ export default function BackordersPage() {
                             className="inline-flex items-center gap-1.5 rounded-2xl bg-teal-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-teal-700 disabled:opacity-50"
                           >
                             {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
-                            {t("fulfill") || "Fulfill"}
+                            {t("fulfillBackorderAction")}
                           </button>
                           <button
                             onClick={() => runAction("cancel", bo._id)}
@@ -261,7 +261,7 @@ export default function BackordersPage() {
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="border-b border-slate-200 dark:border-slate-800">
-                              {["Product", "Ordered", "Reserved", "Backordered"].map((h) => (
+                              {[t("product"), t("orderedQtyLabel"), t("reservedQtyLabel"), t("pendingQtyLabel")].map((h) => (
                                 <th
                                   key={h}
                                   className="pb-2 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400"

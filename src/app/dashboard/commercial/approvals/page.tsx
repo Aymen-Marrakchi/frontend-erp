@@ -95,10 +95,10 @@ export default function ApprovalsPage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-                Approbations urgentes
+                {t("urgentApprovalsTitle")}
               </h1>
               <p className="text-sm text-slate-500 dark:text-slate-400">
-                Commandes urgentes en attente d&apos;autorisation d&apos;expédition
+                {t("urgentApprovalsSub")}
               </p>
             </div>
           </div>
@@ -116,7 +116,7 @@ export default function ApprovalsPage() {
         {/* KPI */}
         <div className={`${surface} px-6 py-5`}>
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">
-            En attente
+            {t("pendingApprovalsLabel")}
           </p>
           <p className={`mt-2 text-3xl font-bold ${orders.length > 0 ? "text-amber-600 dark:text-amber-400" : "text-slate-900 dark:text-white"}`}>
             {loading ? "—" : orders.length}
@@ -126,7 +126,7 @@ export default function ApprovalsPage() {
         <div className={`${surface} overflow-hidden`}>
           <div className="border-b border-slate-200 px-6 py-4 dark:border-slate-800">
             <h2 className="font-semibold text-slate-950 dark:text-white">
-              File d&apos;approbation
+              {t("approvalQueueTitle")}
               <span className="ml-2 text-sm font-normal text-slate-400">{orders.length}</span>
             </h2>
           </div>
@@ -138,7 +138,7 @@ export default function ApprovalsPage() {
           ) : orders.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-16 text-sm text-slate-400 dark:text-slate-500">
               <ShieldCheck size={30} className="opacity-30" />
-              Aucune approbation en attente
+              {t("noPendingApprovals")}
             </div>
           ) : (
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -163,7 +163,7 @@ export default function ApprovalsPage() {
                           <Zap size={9} /> URGENT
                         </span>
                         <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                          <Clock size={9} /> PENDING
+                          <Clock size={9} /> {t("pendingApprovalsLabel")}
                         </span>
                       </div>
                       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
@@ -171,12 +171,12 @@ export default function ApprovalsPage() {
                       </p>
                       <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-400">
                         {requestedAt && (
-                          <span>Demandé le {new Date(requestedAt).toLocaleDateString("fr-TN")} à {new Date(requestedAt).toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" })}</span>
+                          <span>{t("requestedOnLabel")} {new Date(requestedAt).toLocaleDateString("fr-TN")} à {new Date(requestedAt).toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit" })}</span>
                         )}
                         {order.promisedDate && (
-                          <span>Promis: {new Date(order.promisedDate).toLocaleDateString("fr-TN")}</span>
+                          <span>{t("promisedLabel")}: {new Date(order.promisedDate).toLocaleDateString("fr-TN")}</span>
                         )}
-                        <span>{order.lines.length} ligne{order.lines.length !== 1 ? "s" : ""}</span>
+                        <span>{order.lines.length} {t("lineCountLabel")}</span>
                       </div>
                     </div>
 
@@ -195,7 +195,7 @@ export default function ApprovalsPage() {
                         className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
                       >
                         {busy ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
-                        Approuver
+                        {t("approveAction")}
                       </button>
 
                       {rejectingId === order._id ? (
@@ -204,7 +204,7 @@ export default function ApprovalsPage() {
                             autoFocus
                             value={rejectReason}
                             onChange={(e) => setRejectReason(e.target.value)}
-                            placeholder="Motif du rejet…"
+                            placeholder={t("rejectReasonPlaceholderText")}
                             className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs outline-none focus:border-rose-300 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
                           />
                           <div className="flex gap-1.5">
@@ -213,7 +213,7 @@ export default function ApprovalsPage() {
                               disabled={!rejectReason.trim() || busy}
                               className="flex-1 rounded-xl bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-700 disabled:opacity-50"
                             >
-                              Confirmer
+                              {t("confirmAction")}
                             </button>
                             <button
                               onClick={() => { setRejectingId(null); setRejectReason(""); }}
@@ -229,7 +229,7 @@ export default function ApprovalsPage() {
                           disabled={busy}
                           className="inline-flex items-center gap-1.5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-medium text-rose-600 transition hover:bg-rose-100 disabled:opacity-50 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400"
                         >
-                          <ShieldX size={13} /> Rejeter
+                          <ShieldX size={13} /> {t("rejectAction")}
                         </button>
                       )}
                     </div>

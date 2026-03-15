@@ -1,10 +1,12 @@
 import api from "../api";
 
 export interface SalesOrderLine {
-  productId: { _id: string; name: string; sku: string } | null;
+  productId: { _id: string; name: string; sku: string; type?: string; unit?: string } | null;
   quantity: number;
   unitPrice: number;
   discount?: number;
+  allocatedQuantity?: number;
+  plannedProductionQuantity?: number;
 }
 
 export interface ShipApproval {
@@ -23,9 +25,17 @@ export interface SalesOrder {
   _id: string;
   orderNo: string;
   customerName: string;
-  status: "DRAFT" | "CONFIRMED" | "PREPARED" | "SHIPPED" | "DELIVERED" | "CLOSED" | "CANCELLED";
+  source?: "MANUAL" | "RECURRING";
+  status: "DRAFT" | "ORDONNANCED" | "CONFIRMED" | "PREPARED" | "SHIPPED" | "DELIVERED" | "CLOSED" | "CANCELLED";
   promisedDate?: string;
+  plannedStartDate?: string;
+  plannedEndDate?: string;
+  ordonnancedAt?: string;
   preparedAt?: string;
+  pickingSlipPrintedAt?: string;
+  pickingSlipPrintedBy?: { _id: string; name: string } | null;
+  packingValidatedAt?: string;
+  packingValidatedBy?: { _id: string; name: string } | null;
   shippedAt?: string;
   deliveredAt?: string;
   closedAt?: string;
@@ -69,8 +79,30 @@ export const salesOrderService = {
   confirm: async (id: string) =>
     (await api.post(`/commercial/orders/${id}/confirm`)).data,
 
+  ordonance: async (
+    id: string,
+    payload: { lines: { productId: string; allocatedQuantity: number }[] }
+  ) => (await api.post(`/commercial/orders/${id}/ordonance`, payload)).data,
+
+  ordonanceBulk: async (
+    payload: {
+      orders: {
+        orderId: string;
+        plannedStartDate: string;
+        plannedEndDate: string;
+        lines: { productId: string; allocatedQuantity: number }[];
+      }[];
+    }
+  ) => (await api.post("/commercial/orders/ordonance/bulk", payload)).data,
+
   prepare: async (id: string) =>
     (await api.post(`/commercial/orders/${id}/prepare`)).data,
+
+  markPickingSlipPrinted: async (id: string) =>
+    (await api.post(`/commercial/orders/${id}/print-picking-slip`)).data,
+
+  validatePacking: async (id: string) =>
+    (await api.post(`/commercial/orders/${id}/validate-packing`)).data,
 
   cancel: async (id: string) =>
     (await api.post(`/commercial/orders/${id}/cancel`)).data,

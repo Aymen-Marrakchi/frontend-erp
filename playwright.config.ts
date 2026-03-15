@@ -2,8 +2,8 @@ import { defineConfig, devices } from "@playwright/test";
 
 const frontendPort = process.env.PLAYWRIGHT_FRONTEND_PORT || "3000";
 const backendPort = process.env.PLAYWRIGHT_BACKEND_PORT || "5000";
-const baseURL = process.env.PLAYWRIGHT_BASE_URL || `http://127.0.0.1:${frontendPort}`;
-const apiURL = process.env.PLAYWRIGHT_API_URL || `http://127.0.0.1:${backendPort}/api`;
+const baseURL = process.env.PLAYWRIGHT_BASE_URL || `http://localhost:${frontendPort}`;
+const apiURL = process.env.PLAYWRIGHT_API_URL || `http://localhost:${backendPort}/api`;
 
 export default defineConfig({
   testDir: "./e2e",

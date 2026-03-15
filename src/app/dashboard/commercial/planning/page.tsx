@@ -6,6 +6,7 @@ import {
   deliveryPlanService,
   DeliveryPlan,
   CreateDeliveryPlanPayload,
+  DeliveryPlanType,
 } from "@/services/commercial/deliveryPlanService";
 import { customerService } from "@/services/commercial/customerService";
 import { SalesOrder } from "@/services/commercial/salesOrderService";
@@ -28,6 +29,29 @@ import {
 
 const surface =
   "rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900";
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "response" in error &&
+    error.response &&
+    typeof error.response === "object" &&
+    "data" in error.response &&
+    error.response.data &&
+    typeof error.response.data === "object" &&
+    "message" in error.response.data &&
+    typeof error.response.data.message === "string"
+  ) {
+    return error.response.data.message;
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return fallback;
+}
 
 function statusBadge(status: string) {
   const map: Record<string, string> = {
@@ -75,8 +99,8 @@ export default function PlanningPage() {
   const [plans, setPlans] = useState<DeliveryPlan[]>([]);
   const [unassigned, setUnassigned] = useState<SalesOrder[]>([]);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
-  const [discoveredZones, setDiscoveredZones] = useState<string[]>([]);
   const [coveredGovs, setCoveredGovs] = useState<string[]>([]);
+  const [discoveredGovs, setDiscoveredGovs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionId, setActionId] = useState<string | null>(null);
@@ -89,22 +113,24 @@ export default function PlanningPage() {
     try {
       setLoading(true);
       setError("");
-      const [plansData, unassignedData, carriersData, discoveredData, customersData] = await Promise.all([
+      const [plansData, unassignedData, discoveredGovsData, carriersData, customersData] = await Promise.all([
         deliveryPlanService.getAll(),
         deliveryPlanService.getUnassigned(),
-        carrierService.getActive(),
         deliveryPlanService.getDiscoveredZones(),
+        carrierService.getActive(),
         customerService.getAll(),
       ]);
       setPlans(plansData);
       setUnassigned(unassignedData);
+      setDiscoveredGovs(discoveredGovsData);
       setCarriers(carriersData);
-      setDiscoveredZones(discoveredData);
       // governorates that already have at least 1 customer
-      const govWithCustomers = [...new Set(customersData.map((c) => c.governorate).filter(Boolean))];
+      const govWithCustomers = [
+        ...new Set(customersData.map((c) => c.governorate || c.city).filter(Boolean)),
+      ];
       setCoveredGovs(govWithCustomers as string[]);
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to load planning data");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to load planning data"));
     } finally {
       setLoading(false);
     }
@@ -134,9 +160,29 @@ export default function PlanningPage() {
     });
   };
 
+  const normalizeGovernorate = (value: string) =>
+    value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
+
+  const availableDiscoverGovs = useMemo(() => {
+    const discovered = new Set(discoveredGovs.map((gov) => normalizeGovernorate(gov)));
+    const covered = new Set(coveredGovs.map((gov) => normalizeGovernorate(gov)));
+    return TUNISIA_GOVERNORATES.filter((gov) => {
+      const key = normalizeGovernorate(gov);
+      return !discovered.has(key) && !covered.has(key);
+    });
+  }, [coveredGovs, discoveredGovs]);
+
   const handleCreate = async () => {
     if (!form.planDate) {
       setError("Plan date is required");
+      return;
+    }
+    if (form.planType === "DISCOVER" && !form.zone) {
+      setError("Zone is required for discover plans");
       return;
     }
     try {
@@ -149,8 +195,8 @@ export default function PlanningPage() {
       setShowForm(false);
       setForm(emptyForm);
       await fetchAll();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to create plan");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to create plan"));
     } finally {
       setSaving(false);
     }
@@ -161,8 +207,8 @@ export default function PlanningPage() {
       setActionId(id);
       await deliveryPlanService.start(id);
       await fetchAll();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to start delivery");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to start delivery"));
     } finally {
       setActionId(null);
     }
@@ -173,8 +219,8 @@ export default function PlanningPage() {
       setActionId(id);
       await deliveryPlanService.complete(id);
       await fetchAll();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to complete delivery");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to complete delivery"));
     } finally {
       setActionId(null);
     }
@@ -185,8 +231,8 @@ export default function PlanningPage() {
       setActionId(id);
       await deliveryPlanService.cancel(id);
       await fetchAll();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to cancel plan");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to cancel plan"));
     } finally {
       setActionId(null);
     }
@@ -334,11 +380,19 @@ export default function PlanningPage() {
 
                 {/* Plan type toggle */}
                 <div className="mb-5 flex gap-2">
-                  {(["SHIPMENT", "DISCOVER"] as const).map((type) => (
+                  {(["SHIPMENT", "DISCOVER"] as const).map((type: DeliveryPlanType) => (
                     <button
                       key={type}
                       type="button"
-                      onClick={() => setForm((f) => ({ ...f, planType: type, zone: "", orderIds: [] }))}
+                      onClick={() =>
+                        setForm((f) => ({
+                          ...f,
+                          planType: type,
+                          zone: "",
+                          orderIds: [],
+                          carrierId: type === "DISCOVER" ? "" : f.carrierId,
+                        }))
+                      }
                       className={`flex-1 rounded-2xl border py-2.5 text-sm font-medium transition ${
                         form.planType === type
                           ? type === "SHIPMENT"
@@ -347,7 +401,7 @@ export default function PlanningPage() {
                           : "border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
                       }`}
                     >
-                      {type === "SHIPMENT" ? "🚚 Plan Livraison" : "🔍 Plan Découverte"}
+                      {type === "SHIPMENT" ? ("🚚 " + t("deliveryPlanLabel")) : ("🔍 " + t("explorationPlanLabel"))}
                     </button>
                   ))}
                 </div>
@@ -376,7 +430,7 @@ export default function PlanningPage() {
                   </div>
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                      {t("startDate") || "Start Date"}
+                      {t("startDateLabel")}
                     </label>
                     <input
                       type="date"
@@ -392,6 +446,7 @@ export default function PlanningPage() {
                     <select
                       value={form.carrierId || ""}
                       onChange={(e) => setForm((f) => ({ ...f, carrierId: e.target.value }))}
+                      disabled={form.planType === "DISCOVER"}
                       className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
                     >
                       <option value="">— {t("carrier") || "Carrier"} —</option>
@@ -411,20 +466,18 @@ export default function PlanningPage() {
                       onChange={(e) => setForm((f) => ({ ...f, zone: e.target.value }))}
                       className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
                     >
-                      <option value="">— Sélectionner —</option>
-                      {TUNISIA_GOVERNORATES
-                        .filter((g) =>
-                          form.planType !== "DISCOVER" ||
-                          (!coveredGovs.some((c) => c.toLowerCase() === g.toLowerCase()) &&
-                           !discoveredZones.some((d) => d.toLowerCase() === g.toLowerCase()))
-                        )
-                        .map((g) => (
-                          <option key={g} value={g}>{g}</option>
-                        ))}
+                      <option value="">{t("selectRegionPlaceholder")}</option>
+                      {(form.planType === "DISCOVER" ? availableDiscoverGovs : TUNISIA_GOVERNORATES).map((g) => (
+                        <option key={g} value={g}>{g}</option>
+                      ))}
                     </select>
-                    {form.planType === "DISCOVER" && (
-                      <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-                        Seules les régions non encore visitées sont affichées
+                    {form.planType === "DISCOVER" ? (
+                      <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                        {availableDiscoverGovs.length} / {TUNISIA_GOVERNORATES.length} governorates are still not discovered.
+                      </p>
+                    ) : coveredGovs.length > 0 && (
+                      <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                        {coveredGovs.length} / {TUNISIA_GOVERNORATES.length} governorates currently have customers.
                       </p>
                     )}
                   </div>
@@ -581,9 +634,15 @@ export default function PlanningPage() {
                               <Truck size={10} /> {plan.carrierId?.name}
                             </span>
                           )}
-                          <span className="flex items-center gap-1">
-                            <Package size={10} /> {plan.orderIds.length} orders
-                          </span>
+                          {plan.planType === "SHIPMENT" ? (
+                            <span className="flex items-center gap-1">
+                              <Package size={10} /> {plan.orderIds.length} orders
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1">
+                              <MapPin size={10} /> {t("explorationPlanLabel")}
+                            </span>
+                          )}
                         </div>
                       </div>
 

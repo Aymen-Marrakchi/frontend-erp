@@ -154,6 +154,7 @@ function VehicleCard({
   onEdit: (v: Vehicle) => void;
   onToggle: (v: Vehicle) => void;
 }) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const [deliveries, setDeliveries] = useState<VehicleDelivery[]>([]);
   const [loadingDel, setLoadingDel] = useState(false);
@@ -197,14 +198,14 @@ function VehicleCard({
                 ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
                 : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
             }`}>
-              {vehicle.active ? "Actif" : "Inactif"}
+              {vehicle.active ? t("activeLabel") : t("inactiveLabel")}
             </span>
           </div>
           <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500 dark:text-slate-400 flex-wrap">
             <span className="flex items-center gap-1"><Weight size={11} /> {vehicle.capacityKg} kg</span>
             <span className="flex items-center gap-1"><Package size={11} /> {vehicle.capacityPackets} colis</span>
             <span className="flex items-center gap-1"><Clock size={11} /> {ageStr(vehicle.purchaseDate)}</span>
-            <span className="flex items-center gap-1"><CalendarDays size={11} /> {vehicle.lifeExpectancyDays} jours (durée de vie)</span>
+            <span className="flex items-center gap-1"><CalendarDays size={11} /> {vehicle.lifeExpectancyDays} {t("lifespanDaysLabel")}</span>
           </div>
           {/* Durability bar */}
           <div className="mt-2.5 flex items-center gap-2">
@@ -214,7 +215,7 @@ function VehicleCard({
                 style={{ width: `${durPct}%` }}
               />
             </div>
-            <span className={`text-[10px] font-semibold ${c.text}`}>Durabilité {durPct.toFixed(0)}%</span>
+            <span className={`text-[10px] font-semibold ${c.text}`}>{t("durabilityPct")} {durPct.toFixed(0)}%</span>
           </div>
         </div>
 
@@ -222,14 +223,14 @@ function VehicleCard({
           <button
             className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
             onClick={(e) => { e.stopPropagation(); onEdit(vehicle); }}
-            title="Modifier"
+            title={t("editAction")}
           >
             <Pencil size={14} />
           </button>
           <button
             className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
             onClick={(e) => { e.stopPropagation(); onToggle(vehicle); }}
-            title={vehicle.active ? "Désactiver" : "Activer"}
+            title={vehicle.active ? t("deactivateAction") : t("activateAction")}
           >
             <Power size={14} />
           </button>
@@ -248,7 +249,7 @@ function VehicleCard({
           {/* Curve */}
           <div className="p-5 border-b md:border-b-0 md:border-r border-slate-100 dark:border-slate-800">
             <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 mb-3">
-              Courbe de Durabilité
+              {t("durabilityCurveTitle")}
             </p>
             <DurabilityCurve purchaseDate={vehicle.purchaseDate} lifeExpectancyDays={vehicle.lifeExpectancyDays} />
             {vehicle.notes && (
@@ -260,17 +261,17 @@ function VehicleCard({
           <div className="p-5">
             <div className="mb-4 grid grid-cols-3 gap-3">
               <div className="rounded-2xl border border-slate-100 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Orders</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{t("orders")}</p>
                 <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">{history.orderCount}</p>
               </div>
               <div className="rounded-2xl border border-slate-100 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Income</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{t("totalRevenue")}</p>
                 <p className="mt-2 text-lg font-bold text-emerald-600 dark:text-emerald-400">
                   {history.income.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
                 </p>
               </div>
               <div className="rounded-2xl border border-slate-100 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Carburant</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{t("fuelLabel")}</p>
                 <p className="mt-2 text-lg font-bold text-rose-600 dark:text-rose-400">
                   {history.fuelOutcome.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
                 </p>
@@ -278,14 +279,14 @@ function VehicleCard({
             </div>
 
             <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 mb-3">
-              Historique Livraisons
+              {t("deliveryHistoryTitle")}
             </p>
             {loadingDel ? (
               <div className="flex items-center gap-2 text-xs text-slate-400">
-                <Loader2 size={12} className="animate-spin" /> Chargement...
+                <Loader2 size={12} className="animate-spin" /> {t("loading")}
               </div>
             ) : deliveries.length === 0 ? (
-              <p className="text-xs text-slate-400">Aucune livraison enregistrée.</p>
+              <p className="text-xs text-slate-400">{t("noDeliveriesRecorded")}</p>
             ) : (
               <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
                 {deliveries.map((d) => (
@@ -356,6 +357,7 @@ function VehicleModal({
   onClose: () => void;
   onSave: (data: FormState) => Promise<void>;
 }) {
+  const { t } = useLanguage();
   const [form, setForm] = useState<FormState>(
     initial
       ? {
@@ -422,7 +424,7 @@ function VehicleModal({
       <div className={`${surface} w-full max-w-lg p-6 shadow-2xl`}>
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-base font-bold text-slate-900 dark:text-white">
-            {initial ? "Modifier le véhicule" : "Nouveau véhicule"}
+            {initial ? t("editVehicleTitle") : t("newVehicleTitle")}
           </h2>
           <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors">
             <X size={16} />
@@ -432,7 +434,7 @@ function VehicleModal({
         <form onSubmit={submit} className="space-y-4">
           {/* Matricule */}
           <div>
-            <label className={labelClass}>Matricule</label>
+            <label className={labelClass}>{t("licensePlate")}</label>
             <div className="grid grid-cols-[1fr_auto_1fr] gap-3">
               <input
                 className={inputClass}
@@ -461,11 +463,11 @@ function VehicleModal({
           {/* Capacities */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelClass}>Capacité kg</label>
+              <label className={labelClass}>{t("capacityKgLabel")}</label>
               <input type="number" min={0} className={inputClass} value={form.capacityKg} onChange={set("capacityKg")} required />
             </div>
             <div>
-              <label className={labelClass}>Capacité colis</label>
+              <label className={labelClass}>{t("capacityPacketsLabel2")}</label>
               <input type="number" min={0} className={inputClass} value={form.capacityPackets} onChange={set("capacityPackets")} required />
             </div>
           </div>
@@ -473,7 +475,7 @@ function VehicleModal({
           {/* Date + Life — side by side */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelClass}>Date d'achat</label>
+              <label className={labelClass}>{t("purchaseDateLabel")}</label>
               <input
                 type="date"
                 className={inputClass}
@@ -483,7 +485,7 @@ function VehicleModal({
               />
             </div>
             <div>
-              <label className={labelClass}>Durée de vie (jours)</label>
+              <label className={labelClass}>{t("lifespanDaysLabel")}</label>
               <input
                 type="number"
                 min={1}
@@ -496,7 +498,7 @@ function VehicleModal({
           </div>
 
           <div>
-            <label className={labelClass}>DurabilitÃ© (%)</label>
+            <label className={labelClass}>{t("durabilityLabel")}</label>
             <input
               type="number"
               min={0}
@@ -512,7 +514,7 @@ function VehicleModal({
           {previewPct !== null && (
             <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 px-4 py-3 flex items-center gap-3">
               <div className="flex-1">
-                <p className="text-xs text-slate-500 mb-1">Durabilité actuelle calculée</p>
+                <p className="text-xs text-slate-500 mb-1">{t("currentCalculatedDurability")}</p>
                 <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-800">
                   <div
                     className={`h-2 rounded-full transition-all ${previewColor!.bar}`}
@@ -526,11 +528,11 @@ function VehicleModal({
 
           {/* Notes */}
           <div>
-            <label className={labelClass}>Notes</label>
+            <label className={labelClass}>{t("notesField")}</label>
             <textarea
               rows={2}
               className={`${inputClass} resize-none`}
-              placeholder="Optionnel..."
+              placeholder={t("optionalLabel")}
               value={form.notes}
               onChange={set("notes")}
             />
@@ -627,7 +629,7 @@ export default function FleetPage() {
           className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 rounded-2xl text-sm font-medium transition-colors shadow-sm"
         >
           <Plus size={16} />
-          Ajouter un véhicule
+          {t("addVehicle")}
         </button>
       </div>
 
@@ -656,7 +658,7 @@ export default function FleetPage() {
         <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
         <input
           className="w-full rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 pl-9 pr-4 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 dark:focus:ring-indigo-900/30 dark:focus:border-indigo-500 transition"
-          placeholder="Rechercher par matricule..."
+          placeholder={t("searchByPlate")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -666,14 +668,14 @@ export default function FleetPage() {
       {loading ? (
         <div className="flex items-center gap-3 text-slate-400 py-8">
           <Loader2 size={18} className="animate-spin" />
-          <span className="text-sm">Chargement...</span>
+          <span className="text-sm">{t("loading")}</span>
         </div>
       ) : filtered.length === 0 ? (
         <div className={`${surface} p-16 text-center`}>
           <Car size={36} className="text-slate-300 dark:text-slate-700 mx-auto mb-3" />
-          <p className="text-slate-500 dark:text-slate-400 text-sm">Aucun véhicule trouvé.</p>
+          <p className="text-slate-500 dark:text-slate-400 text-sm">{t("noVehicleFound")}</p>
           <button onClick={openCreate} className="mt-4 text-sm text-indigo-600 dark:text-indigo-400 hover:underline">
-            Ajouter le premier véhicule
+            {t("addVehicle")}
           </button>
         </div>
       ) : (
@@ -694,6 +696,5 @@ export default function FleetPage() {
     </div>
   );
 }
-
 
 
