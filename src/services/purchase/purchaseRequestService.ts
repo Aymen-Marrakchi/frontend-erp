@@ -1,5 +1,8 @@
 import api from "../api";
 
+export type PurchaseRequestStatus = "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED";
+export type PurchaseRequestPriority = "LOW" | "NORMAL" | "URGENT";
+
 export const purchaseRequestService = {
   getAll: async () => (await api.get("/purchase/requests")).data,
 
@@ -9,8 +12,11 @@ export const purchaseRequestService = {
     requestNo: string;
     productId: string;
     requestedQuantity: number;
+    department: string;
+    availableBudget?: number;
     reason: string;
-    priority?: "LOW" | "NORMAL" | "URGENT";
+    priority?: PurchaseRequestPriority;
+    status?: "DRAFT" | "SUBMITTED";
     notes?: string;
   }) => (await api.post("/purchase/requests", payload)).data,
 
@@ -19,15 +25,17 @@ export const purchaseRequestService = {
     payload: {
       requestNo: string;
       requestedQuantity: number;
+      department?: string;
+      availableBudget?: number;
       reason?: string;
-      priority?: "LOW" | "NORMAL" | "URGENT";
+      priority?: PurchaseRequestPriority;
       notes?: string;
     }
   ) => (await api.post(`/purchase/requests/from-alert/${alertId}`, payload)).data,
 
   updateStatus: async (
     id: string,
-    status: "PENDING" | "IN_PROGRESS" | "COMPLETED" | "REJECTED",
+    status: "SUBMITTED" | "APPROVED" | "REJECTED",
     notes?: string
   ) => (await api.patch(`/purchase/requests/${id}/status`, { status, notes })).data,
 };

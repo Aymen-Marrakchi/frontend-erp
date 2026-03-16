@@ -27,15 +27,40 @@ interface PurchaseRequest {
     name: string;
   };
   requestedQuantity: number;
+  department: string;
+  availableBudget?: number;
   reason: string;
   priority: "LOW" | "NORMAL" | "URGENT";
-  status: "PENDING" | "IN_PROGRESS" | "COMPLETED" | "REJECTED";
+  status: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED";
   sourceAlertId?: { _id: string; type: string } | null;
   createdBy?: { _id: string; name: string; role: string } | null;
   handledBy?: { _id: string; name: string; role: string } | null;
   notes: string;
   completedAt?: string | null;
   createdAt: string;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "response" in error &&
+    error.response &&
+    typeof error.response === "object" &&
+    "data" in error.response &&
+    error.response.data &&
+    typeof error.response.data === "object" &&
+    "message" in error.response.data &&
+    typeof error.response.data.message === "string"
+  ) {
+    return error.response.data.message;
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return fallback;
 }
 
 function Modal({
@@ -77,12 +102,12 @@ export default function PurchaseRequestsPage() {
 
   const [requests, setRequests] = useState<PurchaseRequest[]>([]);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"ALL" | "PENDING" | "IN_PROGRESS" | "COMPLETED" | "REJECTED">("ALL");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED">("ALL");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const [actionRequest, setActionRequest] = useState<PurchaseRequest | null>(null);
-  const [actionType, setActionType] = useState<"IN_PROGRESS" | "COMPLETED" | "REJECTED" | null>(null);
+  const [actionType, setActionType] = useState<"SUBMITTED" | "APPROVED" | "REJECTED" | null>(null);
   const [actionNotes, setActionNotes] = useState("");
   const [actionSubmitting, setActionSubmitting] = useState(false);
   const [actionError, setActionError] = useState("");
@@ -106,8 +131,8 @@ export default function PurchaseRequestsPage() {
       setError("");
       const data = await purchaseRequestService.getAll();
       setRequests(data);
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to load purchase requests");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to load purchase requests"));
     } finally {
       setLoading(false);
     }
@@ -129,9 +154,9 @@ export default function PurchaseRequestsPage() {
   const stats = useMemo(
     () => ({
       total: requests.length,
-      pending: requests.filter((r) => r.status === "PENDING").length,
-      inProgress: requests.filter((r) => r.status === "IN_PROGRESS").length,
-      completed: requests.filter((r) => r.status === "COMPLETED").length,
+      pending: requests.filter((r) => r.status === "DRAFT").length,
+      inProgress: requests.filter((r) => r.status === "SUBMITTED").length,
+      completed: requests.filter((r) => r.status === "APPROVED").length,
       rejected: requests.filter((r) => r.status === "REJECTED").length,
     }),
     [requests]
@@ -139,7 +164,7 @@ export default function PurchaseRequestsPage() {
 
   const openAction = (
     request: PurchaseRequest,
-    type: "IN_PROGRESS" | "COMPLETED" | "REJECTED"
+    type: "SUBMITTED" | "APPROVED" | "REJECTED"
   ) => {
     setActionRequest(request);
     setActionType(type);
@@ -156,8 +181,8 @@ export default function PurchaseRequestsPage() {
       setActionRequest(null);
       setActionType(null);
       await fetchRequests();
-    } catch (err: any) {
-      setActionError(err.response?.data?.message || "Failed to update status");
+    } catch (err: unknown) {
+      setActionError(getErrorMessage(err, "Failed to update status"));
     } finally {
       setActionSubmitting(false);
     }
@@ -173,9 +198,9 @@ export default function PurchaseRequestsPage() {
     });
 
   const statusBadge = (status: PurchaseRequest["status"]) => {
-    if (status === "PENDING") return "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300";
-    if (status === "IN_PROGRESS") return "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300";
-    if (status === "COMPLETED") return "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300";
+    if (status === "DRAFT") return "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300";
+    if (status === "SUBMITTED") return "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300";
+    if (status === "APPROVED") return "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300";
     return "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300";
   };
 
@@ -186,14 +211,14 @@ export default function PurchaseRequestsPage() {
   };
 
   const actionLabel = (type: typeof actionType) => {
-    if (type === "IN_PROGRESS") return t("markInProgress");
-    if (type === "COMPLETED") return t("markCompleted");
+    if (type === "SUBMITTED") return "Submit request";
+    if (type === "APPROVED") return "Approve request";
     if (type === "REJECTED") return t("rejectRequestAction");
     return "";
   };
 
   const actionColor = (type: typeof actionType) => {
-    if (type === "COMPLETED") return "bg-emerald-700 hover:bg-emerald-600 text-white";
+    if (type === "APPROVED") return "bg-emerald-700 hover:bg-emerald-600 text-white";
     if (type === "REJECTED") return "bg-rose-700 hover:bg-rose-600 text-white";
     return "bg-slate-950 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100";
   };
@@ -273,9 +298,9 @@ export default function PurchaseRequestsPage() {
                 onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
               >
                 <option value="ALL">{t("allStatus")}</option>
-                <option value="PENDING">{t("pending")}</option>
-                <option value="IN_PROGRESS">{t("inProgress")}</option>
-                <option value="COMPLETED">{t("completed")}</option>
+                <option value="DRAFT">Draft</option>
+                <option value="SUBMITTED">Submitted</option>
+                <option value="APPROVED">Approved</option>
                 <option value="REJECTED">{t("rejected")}</option>
               </select>
             </div>
@@ -310,6 +335,8 @@ export default function PurchaseRequestsPage() {
                     <th className="px-6 py-3 font-medium">{t("product")}</th>
                     <th className="px-6 py-3 font-medium">{t("qty")}</th>
                     <th className="px-6 py-3 font-medium">{t("priority")}</th>
+                    <th className="px-6 py-3 font-medium">Department</th>
+                    <th className="px-6 py-3 font-medium">Budget</th>
                     <th className="px-6 py-3 font-medium">{t("status")}</th>
                     <th className="px-6 py-3 font-medium">{t("requestedBy")}</th>
                     <th className="px-6 py-3 font-medium">{t("date")}</th>
@@ -353,15 +380,23 @@ export default function PurchaseRequestsPage() {
                         </span>
                       </td>
 
+                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
+                        {req.department}
+                      </td>
+
+                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
+                        {(req.availableBudget || 0).toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
+                      </td>
+
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${statusBadge(req.status)}`}>
-                          {req.status === "PENDING" && <Clock size={10} />}
-                          {req.status === "IN_PROGRESS" && <PlayCircle size={10} />}
-                          {req.status === "COMPLETED" && <CheckCircle2 size={10} />}
+                          {req.status === "DRAFT" && <Clock size={10} />}
+                          {req.status === "SUBMITTED" && <PlayCircle size={10} />}
+                          {req.status === "APPROVED" && <CheckCircle2 size={10} />}
                           {req.status === "REJECTED" && <XCircle size={10} />}
-                          {req.status === "PENDING" && t("pending")}
-                          {req.status === "IN_PROGRESS" && t("inProgress")}
-                          {req.status === "COMPLETED" && t("completed")}
+                          {req.status === "DRAFT" && "Draft"}
+                          {req.status === "SUBMITTED" && "Submitted"}
+                          {req.status === "APPROVED" && "Approved"}
                           {req.status === "REJECTED" && t("rejected")}
                         </span>
                       </td>
@@ -376,14 +411,14 @@ export default function PurchaseRequestsPage() {
 
                       <td className="px-6 py-4">
                         <div className="flex flex-wrap gap-2">
-                          {req.status === "PENDING" && (
+                          {req.status === "DRAFT" && (
                             <>
                               <button
-                                onClick={() => openAction(req, "IN_PROGRESS")}
+                                onClick={() => openAction(req, "SUBMITTED")}
                                 className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-300"
                               >
                                 <PlayCircle size={11} />
-                                {t("startRequest")}
+                                Submit
                               </button>
                               <button
                                 onClick={() => openAction(req, "REJECTED")}
@@ -395,14 +430,14 @@ export default function PurchaseRequestsPage() {
                             </>
                           )}
 
-                          {req.status === "IN_PROGRESS" && (
+                          {req.status === "SUBMITTED" && (
                             <>
                               <button
-                                onClick={() => openAction(req, "COMPLETED")}
+                                onClick={() => openAction(req, "APPROVED")}
                                 className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300"
                               >
                                 <CheckCircle2 size={11} />
-                                {t("completeRequest")}
+                                Approve
                               </button>
                               <button
                                 onClick={() => openAction(req, "REJECTED")}
@@ -414,7 +449,7 @@ export default function PurchaseRequestsPage() {
                             </>
                           )}
 
-                          {(req.status === "COMPLETED" || req.status === "REJECTED") && (
+                          {(req.status === "APPROVED" || req.status === "REJECTED") && (
                             <span className="text-xs text-slate-400 dark:text-slate-500">
                               {req.completedAt ? formatDateTime(req.completedAt) : "—"}
                             </span>
@@ -444,7 +479,7 @@ export default function PurchaseRequestsPage() {
                   {actionRequest.requestNo}
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {actionRequest.productId?.name} · {t("qty")}: {actionRequest.requestedQuantity}
+                  {actionRequest.productId?.name} · {t("qty")}: {actionRequest.requestedQuantity} · {actionRequest.department}
                 </p>
               </div>
 
@@ -463,8 +498,8 @@ export default function PurchaseRequestsPage() {
                   placeholder={
                     actionType === "REJECTED"
                       ? t("rejectionReasonPlaceholder")
-                      : actionType === "COMPLETED"
-                      ? t("completionNotesPlaceholder")
+                      : actionType === "APPROVED"
+                      ? "Approval notes..."
                       : t("notesPlaceholder")
                   }
                   value={actionNotes}
@@ -480,7 +515,7 @@ export default function PurchaseRequestsPage() {
                 >
                   {actionSubmitting ? (
                     <Loader2 size={14} className="animate-spin" />
-                  ) : actionType === "COMPLETED" ? (
+                  ) : actionType === "APPROVED" ? (
                     <CheckCircle2 size={14} />
                   ) : actionType === "REJECTED" ? (
                     <XCircle size={14} />

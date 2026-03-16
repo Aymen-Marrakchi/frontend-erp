@@ -7,11 +7,9 @@ import { salesOrderService, SalesOrder } from "@/services/commercial/salesOrderS
 import { useEffect, useMemo, useState } from "react";
 import {
   ShoppingCart,
-  TrendingUp,
   Package,
   Truck,
   FileText,
-  ArrowRight,
   BarChart3,
   Users,
   AlertTriangle,
@@ -24,6 +22,69 @@ import {
 
 const surface =
   "rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900";
+
+const quickLinks = [
+  {
+    label: "Customers",
+    desc: "Manage the commercial customer base.",
+    href: "/dashboard/commercial/customers",
+    icon: Users,
+  },
+  {
+    label: "Orders",
+    desc: "Create and follow the sales order tunnel.",
+    href: "/dashboard/commercial/orders",
+    icon: FileText,
+  },
+  {
+    label: "Invoices",
+    desc: "Configure customer invoices and finance handoff.",
+    href: "/dashboard/commercial/invoices",
+    icon: FileText,
+  },
+  {
+    label: "Ordonnancement",
+    desc: "Allocate stock before confirmation.",
+    href: "/dashboard/commercial/ordonnancement",
+    icon: Sparkles,
+  },
+  {
+    label: "Preparation",
+    desc: "Prepare confirmed orders before shipping.",
+    href: "/dashboard/commercial/preparation",
+    icon: Package,
+  },
+  {
+    label: "Shipments",
+    desc: "Ship prepared orders and follow delivery.",
+    href: "/dashboard/commercial/shipments",
+    icon: Truck,
+  },
+  {
+    label: "Planning",
+    desc: "Organize delivery planning and discovery flow.",
+    href: "/dashboard/commercial/planning",
+    icon: CalendarDays,
+  },
+  {
+    label: "Backorders",
+    desc: "Track shortages still pending.",
+    href: "/dashboard/commercial/backorders",
+    icon: RotateCcw,
+  },
+  {
+    label: "Notifications",
+    desc: "Review shipment and delivery notifications.",
+    href: "/dashboard/commercial/notifications",
+    icon: Bell,
+  },
+  {
+    label: "Reports",
+    desc: "Monitor logistics KPIs and commercial performance.",
+    href: "/dashboard/commercial/reports",
+    icon: BarChart3,
+  },
+];
 
 export default function CommercialDashboardPage() {
   const { t } = useLanguage();
@@ -43,9 +104,13 @@ export default function CommercialDashboardPage() {
           typeof error === "object" &&
           error !== null &&
           "response" in error &&
-          typeof (error as { response?: { data?: { message?: unknown } } }).response?.data?.message === "string"
+          typeof (error as { response?: { data?: { message?: unknown } } }).response?.data?.message ===
+            "string"
         ) {
-          setError((error as { response?: { data?: { message?: string } } }).response?.data?.message || "Failed to load commercial dashboard");
+          setError(
+            (error as { response?: { data?: { message?: string } } }).response?.data?.message ||
+              "Failed to load commercial dashboard"
+          );
         } else if (error instanceof Error) {
           setError(error.message || "Failed to load commercial dashboard");
         } else {
@@ -62,154 +127,27 @@ export default function CommercialDashboardPage() {
   const metrics = useMemo(() => {
     const totalOrders = orders.length;
     const draftOrders = orders.filter((o) => o.status === "DRAFT").length;
+    const ordonnancedOrders = orders.filter((o) => o.status === "ORDONNANCED").length;
     const confirmedOrders = orders.filter((o) => o.status === "CONFIRMED").length;
     const preparedOrders = orders.filter((o) => o.status === "PREPARED").length;
     const shippedOrders = orders.filter((o) => o.status === "SHIPPED").length;
-    const cancelledOrders = orders.filter((o) => o.status === "CANCELLED").length;
-    const deliveredOrders = orders.filter((o) => o.status === "DELIVERED").length;
-
-    const totalRevenue = orders
-      .filter((o) => o.status !== "CANCELLED")
-      .reduce(
-        (sum, order) =>
-          sum +
-          order.lines.reduce(
-            (lineSum, line) => lineSum + line.quantity * (line.unitPrice || 0),
-            0
-          ),
-        0
-      );
-
     const lateOrders = orders.filter(
       (o) =>
         o.promisedDate &&
-        ["DRAFT", "CONFIRMED", "PREPARED", "SHIPPED"].includes(o.status) &&
+        ["DRAFT", "ORDONNANCED", "CONFIRMED", "PREPARED", "SHIPPED"].includes(o.status) &&
         new Date(o.promisedDate) < new Date()
     ).length;
-
-    const recentOrders = [...orders]
-      .sort((a, b) => {
-        const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const db = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return db - da;
-      })
-      .slice(0, 5);
 
     return {
       totalOrders,
       draftOrders,
+      ordonnancedOrders,
       confirmedOrders,
       preparedOrders,
       shippedOrders,
-      cancelledOrders,
-      deliveredOrders,
-      totalRevenue,
-      recentOrders,
       lateOrders,
     };
   }, [orders]);
-
-  const kpis = [
-    {
-      label: t("totalOrdersKpi"),
-      value: metrics.totalOrders,
-      sub: t("allOrdersList"),
-      icon: <ShoppingCart size={16} />,
-      iconBg: "bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400",
-    },
-    {
-      label: t("confirmedOrders"),
-      value: metrics.confirmedOrders,
-      sub: t("prepared") || "Ready for preparation",
-      icon: <Package size={16} />,
-      iconBg: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400",
-    },
-    {
-      label: t("shipped"),
-      value: metrics.shippedOrders,
-      sub: t("inTransit"),
-      icon: <Truck size={16} />,
-      iconBg: "bg-violet-50 text-violet-600 dark:bg-violet-950/30 dark:text-violet-400",
-    },
-    {
-      label: t("lateOrders") || "Late Orders",
-      value: metrics.lateOrders,
-      sub: t("lateOrdersSub") || "Past promised date",
-      icon: <AlertTriangle size={16} />,
-      iconBg: metrics.lateOrders > 0
-        ? "bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400"
-        : "bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500",
-    },
-  ];
-
-  const quickLinks = [
-    {
-      label: t("customersTitle") || "Customers",
-      desc: t("customersSub") || "Manage your customer database",
-      href: "/dashboard/commercial/customers",
-      icon: <Users size={18} className="text-sky-500" />,
-    },
-    {
-      label: "Ordonnancement",
-      desc: "Allocate stock visually across draft orders before confirmation",
-      href: "/dashboard/commercial/ordonnancement",
-      icon: <Sparkles size={18} className="text-amber-500" />,
-    },
-    {
-      label: "Recurring Orders",
-      desc: "Generate draft customer orders monthly or every 3 months",
-      href: "/dashboard/commercial/cyclic-orders",
-      icon: <RotateCcw size={18} className="text-sky-500" />,
-    },
-    {
-      label: t("commercialOrdersTitle"),
-      desc: t("commercialOrdersSubtitle"),
-      href: "/dashboard/commercial/orders",
-      icon: <FileText size={18} className="text-blue-500" />,
-    },
-    {
-      label: t("prepared") || "Preparation",
-      desc: "Manage confirmed orders before shipment",
-      href: "/dashboard/commercial/preparation",
-      icon: <Package size={18} className="text-violet-500" />,
-    },
-    {
-      label: t("shipped") || "Shipments",
-      desc: "Ship prepared orders and confirm delivery",
-      href: "/dashboard/commercial/shipments",
-      icon: <Truck size={18} className="text-emerald-500" />,
-    },
-    {
-      label: t("carriersTitle") || "Carriers",
-      desc: t("carriersSub") || "Manage shipping carriers and rate configuration",
-      href: "/dashboard/commercial/carriers",
-      icon: <Truck size={18} className="text-teal-500" />,
-    },
-    {
-      label: t("deliveryPlanning") || "Delivery Planning",
-      desc: t("deliveryPlanningSub") || "Schedule and group shipments for delivery runs",
-      href: "/dashboard/commercial/planning",
-      icon: <CalendarDays size={18} className="text-indigo-500" />,
-    },
-    {
-      label: "Notifications",
-      desc: "Review commercial shipment and delivery notifications",
-      href: "/dashboard/commercial/notifications",
-      icon: <Bell size={18} className="text-amber-500" />,
-    },
-    {
-      label: t("backorders") || "Backorders",
-      desc: "Orders with insufficient stock at confirmation",
-      href: "/dashboard/commercial/backorders",
-      icon: <RotateCcw size={18} className="text-amber-500" />,
-    },
-    {
-      label: t("reportsKpi") || "Reports & KPIs",
-      desc: "Logistics performance and analytics",
-      href: "/dashboard/commercial/reports",
-      icon: <BarChart3 size={18} className="text-blue-500" />,
-    },
-  ];
 
   return (
     <ProtectedRoute allowedRoles={["ADMIN", "COMMERCIAL_MANAGER"]}>
@@ -246,177 +184,61 @@ export default function CommercialDashboardPage() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-              {kpis.map((kpi, i) => (
-                <div key={i} className={`${surface} p-5`}>
-                  <div className={`inline-flex rounded-2xl p-2.5 ${kpi.iconBg}`}>{kpi.icon}</div>
-                  <p className="mt-4 text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                    {kpi.label}
-                  </p>
-                  <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950 dark:text-white">
-                    {kpi.value}
-                  </p>
-                  <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">{kpi.sub}</p>
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              {[
+                { label: t("totalOrdersKpi"), value: metrics.totalOrders, icon: ShoppingCart, bg: "bg-slate-100 dark:bg-slate-800", color: "text-slate-600 dark:text-slate-300" },
+                { label: t("draft"), value: metrics.draftOrders, icon: FileText, bg: "bg-amber-50 dark:bg-amber-950/30", color: "text-amber-600 dark:text-amber-400" },
+                { label: "Ordonnanced", value: metrics.ordonnancedOrders, icon: Sparkles, bg: "bg-orange-50 dark:bg-orange-950/30", color: "text-orange-600 dark:text-orange-400" },
+                { label: t("confirmedOrders"), value: metrics.confirmedOrders, icon: Package, bg: "bg-blue-50 dark:bg-blue-950/30", color: "text-blue-600 dark:text-blue-400" },
+                { label: t("prepared") || "Prepared", value: metrics.preparedOrders, icon: Package, bg: "bg-violet-50 dark:bg-violet-950/30", color: "text-violet-600 dark:text-violet-400" },
+                { label: t("shipped"), value: metrics.shippedOrders, icon: Truck, bg: "bg-emerald-50 dark:bg-emerald-950/30", color: "text-emerald-600 dark:text-emerald-400" },
+                { label: t("lateOrders") || "Late Orders", value: metrics.lateOrders, icon: AlertTriangle, bg: "bg-rose-50 dark:bg-rose-950/30", color: "text-rose-600 dark:text-rose-400" },
+                { label: "Active Flow", value: metrics.draftOrders + metrics.ordonnancedOrders + metrics.confirmedOrders + metrics.preparedOrders, icon: BarChart3, bg: "bg-slate-100 dark:bg-slate-800", color: "text-slate-600 dark:text-slate-300" },
+              ].map((kpi) => (
+                <div key={kpi.label} className={`${surface} flex items-center gap-4 px-5 py-5`}>
+                  <div className={`rounded-2xl p-3 ${kpi.bg}`}>
+                    <kpi.icon size={16} className={kpi.color} />
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                      {kpi.label}
+                    </p>
+                    <p className="mt-1 text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
+                      {kpi.value}
+                    </p>
+                  </div>
                 </div>
               ))}
             </div>
 
-            <div className="grid gap-6 xl:grid-cols-3">
-              <div className={`${surface} p-6 xl:col-span-2`}>
-                <div className="mb-4 flex items-center justify-between">
-                  <div>
-                    <h2 className="font-semibold text-slate-950 dark:text-white">
-                      {t("totalSalesRevenue")}
-                    </h2>
-                    <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-                      {t("monthlyPerf")}
-                    </p>
-                  </div>
-                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800">
-                    <BarChart3 size={16} className="text-slate-500 dark:text-slate-400" />
-                  </div>
-                </div>
-                <div className="flex h-52 flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
-                  <TrendingUp size={32} className="mb-2 text-slate-300 dark:text-slate-700" />
-                  <p className="text-3xl font-bold tracking-tight text-slate-950 dark:text-white">
-                    {metrics.totalRevenue.toLocaleString("fr-TN", {
-                      minimumFractionDigits: 2,
-                    })}{" "}
-                    TND
-                  </p>
-                  <p className="mt-2 text-sm text-slate-400 dark:text-slate-500">
-                    {metrics.deliveredOrders} delivered · {metrics.cancelledOrders} cancelled
-                  </p>
-                </div>
+            <div className={`${surface} overflow-hidden`}>
+              <div className="border-b border-slate-200 px-6 py-5 dark:border-slate-800">
+                <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
+                  Commercial Navigation
+                </h2>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  Open the commercial area you want to work on.
+                </p>
               </div>
 
-              <div className={`${surface} p-6`}>
-                <div className="mb-4 flex items-center justify-between">
-                  <div>
-                    <h2 className="font-semibold text-slate-950 dark:text-white">
-                      {t("customers")}
-                    </h2>
-                    <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-                      {t("newCustomers")}
+              <div className="grid gap-4 p-6 md:grid-cols-2 xl:grid-cols-3">
+                {quickLinks.map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-5 transition hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900"
+                  >
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white dark:bg-slate-900">
+                      <link.icon size={18} className="text-slate-600 dark:text-slate-300" />
+                    </div>
+                    <h3 className="mt-4 text-base font-semibold text-slate-950 dark:text-white">
+                      {link.label}
+                    </h3>
+                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                      {link.desc}
                     </p>
-                  </div>
-                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800">
-                    <Users size={16} className="text-slate-500 dark:text-slate-400" />
-                  </div>
-                </div>
-                <div className="flex h-52 items-center justify-center rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
-                  <div className="text-center">
-                    <Users size={32} className="mx-auto mb-2 text-slate-300 dark:text-slate-700" />
-                    <p className="text-sm text-slate-400 dark:text-slate-500">{t("comingSoon")}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-3">
-              <div className={`${surface} overflow-hidden xl:col-span-2`}>
-                <div className="border-b border-slate-100 px-6 py-4 dark:border-slate-800">
-                  <h2 className="font-semibold text-slate-950 dark:text-white">{t("recentActivity")}</h2>
-                  <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-                    {t("allOrdersList")}
-                  </p>
-                </div>
-
-                {metrics.recentOrders.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-16">
-                    <ShoppingCart size={32} className="mb-3 text-slate-300 dark:text-slate-700" />
-                    <p className="text-sm text-slate-400 dark:text-slate-500">{t("noRecentActivity")}</p>
-                    <Link
-                      href="/dashboard/commercial/orders"
-                      className="mt-4 inline-flex items-center gap-1.5 rounded-2xl bg-slate-950 px-4 py-2 text-xs font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950"
-                    >
-                      {t("viewAll")} <ArrowRight size={12} />
-                    </Link>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {metrics.recentOrders.map((order) => {
-                      const total = order.lines.reduce(
-                        (sum, line) => sum + line.quantity * (line.unitPrice || 0),
-                        0
-                      );
-
-                      return (
-                        <Link
-                          key={order._id}
-                          href={`/dashboard/commercial/orders/${order._id}`}
-                          className="flex items-center justify-between gap-4 px-6 py-4 transition hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                        >
-                          <div>
-                            <p className="font-medium text-slate-900 dark:text-white">
-                              {order.orderNo}
-                            </p>
-                            <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-                              {order.customerName}
-                            </p>
-                          </div>
-
-                          <div className="text-right">
-                            <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                              {total.toLocaleString("fr-TN", {
-                                minimumFractionDigits: 2,
-                              })}{" "}
-                              TND
-                            </p>
-                            <p className="mt-0.5 text-xs text-slate-400">{order.status}</p>
-                          </div>
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              <div className={`${surface} p-6`}>
-                <h2 className="mb-4 font-semibold text-slate-950 dark:text-white">{t("quickAccess")}</h2>
-                <div className="space-y-3">
-                  {quickLinks.map((link) => (
-                    <Link
-                      key={link.href}
-                      href={link.href}
-                      className="flex items-center gap-3 rounded-2xl border border-slate-100 p-4 transition hover:border-slate-200 hover:bg-slate-50 dark:border-slate-800 dark:hover:border-slate-700 dark:hover:bg-slate-800/50"
-                    >
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800">
-                        {link.icon}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-slate-900 dark:text-white">{link.label}</p>
-                        <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
-                          {link.desc}
-                        </p>
-                      </div>
-                      <ArrowRight size={14} className="shrink-0 text-slate-400" />
-                    </Link>
-                  ))}
-
-                  <div className="mt-4 rounded-2xl border border-slate-100 p-4 dark:border-slate-800">
-                    <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">
-                      {t("status")}
-                    </p>
-                    {[
-                      { label: t("draft"), color: "bg-slate-400", value: metrics.draftOrders },
-                      { label: t("confirmedOrders"), color: "bg-blue-500", value: metrics.confirmedOrders },
-                      { label: t("prepared") || "Prepared", color: "bg-violet-500", value: metrics.preparedOrders },
-                      { label: t("shipped"), color: "bg-emerald-500", value: metrics.shippedOrders },
-                    ].map((item) => (
-                      <div
-                        key={item.label}
-                        className="mb-2 flex items-center justify-between text-xs text-slate-600 dark:text-slate-300"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className={`h-2 w-2 rounded-full ${item.color}`} />
-                          {item.label}
-                        </div>
-                        <span className="text-slate-400">{item.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                  </Link>
+                ))}
               </div>
             </div>
           </>

@@ -21,10 +21,16 @@ import {
   Bell,
   TriangleAlert,
   ClipboardList,
+  ClipboardCheck,
   Warehouse,
   Wallet,
+  CreditCard,
   CalendarDays,
   Tag,
+  Receipt,
+  Settings,
+  Building2,
+  Landmark,
   Car,
   Globe,
   ShieldAlert,
@@ -105,6 +111,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/commercial/customers", label: t("customersTitle") || "Customers", icon: Users },
     { href: "/dashboard/commercial/prices", label: t("pricesTitle") || "Sale Prices", icon: Tag },
     { href: "/dashboard/commercial/orders", label: t("onlineOrders"), icon: FileText },
+    { href: "/dashboard/commercial/invoices", label: "Invoices", icon: Receipt },
     { href: "/dashboard/commercial/cyclic-orders", label: "Recurring Orders", icon: RotateCcw },
     { href: "/dashboard/commercial/ordonnancement", label: "Ordonnancement", icon: Sparkles },
     { href: "/dashboard/commercial/notifications", label: "Notifications", icon: Bell },
@@ -135,7 +142,11 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
   const financeItems: NavItem[] = [
   { href: "/dashboard/finance", label: t("dashboard"), icon: LayoutDashboard },
   { href: "/dashboard/finance/receivables", label: "Receivables", icon: FileText },
+  { href: "/dashboard/finance/payables", label: "Payables", icon: DollarSign },
   { href: "/dashboard/finance/treasury", label: "Treasury", icon: Wallet },
+  { href: "/dashboard/finance/journal", label: "Journal", icon: FileText },
+  { href: "/dashboard/finance/accounts", label: "Ledger", icon: Landmark },
+  { href: "/dashboard/finance/reports", label: "Reports", icon: BarChart3 },
 ];
 
   const depotItems: NavItem[] = [
@@ -146,7 +157,16 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
 
   const purchaseItems: NavItem[] = [
     { href: "/dashboard/achat", label: t("dashboard"), icon: LayoutDashboard },
+    { href: "/dashboard/achat/suppliers", label: "Suppliers", icon: Building2 },
     { href: "/dashboard/achat/requests", label: t("purchaseRequestsTitle"), icon: Truck },
+    { href: "/dashboard/achat/tenders", label: "Tenders", icon: ClipboardList },
+    { href: "/dashboard/achat/orders", label: "Purchase Orders", icon: FileText },
+    { href: "/dashboard/achat/receipts", label: "Receipts", icon: ClipboardCheck },
+    { href: "/dashboard/achat/invoices", label: "Invoices", icon: Receipt },
+    { href: "/dashboard/achat/payments", label: "Payments", icon: CreditCard },
+    { href: "/dashboard/achat/returns", label: "Returns", icon: RotateCcw },
+    { href: "/dashboard/achat/reports", label: "Reports", icon: BarChart3 },
+    { href: "/dashboard/achat/settings", label: "Settings", icon: Settings },
   ];
 
   const warehouseOperatorItems: NavItem[] = [

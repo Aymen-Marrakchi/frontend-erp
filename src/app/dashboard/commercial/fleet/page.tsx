@@ -626,7 +626,7 @@ export default function FleetPage() {
         </div>
         <button
           onClick={openCreate}
-          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 rounded-2xl text-sm font-medium transition-colors shadow-sm"
+          className="flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800 shadow-sm dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
         >
           <Plus size={16} />
           {t("addVehicle")}
@@ -696,5 +696,4 @@ export default function FleetPage() {
     </div>
   );
 }
-
 
