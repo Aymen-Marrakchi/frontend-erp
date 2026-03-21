@@ -4,6 +4,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import { useEffect, useMemo, useState } from "react";
 import { purchaseOrderService, PurchaseOrder } from "@/services/purchase/purchaseOrderService";
 import { purchaseReceiptService, PurchaseReceipt } from "@/services/purchase/purchaseReceiptService";
+import { stockDepotService, type Depot } from "@/services/stock/stockDepotService";
 import {
   ClipboardCheck,
   Loader2,
@@ -59,12 +60,14 @@ type ReceiptDraftLine = {
 export default function PurchaseReceiptsPage() {
   const [receipts, setReceipts] = useState<PurchaseReceipt[]>([]);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
+  const [depots, setDepots] = useState<Depot[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState("");
+  const [selectedDepotId, setSelectedDepotId] = useState("");
   const [notes, setNotes] = useState("");
   const [draftLines, setDraftLines] = useState<ReceiptDraftLine[]>([]);
 
@@ -72,12 +75,14 @@ export default function PurchaseReceiptsPage() {
     try {
       setLoading(true);
       setError("");
-      const [receiptData, orderData] = await Promise.all([
+      const [receiptData, orderData, depotData] = await Promise.all([
         purchaseReceiptService.getAll(),
         purchaseOrderService.getAll(),
+        stockDepotService.getAll(),
       ]);
       setReceipts(receiptData);
       setOrders(orderData);
+      setDepots(depotData.filter((depot) => depot.status === "ACTIVE"));
     } catch (err: unknown) {
       setError(getErrorMessage(err, "Failed to load purchase receipts"));
     } finally {
@@ -185,15 +190,20 @@ export default function PurchaseReceiptsPage() {
       if (!selectedOrderId || lines.length === 0) {
         throw new Error("Select a sent purchase order and add at least one received line");
       }
+      if (!selectedDepotId) {
+        throw new Error("Select a depot for this receipt");
+      }
 
       await purchaseReceiptService.create({
         purchaseOrderId: selectedOrderId,
+        depotId: selectedDepotId,
         lines,
         notes,
       });
 
       setShowCreate(false);
       setSelectedOrderId("");
+      setSelectedDepotId("");
       setNotes("");
       setDraftLines([]);
       await fetchAll();
@@ -307,6 +317,7 @@ export default function PurchaseReceiptsPage() {
                     <th className="px-6 py-3 font-medium">BR</th>
                     <th className="px-6 py-3 font-medium">BC</th>
                     <th className="px-6 py-3 font-medium">Supplier</th>
+                    <th className="px-6 py-3 font-medium">Depot</th>
                     <th className="px-6 py-3 font-medium">Lines</th>
                     <th className="px-6 py-3 font-medium">Status</th>
                     <th className="px-6 py-3 font-medium">Created</th>
@@ -325,6 +336,9 @@ export default function PurchaseReceiptsPage() {
                       </td>
                       <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
                         {receipt.supplierId?.name}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
+                        {receipt.depotId?.name || "-"}
                       </td>
                       <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
                         {receipt.lines.length}
@@ -372,6 +386,24 @@ export default function PurchaseReceiptsPage() {
                     {receivableOrders.map((order) => (
                       <option key={order._id} value={order._id}>
                         {order.orderNo} · {order.supplierId?.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                    Depot
+                  </label>
+                  <select
+                    className={inputClass}
+                    value={selectedDepotId}
+                    onChange={(e) => setSelectedDepotId(e.target.value)}
+                  >
+                    <option value="">— Select depot —</option>
+                    {depots.map((depot) => (
+                      <option key={depot._id} value={depot._id}>
+                        {depot.name}
                       </option>
                     ))}
                   </select>

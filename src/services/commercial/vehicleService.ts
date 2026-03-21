@@ -20,6 +20,7 @@ export interface VehicleDelivery {
   planDate: string;
   status: string;
   zone: string;
+  fuelAddedLiters?: number;
   orderIds: {
     _id: string;
     orderNo: string;

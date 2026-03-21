@@ -9,10 +9,11 @@ import {
   DeliveryPlanType,
 } from "@/services/commercial/deliveryPlanService";
 import { customerService } from "@/services/commercial/customerService";
+import type { Customer } from "@/services/commercial/customerService";
 import { SalesOrder } from "@/services/commercial/salesOrderService";
 import { carrierService, Carrier } from "@/services/commercial/carrierService";
+import { vehicleService, Vehicle } from "@/services/commercial/vehicleService";
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   CalendarDays,
   Loader2,
@@ -61,6 +62,8 @@ function statusBadge(status: string) {
       "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
     COMPLETED:
       "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
+    RETURNED:
+      "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
     CANCELLED:
       "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
   };
@@ -79,6 +82,7 @@ const emptyForm: CreateDeliveryPlanPayload = {
   carrierId: "",
   zone: "",
   startDate: "",
+  fuelAddedLiters: 0,
   orderIds: [],
   notes: "",
   planType: "SHIPMENT",
@@ -99,8 +103,10 @@ export default function PlanningPage() {
   const [plans, setPlans] = useState<DeliveryPlan[]>([]);
   const [unassigned, setUnassigned] = useState<SalesOrder[]>([]);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [coveredGovs, setCoveredGovs] = useState<string[]>([]);
   const [discoveredGovs, setDiscoveredGovs] = useState<string[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionId, setActionId] = useState<string | null>(null);
@@ -108,22 +114,28 @@ export default function PlanningPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<CreateDeliveryPlanPayload>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [returnPlanId, setReturnPlanId] = useState<string | null>(null);
+  const [returnOrderId, setReturnOrderId] = useState<string | null>(null);
+  const [returnReason, setReturnReason] = useState("");
 
   const fetchAll = async () => {
     try {
       setLoading(true);
       setError("");
-      const [plansData, unassignedData, discoveredGovsData, carriersData, customersData] = await Promise.all([
+      const [plansData, unassignedData, discoveredGovsData, carriersData, vehiclesData, customersData] = await Promise.all([
         deliveryPlanService.getAll(),
         deliveryPlanService.getUnassigned(),
         deliveryPlanService.getDiscoveredZones(),
         carrierService.getActive(),
+        vehicleService.getActive(),
         customerService.getAll(),
       ]);
       setPlans(plansData);
       setUnassigned(unassignedData);
       setDiscoveredGovs(discoveredGovsData);
       setCarriers(carriersData);
+      setVehicles(vehiclesData);
+      setCustomers(customersData);
       // governorates that already have at least 1 customer
       const govWithCustomers = [
         ...new Set(customersData.map((c) => c.governorate || c.city).filter(Boolean)),
@@ -139,14 +151,6 @@ export default function PlanningPage() {
   useEffect(() => {
     fetchAll();
   }, []);
-
-  const kpis = useMemo(() => ({
-    total: plans.length,
-    planned: plans.filter((p) => p.status === "PLANNED").length,
-    inProgress: plans.filter((p) => p.status === "IN_PROGRESS").length,
-    completed: plans.filter((p) => p.status === "COMPLETED").length,
-    unassigned: unassigned.length,
-  }), [plans, unassigned]);
 
   const toggleOrder = (orderId: string) => {
     setForm((f) => {
@@ -176,6 +180,95 @@ export default function PlanningPage() {
     });
   }, [coveredGovs, discoveredGovs]);
 
+  const shipmentGovs = useMemo(
+    () =>
+      [...new Set(coveredGovs.map((gov) => String(gov).trim()).filter(Boolean))].sort((a, b) =>
+        a.localeCompare(b)
+      ),
+    [coveredGovs]
+  );
+
+  const customerByName = useMemo(
+    () =>
+      new Map(
+        customers.map((customer) => [customer.name.trim().toLowerCase(), customer] as const)
+      ),
+    [customers]
+  );
+
+  const deliveryPlaceLabel = (order: SalesOrder) => {
+    if (order.shipmentAddress?.trim()) return order.shipmentAddress.trim();
+    const customer = customerByName.get(order.customerName.trim().toLowerCase());
+    if (!customer) return "Destination not set";
+
+    const parts = [customer.address, customer.city, customer.governorate]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+
+    return parts.length > 0 ? parts.join(", ") : "Destination not set";
+  };
+
+  const orderGovernorate = (order: SalesOrder) => {
+    const customer = customerByName.get(order.customerName.trim().toLowerCase());
+    return String(customer?.governorate || customer?.city || "").trim();
+  };
+
+  const filteredUnassigned = useMemo(() => {
+    if (form.planType !== "SHIPMENT" || !form.zone?.trim()) {
+      return unassigned;
+    }
+
+    const selected = normalizeGovernorate(form.zone);
+    return unassigned.filter((order) => normalizeGovernorate(orderGovernorate(order)) === selected);
+  }, [form.planType, form.zone, unassigned, customerByName]);
+
+  const selectedOrders = useMemo(
+    () => filteredUnassigned.filter((order) => (form.orderIds || []).includes(order._id)),
+    [filteredUnassigned, form.orderIds]
+  );
+
+  const selectedVehicle = useMemo(
+    () => vehicles.find((vehicle) => vehicle._id === form.vehicleId) || null,
+    [form.vehicleId, vehicles]
+  );
+
+  const selectedPackets = useMemo(
+    () =>
+      selectedOrders.reduce(
+        (sum, order) =>
+          sum +
+          order.lines.reduce((lineSum, line) => lineSum + Math.max(0, Number(line.quantity || 0)), 0),
+        0
+      ),
+    [selectedOrders]
+  );
+
+  const capacityExceeded = Boolean(
+    form.planType === "SHIPMENT" &&
+      selectedVehicle &&
+      selectedVehicle.capacityPackets > 0 &&
+      selectedPackets > selectedVehicle.capacityPackets
+  );
+
+  useEffect(() => {
+    if (form.planType !== "SHIPMENT" || !form.zone?.trim()) return;
+
+    const allowedIds = new Set(filteredUnassigned.map((order) => order._id));
+    setForm((current) => ({
+      ...current,
+      orderIds: (current.orderIds || []).filter((id) => allowedIds.has(id)),
+    }));
+  }, [filteredUnassigned, form.planType, form.zone]);
+
+  const kpis = useMemo(() => ({
+    total: plans.length,
+    planned: plans.filter((p) => p.status === "PLANNED").length,
+    inProgress: plans.filter((p) => p.status === "IN_PROGRESS").length,
+    completed: plans.filter((p) => p.status === "COMPLETED").length,
+    returned: plans.filter((p) => p.status === "RETURNED").length,
+    unassigned: filteredUnassigned.length,
+  }), [filteredUnassigned.length, plans]);
+
   const handleCreate = async () => {
     if (!form.planDate) {
       setError("Plan date is required");
@@ -185,12 +278,19 @@ export default function PlanningPage() {
       setError("Zone is required for discover plans");
       return;
     }
+    if (form.planType === "SHIPMENT" && capacityExceeded) {
+      setError(
+        `Vehicle capacity exceeded: ${selectedVehicle?.capacityPackets || 0} units max, ${selectedPackets} selected`
+      );
+      return;
+    }
     try {
       setSaving(true);
       setError("");
       await deliveryPlanService.create({
         ...form,
         carrierId: form.carrierId || undefined,
+        vehicleId: form.vehicleId || undefined,
       });
       setShowForm(false);
       setForm(emptyForm);
@@ -226,6 +326,21 @@ export default function PlanningPage() {
     }
   };
 
+  const handleReturn = async (id: string, reason: string, orderId?: string | null) => {
+    try {
+      setActionId(id);
+      await deliveryPlanService.returnPlan(id, reason, orderId || undefined);
+      await fetchAll();
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to return delivery"));
+    } finally {
+      setActionId(null);
+      setReturnPlanId(null);
+      setReturnOrderId(null);
+      setReturnReason("");
+    }
+  };
+
   const handleCancel = async (id: string) => {
     try {
       setActionId(id);
@@ -256,19 +371,12 @@ export default function PlanningPage() {
                   {t("deliveryPlanning") || "Delivery Planning"}
                 </h1>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                  {t("deliveryPlanningSub") || "Schedule and group shipments for delivery runs"}
+                  {t("deliveryPlanningSub") || "Schedule and group prepared orders for delivery runs"}
                 </p>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <Link
-              href="/dashboard/commercial/shipments"
-              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
-            >
-              <Truck size={15} />
-              {t("shipped") || "Shipments"}
-            </Link>
             <button
               onClick={() => { setShowForm(true); setForm(emptyForm); }}
               className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950"
@@ -288,14 +396,67 @@ export default function PlanningPage() {
           </div>
         )}
 
+        {returnPlanId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4">
+            <div className={`${surface} w-full max-w-lg p-6`}>
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
+                  Return reason
+                </h2>
+                <button
+                  onClick={() => {
+                    setReturnPlanId(null);
+                    setReturnOrderId(null);
+                    setReturnReason("");
+                  }}
+                  className="text-slate-400 transition hover:text-slate-700 dark:hover:text-white"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">
+                Type the reason before creating the return request for this order.
+              </p>
+              <textarea
+                value={returnReason}
+                onChange={(e) => setReturnReason(e.target.value)}
+                rows={4}
+                placeholder="Reason for return"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100 dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+              />
+              <div className="mt-4 flex gap-3">
+                <button
+                  onClick={() => handleReturn(returnPlanId, returnReason, returnOrderId)}
+                  disabled={!returnReason.trim() || actionId === returnPlanId}
+                  className="inline-flex items-center gap-2 rounded-2xl bg-rose-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-rose-700 disabled:opacity-50"
+                >
+                  {actionId === returnPlanId && <Loader2 size={14} className="animate-spin" />}
+                  Confirm return
+                </button>
+                <button
+                  onClick={() => {
+                    setReturnPlanId(null);
+                    setReturnOrderId(null);
+                    setReturnReason("");
+                  }}
+                  className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* KPIs */}
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
           {[
             { label: t("totalPlans") || "Total Plans", value: kpis.total, color: "text-slate-900 dark:text-white" },
             { label: t("planned") || "Planned", value: kpis.planned, color: "text-blue-700 dark:text-blue-400" },
             { label: t("inProgress") || "In Progress", value: kpis.inProgress, color: "text-amber-700 dark:text-amber-400" },
             { label: t("completedDeliveries") || "Completed", value: kpis.completed, color: "text-emerald-700 dark:text-emerald-400" },
-            { label: t("unassignedOrders") || "Unassigned Orders", value: kpis.unassigned, color: kpis.unassigned > 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-400" },
+            { label: "Returned", value: kpis.returned, color: "text-rose-600 dark:text-rose-400" },
+            { label: t("unassignedOrders") || "Orders Ready For Delivery", value: kpis.unassigned, color: kpis.unassigned > 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-400" },
           ].map((kpi) => (
             <div key={kpi.label} className={`${surface} px-5 py-4`}>
               <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">
@@ -307,17 +468,17 @@ export default function PlanningPage() {
         </div>
 
         <div className="grid gap-6 xl:grid-cols-3">
-          {/* Unassigned shipped orders */}
+          {/* Orders ready for delivery */}
           <div className={`${surface} overflow-hidden`}>
             <div className="border-b border-slate-200 px-6 py-4 dark:border-slate-800">
               <h2 className="font-semibold text-slate-950 dark:text-white">
-                {t("unassignedOrders") || "Unassigned Orders"}
+                {t("unassignedOrders") || "Orders Ready For Delivery"}
                 <span className="ml-2 text-sm font-normal text-slate-400">
-                  {unassigned.length}
+                  {filteredUnassigned.length}
                 </span>
               </h2>
               <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
-                {t("unassignedOrdersSub") || "Shipped orders not yet in a delivery plan"}
+                Orders ready after preparation and picking validation
               </p>
             </div>
 
@@ -325,14 +486,16 @@ export default function PlanningPage() {
               <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500">
                 <Loader2 size={14} className="animate-spin" /> {t("loading")}
               </div>
-            ) : unassigned.length === 0 ? (
+            ) : filteredUnassigned.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-2 py-12 text-sm text-slate-400 dark:text-slate-500">
                 <CheckCircle size={28} className="text-emerald-400 opacity-60" />
-                {t("allAssigned") || "All shipped orders are assigned"}
+                {form.planType === "SHIPMENT" && form.zone
+                  ? "No ready orders found in this region"
+                  : "All ready orders are assigned"}
               </div>
             ) : (
               <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                {unassigned.map((order) => (
+                {filteredUnassigned.map((order) => (
                   <div key={order._id} className="px-6 py-3">
                     <div className="flex items-center justify-between">
                       <div>
@@ -342,10 +505,13 @@ export default function PlanningPage() {
                         <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                           {order.customerName}
                         </p>
+                        <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                          Deliver to: {deliveryPlaceLabel(order)}
+                        </p>
                       </div>
                       <div className="text-right text-[11px] text-slate-400">
-                        {order.shippedAt && (
-                          <p>{new Date(order.shippedAt).toLocaleDateString("fr-TN")}</p>
+                        {order.preparedAt && (
+                          <p>{new Date(order.preparedAt).toLocaleDateString("fr-TN")}</p>
                         )}
                         {order.carrierId && (
                           <p className="flex items-center gap-1 justify-end">
@@ -391,6 +557,7 @@ export default function PlanningPage() {
                           zone: "",
                           orderIds: [],
                           carrierId: type === "DISCOVER" ? "" : f.carrierId,
+                          vehicleId: type === "DISCOVER" ? "" : f.vehicleId,
                         }))
                       }
                       className={`flex-1 rounded-2xl border py-2.5 text-sm font-medium transition ${
@@ -419,7 +586,7 @@ export default function PlanningPage() {
                   </div>
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                      {t("planDate") || "Delivery Date"} *
+                      End Date *
                     </label>
                     <input
                       type="date"
@@ -459,6 +626,35 @@ export default function PlanningPage() {
                   </div>
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                      Vehicle
+                    </label>
+                    <select
+                      value={form.vehicleId || ""}
+                      onChange={(e) => setForm((f) => ({ ...f, vehicleId: e.target.value }))}
+                      disabled={form.planType === "DISCOVER"}
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                    >
+                      <option value="">— Vehicle —</option>
+                      {vehicles.map((vehicle) => (
+                        <option key={vehicle._id} value={vehicle._id}>
+                          {vehicle.matricule}
+                        </option>
+                      ))}
+                    </select>
+                    {form.planType === "SHIPMENT" && selectedVehicle ? (
+                      <p
+                        className={`mt-1 text-[11px] ${
+                          capacityExceeded
+                            ? "text-rose-600 dark:text-rose-400"
+                            : "text-slate-500 dark:text-slate-400"
+                        }`}
+                      >
+                        Capacity: {selectedVehicle.capacityPackets} units · Selected: {selectedPackets}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
                       {t("zone") || "Zone / Région"}
                     </label>
                     <select
@@ -467,7 +663,7 @@ export default function PlanningPage() {
                       className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
                     >
                       <option value="">{t("selectRegionPlaceholder")}</option>
-                      {(form.planType === "DISCOVER" ? availableDiscoverGovs : TUNISIA_GOVERNORATES).map((g) => (
+                      {(form.planType === "DISCOVER" ? availableDiscoverGovs : shipmentGovs).map((g) => (
                         <option key={g} value={g}>{g}</option>
                       ))}
                     </select>
@@ -475,9 +671,9 @@ export default function PlanningPage() {
                       <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
                         {availableDiscoverGovs.length} / {TUNISIA_GOVERNORATES.length} governorates are still not discovered.
                       </p>
-                    ) : coveredGovs.length > 0 && (
+                    ) : shipmentGovs.length > 0 && (
                       <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                        {coveredGovs.length} / {TUNISIA_GOVERNORATES.length} governorates currently have customers.
+                        {shipmentGovs.length} / {TUNISIA_GOVERNORATES.length} governorates currently have customers.
                       </p>
                     )}
                   </div>
@@ -491,17 +687,35 @@ export default function PlanningPage() {
                       className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
                     />
                   </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                      Fuel Added (L)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.1"
+                      value={form.fuelAddedLiters ?? 0}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          fuelAddedLiters: Math.max(0, Number(e.target.value || 0)),
+                        }))
+                      }
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                    />
+                  </div>
                 </div>
 
                 {/* Order selection — only for SHIPMENT plans */}
-                {form.planType === "SHIPMENT" && unassigned.length > 0 && (
+                {form.planType === "SHIPMENT" && filteredUnassigned.length > 0 && (
                   <div className="mt-4">
                     <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-300">
                       {t("selectOrders") || "Select orders to include"}{" "}
                       <span className="text-slate-400">({form.orderIds?.length || 0} selected)</span>
                     </label>
                     <div className="max-h-48 overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
-                      {unassigned.map((order) => {
+                      {filteredUnassigned.map((order) => {
                         const selected = (form.orderIds || []).includes(order._id);
                         return (
                           <button
@@ -550,7 +764,7 @@ export default function PlanningPage() {
                 <div className="mt-5 flex gap-3">
                   <button
                     onClick={handleCreate}
-                    disabled={saving}
+                    disabled={saving || capacityExceeded}
                     className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-950"
                   >
                     {saving && <Loader2 size={13} className="animate-spin" />}
@@ -580,10 +794,6 @@ export default function PlanningPage() {
               plans.map((plan) => {
                 const isExpanded = expandedId === plan._id;
                 const busy = actionId === plan._id;
-                const canComplete = plan.orderIds.every((order) =>
-                  ["DELIVERED", "CLOSED", "CANCELLED"].includes(order.status)
-                );
-
                 return (
                   <div key={plan._id} className={`${surface} overflow-hidden`}>
                     <div className="flex flex-wrap items-center gap-4 px-6 py-4">
@@ -634,6 +844,19 @@ export default function PlanningPage() {
                               <Truck size={10} /> {plan.carrierId?.name}
                             </span>
                           )}
+                          {plan.vehicleId && (
+                            <span className="flex items-center gap-1">
+                              <Truck size={10} /> {plan.vehicleId.matricule}
+                            </span>
+                          )}
+                          <span className="flex items-center gap-1">
+                            Fuel:{" "}
+                            {Number(plan.fuelAddedLiters || 0).toLocaleString("fr-TN", {
+                              minimumFractionDigits: 1,
+                              maximumFractionDigits: 1,
+                            })}{" "}
+                            L
+                          </span>
                           {plan.planType === "SHIPMENT" ? (
                             <span className="flex items-center gap-1">
                               <Package size={10} /> {plan.orderIds.length} orders
@@ -659,15 +882,16 @@ export default function PlanningPage() {
                           </button>
                         )}
                         {plan.status === "IN_PROGRESS" && (
-                          <button
-                            onClick={() => handleComplete(plan._id)}
-                            disabled={busy || !canComplete}
-                            title={!canComplete ? "Deliver all linked orders before completing the plan" : undefined}
-                            className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
-                          >
-                            {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
-                            {t("completeDelivery") || "Complete"}
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleComplete(plan._id)}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                            >
+                              {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
+                              {t("completeDelivery") || "Complete & Deliver"}
+                            </button>
+                          </>
                         )}
                         {(plan.status === "PLANNED" || plan.status === "IN_PROGRESS") && (
                           <button
@@ -690,6 +914,12 @@ export default function PlanningPage() {
                         </p>
                         <div className="space-y-2">
                           {plan.orderIds.map((order) => {
+                            const returnedOrderIds = new Set(
+                              (plan.returnedOrderIds || []).map((value) =>
+                                typeof value === "string" ? value : value._id
+                              )
+                            );
+                            const orderReturnedInPlan = returnedOrderIds.has(order._id);
                             const total = order.lines.reduce(
                               (sum, l) => sum + l.quantity * l.unitPrice,
                               0
@@ -699,24 +929,46 @@ export default function PlanningPage() {
                                 key={order._id}
                                 className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900"
                               >
-                                <div>
-                                  <div className="flex items-center gap-2">
-                                    <p className="text-sm font-medium text-slate-900 dark:text-white">
-                                      {order.orderNo}
-                                    </p>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-medium text-slate-900 dark:text-white">
+                                    {order.orderNo}
+                                  </p>
                                     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadge(order.status)}`}>
                                       {order.status}
                                     </span>
                                   </div>
-                                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                                    {order.customerName}
-                                  </p>
-                                </div>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                  {order.customerName}
+                                </p>
+                                <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                                  Deliver to: {deliveryPlaceLabel(order)}
+                                </p>
+                              </div>
                                 <div className="text-right text-xs text-slate-500">
                                   <p className="font-medium text-slate-900 dark:text-white">
                                     {total.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
                                   </p>
                                   <p>{order.lines.length} line{order.lines.length !== 1 ? "s" : ""}</p>
+                                  {plan.status === "IN_PROGRESS" && !orderReturnedInPlan && (
+                                    <button
+                                      onClick={() => {
+                                        setReturnPlanId(plan._id);
+                                        setReturnOrderId(order._id);
+                                        setReturnReason("");
+                                      }}
+                                      disabled={busy}
+                                      className="mt-2 inline-flex items-center gap-1.5 rounded-2xl bg-rose-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-rose-700 disabled:opacity-50"
+                                    >
+                                      {busy ? <Loader2 size={11} className="animate-spin" /> : <XCircle size={11} />}
+                                      Returned
+                                    </button>
+                                  )}
+                                  {orderReturnedInPlan && (
+                                    <p className="mt-2 text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                                      Return created
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                             );
@@ -726,6 +978,31 @@ export default function PlanningPage() {
                           <p className="mt-3 text-[11px] text-emerald-600 dark:text-emerald-400">
                             Completed {new Date(plan.completedAt).toLocaleDateString("fr-TN")}
                           </p>
+                        )}
+                        <p className="mt-3 text-[11px] text-slate-500 dark:text-slate-400">
+                          Fuel added:{" "}
+                          {Number(plan.fuelAddedLiters || 0).toLocaleString("fr-TN", {
+                            minimumFractionDigits: 1,
+                            maximumFractionDigits: 1,
+                          })}{" "}
+                          L
+                        </p>
+                        {plan.returnedAt && (
+                          <p className="mt-3 text-[11px] text-rose-600 dark:text-rose-400">
+                            Returned {new Date(plan.returnedAt).toLocaleDateString("fr-TN")}
+                          </p>
+                        )}
+                        {plan.rmaIds && plan.rmaIds.length > 0 && (
+                          <div className="mt-3 space-y-1">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                              Returns
+                            </p>
+                            {plan.rmaIds.map((rma) => (
+                              <p key={rma._id} className="text-[11px] text-rose-600 dark:text-rose-400">
+                                {rma.rmaNo} · {rma.orderNo}
+                              </p>
+                            ))}
+                          </div>
                         )}
                       </div>
                     )}

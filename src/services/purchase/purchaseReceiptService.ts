@@ -37,6 +37,11 @@ export interface PurchaseReceipt {
     supplierNo: string;
     name: string;
   };
+  depotId?: {
+    _id: string;
+    name: string;
+    productTypeScope?: "MP" | "PF" | "MP_PF";
+  } | null;
   lines: PurchaseReceiptLine[];
   receiptStatus: PurchaseReceiptStatus;
   notes?: string;
@@ -48,6 +53,7 @@ export const purchaseReceiptService = {
 
   create: async (payload: {
     purchaseOrderId: string;
+    depotId: string;
     lines: Array<{
       purchaseOrderLineId: string;
       receivedQuantity: number;

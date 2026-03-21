@@ -1,810 +1,981 @@
 "use client";
 
 import ProtectedRoute from "@/components/ProtectedRoute";
-import { useLanguage } from "@/context/LanguageContext";
-import Link from "next/link";
+import {
+  salesOrderService,
+  type SalesOrder,
+  type SalesOrderOrdonnanceLinePayload,
+} from "@/services/commercial/salesOrderService";
+import { stockDepotService, type Depot } from "@/services/stock/stockDepotService";
+import { stockItemService } from "@/services/stock/stockItemService";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  ArrowRight,
-  Boxes,
-  Clock,
+  ChevronLeft,
+  ChevronRight,
   Factory,
   Loader2,
-  Package,
-  Sparkles,
-  X,
-  Zap,
+  Plus,
+  Save,
+  Trash2,
 } from "lucide-react";
-import { salesOrderService, SalesOrder } from "@/services/commercial/salesOrderService";
-import { stockItemService } from "@/services/stock/stockItemService";
 
-const surface =
-  "rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900";
-
-interface StockItem {
-  _id: string;
+type StockItem = {
   productId: {
     _id: string;
     sku: string;
     name: string;
-    type?: string;
-    unit: string;
+    type: "PRODUIT_FINI" | "SOUS_ENSEMBLE" | "COMPOSANT" | "MATIERE_PREMIERE";
   };
-  quantityOnHand: number;
-  quantityReserved: number;
+  quantityAvailable: number;
+};
+
+type DraftOrder = SalesOrder & {
+  lines: (SalesOrder["lines"][number] & {
+    productId: NonNullable<SalesOrder["lines"][number]["productId"]>;
+  })[];
+};
+
+type AllocationRow = {
+  depotId: string;
+  allocatedQuantity: number;
+};
+
+type DraftLineState = {
+  allocations: AllocationRow[];
+};
+
+type DraftState = {
+  plannedStartDate: string;
+  plannedEndDate: string;
+  lines: Record<string, DraftLineState>;
+};
+
+const surface =
+  "rounded-[28px] border border-slate-200/90 bg-white/95 shadow-[0_24px_60px_-42px_rgba(15,23,42,0.45)] backdrop-blur dark:border-slate-800 dark:bg-slate-900/95";
+const inputClass =
+  "w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100 dark:border-slate-800 dark:bg-slate-950 dark:text-white";
+const sideWidth = 260;
+const dayCount = 14;
+
+function hasProduct(
+  line: SalesOrder["lines"][number]
+): line is DraftOrder["lines"][number] {
+  return Boolean(line.productId);
 }
 
-interface ProductGroup {
-  productId: string;
-  name: string;
-  sku: string;
-  unit: string;
-  available: number;
-  totalDemand: number;
-  totalAllocated: number;
-  orderCount: number;
-}
-
-interface OrderRisk {
-  orderId: string;
-  missingDates: boolean;
-  invalidDateRange: boolean;
-  planningRisk: boolean;
-  urgentShortage: boolean;
-}
-
-function getErrorMessage(error: unknown, fallback: string) {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "response" in error &&
-    typeof (error as { response?: unknown }).response === "object" &&
-    (error as { response?: { data?: unknown } }).response !== null
-  ) {
-    const response = (error as { response?: { data?: { message?: unknown } } }).response;
-    if (typeof response?.data?.message === "string") {
-      return response.data.message;
-    }
-  }
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-  return fallback;
-}
-
-function AllocationMeter({
-  allocated,
-  ordered,
-  color,
-}: {
-  allocated: number;
-  ordered: number;
-  color: string;
-}) {
-  const width = ordered > 0 ? Math.min(100, Math.round((allocated / ordered) * 100)) : 0;
-
-  return (
-    <div className="mt-2 h-2 w-full rounded-full bg-slate-100 dark:bg-slate-800">
-      <div className={`h-2 rounded-full ${color}`} style={{ width: `${width}%` }} />
-    </div>
-  );
-}
-
-function clampAllocation(value: number, maxAllowed: number) {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(maxAllowed, value));
-}
-
-function getOrderedDrafts(orders: SalesOrder[], focusOrderId: string | null) {
-  const sorted = [...orders];
-  sorted.sort((a, b) => {
-    if (!!a.isUrgent !== !!b.isUrgent) {
-      return a.isUrgent ? -1 : 1;
-    }
-    if (focusOrderId === a._id) return -1;
-    if (focusOrderId === b._id) return 1;
-    return (new Date(a.createdAt || 0).getTime() || 0) - (new Date(b.createdAt || 0).getTime() || 0);
-  });
-  return sorted;
-}
-
-function buildSuggestedAllocations(
-  orders: SalesOrder[],
-  availableByProduct: Map<string, number>,
-  focusOrderId: string | null
-) {
-  const remainingByProduct = new Map(availableByProduct);
-  const next: Record<string, Record<string, string>> = {};
-
-  for (const order of getOrderedDrafts(orders, focusOrderId)) {
-    next[order._id] = {};
-    for (const line of order.lines) {
-      const productId = line.productId?._id;
-      if (!productId) continue;
-      const remaining = remainingByProduct.get(productId) || 0;
-      const allocated = Math.min(line.quantity, remaining);
-      next[order._id][productId] = String(allocated);
-      remainingByProduct.set(productId, Math.max(0, remaining - allocated));
-    }
-  }
-
-  return next;
-}
-
-function toDateInputValue(date: Date) {
-  return date.toISOString().slice(0, 10);
+function getWeekStart(date: Date) {
+  const value = new Date(date);
+  const diff = value.getDay() === 0 ? -6 : 1 - value.getDay();
+  value.setDate(value.getDate() + diff);
+  value.setHours(0, 0, 0, 0);
+  return value;
 }
 
 function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
+  const value = new Date(date);
+  value.setDate(value.getDate() + days);
+  return value;
 }
 
-function daySpan(start: Date, end: Date) {
-  const diff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-  return Math.max(1, diff);
+function toDateInput(date: Date) {
+  return date.toISOString().slice(0, 10);
 }
 
-function buildSuggestedDates(orders: SalesOrder[]) {
-  const next: Record<string, { plannedStartDate: string; plannedEndDate: string }> = {};
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  for (const order of orders) {
-    const currentStart = order.plannedStartDate ? new Date(order.plannedStartDate) : today;
-    const currentEnd = order.plannedEndDate ? new Date(order.plannedEndDate) : addDays(currentStart, 2);
-    const duration = daySpan(currentStart, currentEnd);
-
-    let start = currentStart < today ? today : currentStart;
-    let end = addDays(start, duration);
-
-    if (order.promisedDate) {
-      const promised = new Date(order.promisedDate);
-      promised.setHours(0, 0, 0, 0);
-      if (!Number.isNaN(promised.getTime()) && end > promised) {
-        end = promised;
-        start = addDays(promised, -duration);
-        if (start < today) {
-          start = today;
-        }
-      }
-    }
-
-    next[order._id] = {
-      plannedStartDate: toDateInputValue(start),
-      plannedEndDate: toDateInputValue(end),
-    };
-  }
-  return next;
+function dayLabel(date: Date) {
+  return date
+    .toLocaleDateString("fr-TN", { weekday: "short" })
+    .slice(0, 1)
+    .toUpperCase();
 }
 
-function buildSuggestedDatesForOrder(order: SalesOrder) {
-  return buildSuggestedDates([order])[order._id];
+function weekNumber(date: Date) {
+  const firstWeek = getWeekStart(new Date(date.getFullYear(), 0, 1));
+  return Math.ceil((((date.getTime() - firstWeek.getTime()) / 86400000) + 1) / 7);
 }
 
-function getGroupedByProduct(
-  orders: SalesOrder[],
-  stockMap: Map<string, number>,
-  allocations: Record<string, Record<string, string>>
-) {
-  const groups = new Map<string, ProductGroup>();
-
-  for (const order of orders) {
-    for (const line of order.lines) {
-      if (!line.productId?._id) continue;
-      const productId = String(line.productId._id);
-      const current = groups.get(productId) || {
-        productId,
-        name: line.productId.name,
-        sku: line.productId.sku,
-        unit: line.productId.unit || "",
-        available: stockMap.get(productId) || 0,
-        totalDemand: 0,
-        totalAllocated: 0,
-        orderCount: 0,
-      };
-      current.totalDemand += line.quantity;
-      current.totalAllocated += Math.max(0, Number(allocations[order._id]?.[productId] || 0));
-      current.orderCount += 1;
-      groups.set(productId, current);
-    }
-  }
-
-  return Array.from(groups.values());
+function orderBarClass(order: DraftOrder, risk: boolean) {
+  if (risk) return "bg-red-500 text-white";
+  if (order.isUrgent) return "bg-red-600 text-white";
+  if (order.source === "RECURRING") return "bg-violet-500 text-white";
+  return "bg-slate-950 text-white dark:bg-white dark:text-slate-950";
 }
 
-function getOrderRisk(
-  order: SalesOrder,
-  allocations: Record<string, Record<string, string>>,
-  plannedDates: Record<string, { plannedStartDate: string; plannedEndDate: string }>
-): OrderRisk {
-  const start = plannedDates[order._id]?.plannedStartDate || "";
-  const end = plannedDates[order._id]?.plannedEndDate || "";
-  const missingDates = !start || !end;
-  const invalidDateRange = !missingDates && new Date(end) < new Date(start);
-  const planningRisk =
-    !missingDates &&
-    !!order.promisedDate &&
-    new Date(end) > new Date(order.promisedDate);
-  const urgentShortage =
-    !!order.isUrgent &&
-    order.lines.some((line) => {
-      const productId = line.productId?._id;
-      const allocated = productId ? Number(allocations[order._id]?.[productId] || 0) : 0;
-      return allocated < line.quantity;
-    });
+function lineKey(lineIndex: number) {
+  return String(lineIndex);
+}
 
-  return {
-    orderId: order._id,
-    missingDates,
-    invalidDateRange,
-    planningRisk,
-    urgentShortage,
-  };
+function totalAllocated(allocations: AllocationRow[] = []) {
+  return allocations.reduce(
+    (sum, allocation) => sum + Math.max(0, Number(allocation.allocatedQuantity || 0)),
+    0
+  );
+}
+
+function normalizeAllocations(allocations: AllocationRow[]) {
+  return allocations.filter(
+    (allocation) =>
+      allocation.depotId && Math.max(0, Number(allocation.allocatedQuantity || 0)) > 0
+  );
 }
 
 export default function OrdonnancementPage() {
-  const { t } = useLanguage();
-  const searchParams = useSearchParams();
-  const focusOrderId = searchParams.get("order");
+  const params = useSearchParams();
+  const focusId = params.get("order");
 
-  const [orders, setOrders] = useState<SalesOrder[]>([]);
-  const [stockItems, setStockItems] = useState<StockItem[]>([]);
+  const [orders, setOrders] = useState<DraftOrder[]>([]);
+  const [stockByProduct, setStockByProduct] = useState<Record<string, number>>({});
+  const [stockByProductDepot, setStockByProductDepot] = useState<Record<string, number>>({});
+  const [depots, setDepots] = useState<Depot[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, DraftState>>({});
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [requestingProduction, setRequestingProduction] = useState(false);
   const [error, setError] = useState("");
-  const [savingBoard, setSavingBoard] = useState(false);
-  const [allocations, setAllocations] = useState<Record<string, Record<string, string>>>({});
-  const [plannedDates, setPlannedDates] = useState<
-    Record<string, { plannedStartDate: string; plannedEndDate: string }>
-  >({});
-
-  const fetchAll = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError("");
-      const [ordersData, stockData] = await Promise.all([
-        salesOrderService.getAll(),
-        stockItemService.getAll(),
-      ]);
-
-      const draftOrders = Array.isArray(ordersData)
-        ? ordersData
-            .filter((order: SalesOrder) => order.status === "DRAFT")
-            .map((order: SalesOrder) => ({
-              ...order,
-              lines: order.lines.filter((line) => line.productId?.type === "PRODUIT_FINI"),
-            }))
-            .filter((order: SalesOrder) => order.lines.length > 0)
-        : [];
-      const items = Array.isArray(stockData)
-        ? stockData.filter((item: StockItem) => item.productId?.type === "PRODUIT_FINI")
-        : [];
-      const availableByProduct = new Map(
-        items.map((item: StockItem) => [
-          String(item.productId._id),
-          Math.max(0, (item.quantityOnHand || 0) - (item.quantityReserved || 0)),
-        ])
-      );
-
-      setOrders(draftOrders);
-      setStockItems(items);
-      setAllocations(buildSuggestedAllocations(draftOrders, availableByProduct, focusOrderId));
-      setPlannedDates(buildSuggestedDates(draftOrders));
-    } catch (loadError: unknown) {
-      setError(getErrorMessage(loadError, "Failed to load ordonnancement page"));
-    } finally {
-      setLoading(false);
-    }
-  }, [focusOrderId]);
+  const [success, setSuccess] = useState("");
 
   useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError("");
 
-  const stockMap = useMemo(
-    () =>
-      new Map(
-        stockItems.map((item) => [
-          String(item.productId._id),
-          Math.max(0, (item.quantityOnHand || 0) - (item.quantityReserved || 0)),
-        ])
-      ),
-    [stockItems]
+        const [orderData, itemData, depotData] = await Promise.all([
+          salesOrderService.getAll(),
+          stockItemService.getAll(),
+          stockDepotService.getAll(),
+        ]);
+
+        const visibleOrders = (orderData as SalesOrder[])
+          .filter((order) => {
+            if (order.status === "CONFIRMED") return true;
+            if (order.status !== "ORDONNANCED") return false;
+            if (focusId && order._id === focusId) return true;
+            return order.lines.some(
+              (line) =>
+                Math.max(
+                  0,
+                  line.plannedProductionQuantity ?? line.quantity - (line.allocatedQuantity || 0)
+                ) > 0
+            );
+          })
+          .map((order) => ({
+            ...order,
+            lines: order.lines.filter(hasProduct),
+          }))
+          .filter((order) => order.lines.length > 0)
+          .sort((a, b) => Number(Boolean(b.isUrgent)) - Number(Boolean(a.isUrgent)));
+
+        const productIds = Array.from(
+          new Set(
+            visibleOrders.flatMap((order) => order.lines.map((line) => line.productId._id))
+          )
+        );
+        const depotAvailability = await stockItemService.getAvailabilityByDepot(productIds);
+
+        setOrders(visibleOrders);
+        setStockByProduct(
+          Object.fromEntries(
+            (itemData as StockItem[])
+              .filter((item) => Boolean(item.productId?._id))
+              .map((item) => [item.productId._id, item.quantityAvailable || 0])
+          )
+        );
+        setStockByProductDepot(
+          Object.fromEntries(
+            depotAvailability.rows
+              .filter((row) => row.depotId)
+              .map((row) => [`${row.productId}::${row.depotId}`, row.quantityAvailable || 0])
+          )
+        );
+        setDepots((depotData as Depot[]).filter((depot) => depot.status === "ACTIVE"));
+        setDrafts(
+          Object.fromEntries(
+            visibleOrders.map((order) => [
+              order._id,
+              {
+                plannedStartDate: toDateInput(
+                  new Date(order.plannedStartDate || order.createdAt || Date.now())
+                ),
+                plannedEndDate: toDateInput(
+                  new Date(
+                    order.plannedEndDate ||
+                      addDays(new Date(order.plannedStartDate || order.createdAt || Date.now()), 2)
+                  )
+                ),
+                lines: Object.fromEntries(
+                  order.lines.map((line, index) => [
+                    lineKey(index),
+                    {
+                      allocations:
+                        line.depotId && (line.allocatedQuantity || 0) > 0
+                          ? [
+                              {
+                                depotId: line.depotId._id,
+                                allocatedQuantity: line.allocatedQuantity || 0,
+                              },
+                            ]
+                          : [],
+                    },
+                  ])
+                ),
+              },
+            ])
+          )
+        );
+
+        const initialSelected =
+          (focusId && visibleOrders.find((order) => order._id === focusId)?._id) ||
+          visibleOrders[0]?._id ||
+          null;
+        setSelectedId(initialSelected);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Failed to load ordonnancement");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, [focusId]);
+
+  const days = useMemo(
+    () => Array.from({ length: dayCount }, (_, index) => addDays(weekStart, index)),
+    [weekStart]
   );
 
-  const orderedDrafts = useMemo(() => getOrderedDrafts(orders, focusOrderId), [orders, focusOrderId]);
+  const totalAllocatedByProduct = useMemo(() => {
+    const totals: Record<string, number> = {};
+    for (const order of orders) {
+      const draft = drafts[order._id];
+      if (!draft) continue;
+      order.lines.forEach((line, index) => {
+        const key = lineKey(index);
+        const product = line.productId!;
+        totals[product._id] =
+          (totals[product._id] || 0) +
+          totalAllocated(draft.lines[key]?.allocations || []);
+      });
+    }
+    return totals;
+  }, [drafts, orders]);
 
-  const groupedByProduct = useMemo(
-    () => getGroupedByProduct(orderedDrafts, stockMap, allocations),
-    [allocations, orderedDrafts, stockMap]
-  );
+  const totalAllocatedByProductDepot = useMemo(() => {
+    const totals: Record<string, number> = {};
+    for (const order of orders) {
+      const draft = drafts[order._id];
+      if (!draft) continue;
+      order.lines.forEach((line, index) => {
+        const product = line.productId!;
+        for (const allocation of draft.lines[lineKey(index)]?.allocations || []) {
+          if (!allocation.depotId) continue;
+          const key = `${product._id}::${allocation.depotId}`;
+          totals[key] = (totals[key] || 0) + (allocation.allocatedQuantity || 0);
+        }
+      });
+    }
+    return totals;
+  }, [drafts, orders]);
 
-  const groupedByProductMap = useMemo(
-    () => new Map(groupedByProduct.map((group) => [group.productId, group])),
-    [groupedByProduct]
-  );
+  const selectedOrder = orders.find((order) => order._id === selectedId) || null;
+  const selectedDraft = selectedOrder ? drafts[selectedOrder._id] : null;
 
-  const availableByProduct = useMemo(
-    () =>
-      new Map(
-        stockItems.map((item) => [
-          String(item.productId._id),
-          Math.max(0, (item.quantityOnHand || 0) - (item.quantityReserved || 0)),
-        ])
-      ),
-    [stockItems]
-  );
+  const getCompatibleDepots = (productType?: string) =>
+    depots.filter((depot) => {
+      const wantsMp = productType === "MATIERE_PREMIERE";
+      if (depot.productTypeScope === "MP_PF") return true;
+      if (wantsMp) return depot.productTypeScope === "MP";
+      return depot.productTypeScope === "PF";
+    });
 
-  const overAllocatedProducts = useMemo(
-    () => groupedByProduct.filter((group) => group.totalAllocated > group.available),
-    [groupedByProduct]
-  );
+  const getAllocationContext = (
+    productId: string,
+    depotId: string,
+    currentQty: number
+  ) => {
+    const productDepotKey = `${productId}::${depotId}`;
+    const globalRemaining = Math.max(
+      0,
+      (stockByProduct[productId] || 0) -
+        ((totalAllocatedByProduct[productId] || 0) - currentQty)
+    );
+    const depotRemaining = Math.max(
+      0,
+      (stockByProductDepot[productDepotKey] || 0) -
+        ((totalAllocatedByProductDepot[productDepotKey] || 0) - currentQty)
+    );
+    return {
+      globalRemaining,
+      depotRemaining,
+      effectiveRemaining: Math.min(globalRemaining, depotRemaining),
+    };
+  };
 
-  const orderRisks = useMemo(
-    () => orderedDrafts.map((order) => getOrderRisk(order, allocations, plannedDates)),
-    [allocations, orderedDrafts, plannedDates]
-  );
+  const buildPayloadLines = (order: DraftOrder): SalesOrderOrdonnanceLinePayload[] =>
+    order.lines.map((line, index) => {
+      const product = line.productId!;
+      return {
+        lineIndex: index,
+        productId: product._id,
+        allocations: normalizeAllocations(
+          drafts[order._id]?.lines[lineKey(index)]?.allocations || []
+        ),
+      };
+    });
 
-  const blockingRisks = useMemo(
-    () => orderRisks.filter((risk) => risk.missingDates || risk.invalidDateRange || risk.urgentShortage),
-    [orderRisks]
-  );
+  const saveBoard = async () => {
+    try {
+      setSaving(true);
+      setError("");
+      setSuccess("");
 
-  const setLineAllocation = (orderId: string, productId: string, quantity: number, maxAllowed: number) => {
-    setAllocations((prev) => ({
-      ...prev,
+      await salesOrderService.ordonanceBulk({
+        orders: orders.map((order) => ({
+          orderId: order._id,
+          plannedStartDate: drafts[order._id].plannedStartDate,
+          plannedEndDate: drafts[order._id].plannedEndDate,
+          lines: buildPayloadLines(order),
+        })),
+      });
+
+      setSuccess("Ordonnancement saved.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to save ordonnancement");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const requestProduction = async () => {
+    if (!selectedOrder) return;
+
+    try {
+      setRequestingProduction(true);
+      setError("");
+      setSuccess("");
+
+      await salesOrderService.requestProduction(selectedOrder._id, {
+        lines: buildPayloadLines(selectedOrder),
+      });
+
+      setSuccess("Production request created. You can follow it in Backorders.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to request production");
+    } finally {
+      setRequestingProduction(false);
+    }
+  };
+
+  const setOrderDate = (
+    orderId: string,
+    key: "plannedStartDate" | "plannedEndDate",
+    value: string
+  ) => {
+    setDrafts((current) => ({
+      ...current,
       [orderId]: {
-        ...prev[orderId],
-        [productId]: String(clampAllocation(quantity, maxAllowed)),
+        ...current[orderId],
+        [key]: value,
       },
     }));
   };
 
-  const applyBoardSuggestions = () => {
-    setAllocations(buildSuggestedAllocations(orderedDrafts, availableByProduct, focusOrderId));
-    setPlannedDates(buildSuggestedDates(orderedDrafts));
-    setError("");
-  };
-
-  const applyOrderDateSuggestion = (order: SalesOrder) => {
-    const suggestion = buildSuggestedDatesForOrder(order);
-    if (!suggestion) return;
-    setPlannedDates((prev) => ({
-      ...prev,
-      [order._id]: suggestion,
+  const addAllocationRow = (orderId: string, lineIndex: number) => {
+    const key = lineKey(lineIndex);
+    setDrafts((current) => ({
+      ...current,
+      [orderId]: {
+        ...current[orderId],
+        lines: {
+          ...current[orderId].lines,
+          [key]: {
+            allocations: [...(current[orderId].lines[key]?.allocations || []), { depotId: "", allocatedQuantity: 0 }],
+          },
+        },
+      },
     }));
   };
 
-  const saveBoard = async () => {
-    try {
-      if (overAllocatedProducts.length > 0) {
-        setError("One or more products are over-allocated. Reduce stock allocation before saving.");
-        return;
+  const removeAllocationRow = (orderId: string, lineIndex: number, allocationIndex: number) => {
+    const key = lineKey(lineIndex);
+    setDrafts((current) => ({
+      ...current,
+      [orderId]: {
+        ...current[orderId],
+        lines: {
+          ...current[orderId].lines,
+          [key]: {
+            allocations: (current[orderId].lines[key]?.allocations || []).filter(
+              (_, index) => index !== allocationIndex
+            ),
+          },
+        },
+      },
+    }));
+  };
+
+  const updateAllocation = (
+    orderId: string,
+    lineIndex: number,
+    allocationIndex: number,
+    patch: Partial<AllocationRow>
+  ) => {
+    const order = orders.find((entry) => entry._id === orderId);
+    const line = order?.lines[lineIndex];
+    if (!line) return;
+
+    const key = lineKey(lineIndex);
+    const currentAllocations = drafts[orderId]?.lines[key]?.allocations || [];
+    const currentAllocation = currentAllocations[allocationIndex] || {
+      depotId: "",
+      allocatedQuantity: 0,
+    };
+    const nextAllocation = { ...currentAllocation, ...patch };
+    const normalizedQty = Math.max(0, Number(nextAllocation.allocatedQuantity || 0));
+    const nextAllocations = currentAllocations.map((allocation, index) =>
+      index === allocationIndex
+        ? { depotId: nextAllocation.depotId, allocatedQuantity: normalizedQty }
+        : allocation
+    );
+
+    const totalWithoutCurrent = totalAllocated(nextAllocations) - normalizedQty;
+    let cappedQty = Math.min(normalizedQty, Math.max(0, line.quantity - totalWithoutCurrent));
+
+    if (nextAllocation.depotId) {
+      const product = line.productId!;
+      const context = getAllocationContext(
+        product._id,
+        nextAllocation.depotId,
+        currentAllocation.allocatedQuantity || 0
+      );
+      cappedQty = Math.min(cappedQty, context.effectiveRemaining);
+    }
+
+    nextAllocations[allocationIndex] = {
+      depotId: nextAllocation.depotId,
+      allocatedQuantity: cappedQty,
+    };
+
+    setDrafts((current) => ({
+      ...current,
+      [orderId]: {
+        ...current[orderId],
+        lines: {
+          ...current[orderId].lines,
+          [key]: { allocations: nextAllocations },
+        },
+      },
+    }));
+  };
+
+  const hasRisk = (order: DraftOrder) => {
+    const draft = drafts[order._id];
+    if (!draft) return false;
+
+    const lateRisk =
+      Boolean(order.promisedDate) &&
+      new Date(draft.plannedEndDate) > new Date(order.promisedDate as string);
+    const shortageRisk =
+      Boolean(order.isUrgent) &&
+      order.lines.some((line, index) => {
+        const allocated = totalAllocated(draft.lines[lineKey(index)]?.allocations || []);
+        return allocated < line.quantity;
+      });
+
+    return lateRisk || shortageRisk;
+  };
+
+  const getBarStyle = (order: DraftOrder) => {
+    const draft = drafts[order._id];
+    if (!draft) return null;
+
+    const startDate = new Date(draft.plannedStartDate);
+    const endDate = new Date(draft.plannedEndDate);
+    const rangeStart = days[0];
+    const rangeEnd = addDays(days[days.length - 1], 1);
+
+    if (endDate < rangeStart || startDate > rangeEnd) return null;
+
+    const visibleStart = startDate < rangeStart ? rangeStart : startDate;
+    const visibleEnd = endDate > rangeEnd ? rangeEnd : endDate;
+    const leftDays = (visibleStart.getTime() - rangeStart.getTime()) / 86400000;
+    const widthDays = Math.max(1, (visibleEnd.getTime() - visibleStart.getTime()) / 86400000 + 1);
+
+    return {
+      left: `${(leftDays / dayCount) * 100}%`,
+      width: `${(widthDays / dayCount) * 100}%`,
+    };
+  };
+
+  const canRequestProduction = useMemo(() => {
+    if (!selectedOrder || !selectedDraft) return false;
+
+    return selectedOrder.lines.some((line, index) => {
+      const product = line.productId!;
+      const allocated = totalAllocated(selectedDraft.lines[lineKey(index)]?.allocations || []);
+      const remainingQty = Math.max(0, line.quantity - allocated);
+      if (remainingQty <= 0) return false;
+      const remainingGlobal = Math.max(
+        0,
+        (stockByProduct[product._id] || 0) -
+          ((totalAllocatedByProduct[product._id] || 0) - allocated)
+      );
+      return remainingGlobal <= 0;
+    });
+  }, [selectedDraft, selectedOrder, stockByProduct, totalAllocatedByProduct]);
+
+  const blockingIssues = useMemo(() => {
+    return orders.flatMap((order) => {
+      const draft = drafts[order._id];
+      if (!draft) return [];
+
+      const issues: string[] = [];
+      if (!draft.plannedStartDate || !draft.plannedEndDate) {
+        issues.push(`${order.orderNo}: missing planned dates`);
       }
-      if (blockingRisks.length > 0) {
-        setError("Resolve ordonnancement conflicts before saving the board.");
-        return;
+      if (
+        draft.plannedStartDate &&
+        draft.plannedEndDate &&
+        new Date(draft.plannedEndDate) < new Date(draft.plannedStartDate)
+      ) {
+        issues.push(`${order.orderNo}: end date is before start date`);
       }
 
-      setSavingBoard(true);
-      await salesOrderService.ordonanceBulk({
-        orders: orderedDrafts.map((order) => ({
-          orderId: order._id,
-          plannedStartDate: plannedDates[order._id]?.plannedStartDate || toDateInputValue(new Date()),
-          plannedEndDate: plannedDates[order._id]?.plannedEndDate || toDateInputValue(addDays(new Date(), 2)),
-          lines: order.lines
-            .filter((line) => line.productId?._id)
-            .map((line) => ({
-              productId: line.productId!._id,
-              allocatedQuantity: Number(allocations[order._id]?.[line.productId!._id] || 0),
-            })),
-        })),
+      order.lines.forEach((line, index) => {
+        const product = line.productId!;
+        const allocations = draft.lines[lineKey(index)]?.allocations || [];
+        if (totalAllocated(allocations) > line.quantity) {
+          issues.push(`${order.orderNo}: allocated quantity exceeds ordered quantity for ${product.name}`);
+        }
+        allocations.forEach((allocation) => {
+          if (allocation.allocatedQuantity > 0 && !allocation.depotId) {
+            issues.push(`${order.orderNo}: select a depot for ${product.name}`);
+          }
+        });
       });
-      await fetchAll();
-    } catch (saveError: unknown) {
-      setError(getErrorMessage(saveError, "Failed to save ordonnancement"));
-    } finally {
-      setSavingBoard(false);
-    }
-  };
+
+      return issues;
+    });
+  }, [drafts, orders]);
 
   return (
     <ProtectedRoute allowedRoles={["ADMIN", "COMMERCIAL_MANAGER"]}>
       <div className="space-y-6">
-        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
               Commercial · ERP
             </p>
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-50 dark:bg-amber-950/30">
-                <Sparkles size={18} className="text-amber-600 dark:text-amber-300" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-                  Ordonnancement
-                </h1>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Allocate one shared stock pool across draft finished-product orders before confirmation.
-                </p>
-              </div>
-            </div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-950 dark:text-white">
+              Ordonnancement
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500 dark:text-slate-400">
+              Split each line across depots, keep remaining demand visible, and prepare each
+              depot quantity separately before packing validation.
+            </p>
           </div>
+
           <div className="flex flex-wrap items-center gap-3">
-            <Link
-              href="/dashboard/commercial/orders"
-              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
-            >
-              <ArrowRight size={14} /> Orders
-            </Link>
             <button
-              onClick={applyBoardSuggestions}
-              disabled={orderedDrafts.length === 0}
-              className="inline-flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"
+              onClick={() => setWeekStart((value) => addDays(value, -7))}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
             >
-              <Sparkles size={14} />
-              Apply Suggestions
+              <ChevronLeft size={16} />
+              Prev. week
             </button>
+
+            <div className="rounded-2xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-white">
+              Week {weekNumber(weekStart)} -{" "}
+              {days[0].toLocaleDateString("fr-TN", { month: "short", day: "numeric" })} /{" "}
+              {days[days.length - 1].toLocaleDateString("fr-TN", { month: "short", day: "numeric" })}
+            </div>
+
+            <button
+              onClick={() => setWeekStart((value) => addDays(value, 7))}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              Next week
+              <ChevronRight size={16} />
+            </button>
+
             <button
               onClick={saveBoard}
-              disabled={
-                savingBoard ||
-                orderedDrafts.length === 0 ||
-                overAllocatedProducts.length > 0 ||
-                blockingRisks.length > 0
-              }
-              className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-slate-950"
+              disabled={saving || loading || orders.length === 0 || blockingIssues.length > 0}
+              className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
             >
-              {savingBoard ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              Save Board
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+              Save board
             </button>
           </div>
         </div>
 
-        {error && (
-          <div className="flex items-start justify-between rounded-3xl border border-rose-200 bg-rose-50 px-6 py-4 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400">
+        {error ? (
+          <div className="rounded-3xl border border-rose-200 bg-rose-50 px-6 py-4 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400">
             {error}
-            <button onClick={() => setError("")} className="ml-4 shrink-0 hover:opacity-70">
-              <X size={14} />
-            </button>
           </div>
-        )}
+        ) : null}
 
-        {!loading && overAllocatedProducts.length > 0 && (
-          <div className="flex items-start gap-3 rounded-3xl border border-amber-200 bg-amber-50 px-6 py-4 text-sm text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-            <div>
-              Shared stock is over-allocated for: {overAllocatedProducts.map((group) => group.name).join(", ")}.
-              Reduce allocation before saving the board, or use Apply Suggestions to rebalance it automatically.
-            </div>
+        {!error && blockingIssues.length > 0 ? (
+          <div className="rounded-3xl border border-amber-200 bg-amber-50 px-6 py-4 text-sm text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+            Save is blocked until these planning issues are fixed: {blockingIssues[0]}
+            {blockingIssues.length > 1 ? ` (+${blockingIssues.length - 1} more)` : ""}
           </div>
-        )}
+        ) : null}
 
-        {!loading && blockingRisks.length > 0 && (
-          <div className="flex items-start gap-3 rounded-3xl border border-rose-200 bg-rose-50 px-6 py-4 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-            <div>
-              Some orders still have blocking conflicts:
-              {" "}
-              {blockingRisks.map((risk) => orders.find((order) => order._id === risk.orderId)?.orderNo || risk.orderId).join(", ")}.
-              Check missing dates, invalid ranges, or urgent shortages before saving, or use Apply Suggestions to restore a valid baseline.
-            </div>
+        {success ? (
+          <div className="rounded-3xl border border-emerald-200 bg-emerald-50 px-6 py-4 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">
+            {success}
           </div>
-        )}
+        ) : null}
 
         {loading ? (
-          <div className={`${surface} flex items-center justify-center gap-2 py-20 text-sm text-slate-400`}>
-            <Loader2 size={18} className="animate-spin" /> Loading ordonnancement...
+          <div className={`${surface} flex items-center justify-center gap-2 py-20 text-sm text-slate-500 dark:text-slate-400`}>
+            <Loader2 size={18} className="animate-spin" />
+            Loading ordonnancement...
           </div>
         ) : (
-          <>
-            <div className="grid gap-4 xl:grid-cols-3">
-              {groupedByProduct.map((group) => {
-                const shortage = Math.max(0, group.totalDemand - group.totalAllocated);
-                const overAllocated = group.totalAllocated > group.available;
-                return (
-                  <div key={group.productId} className={`${surface} p-5`}>
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-950 dark:text-white">{group.name}</p>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                          {group.sku} · {group.orderCount} draft order{group.orderCount > 1 ? "s" : ""}
-                        </p>
-                      </div>
-                      <Boxes size={16} className="text-slate-400" />
-                    </div>
-                    <div className="mt-4 grid grid-cols-3 gap-3 text-center">
-                      <MetricCard label="Available" value={`${group.available} ${group.unit}`} />
-                      <MetricCard
-                        label="Allocated"
-                        value={`${group.totalAllocated} ${group.unit}`}
-                        danger={overAllocated}
-                      />
-                      <MetricCard
-                        label="Production"
-                        value={`${shortage} ${group.unit}`}
-                        danger={shortage > 0}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {orderedDrafts.length === 0 ? (
-              <div className={`${surface} py-20 text-center text-sm text-slate-400`}>
-                No draft orders need ordonnancement.
-              </div>
-            ) : (
-              <div className="grid gap-5 xl:grid-cols-2">
-                {orderedDrafts.map((order) => (
-                  (() => {
-                    const risk = orderRisks.find((entry) => entry.orderId === order._id);
-                    return (
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+            <div className={`${surface} overflow-hidden`}>
+              <div
+                className="grid border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950/60"
+                style={{ gridTemplateColumns: `${sideWidth}px repeat(${dayCount}, minmax(0, 1fr))` }}
+              >
+                <div className="px-6 py-5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                  Order / Customer
+                </div>
+                {days.map((day) => (
                   <div
-                    key={order._id}
-                    className={`${surface} overflow-hidden ${
-                      focusOrderId === order._id ? "ring-2 ring-amber-300 dark:ring-amber-700" : ""
-                    } ${order.isUrgent ? "border-orange-300 dark:border-orange-700" : ""}`}
+                    key={day.toISOString()}
+                    className="border-l border-slate-200 px-2 py-4 text-center dark:border-slate-800"
                   >
-                    <div className="border-b border-slate-100 px-6 py-5 dark:border-slate-800">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="text-lg font-semibold text-slate-950 dark:text-white">{order.orderNo}</p>
-                          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{order.customerName}</p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          {order.source === "RECURRING" && (
-                            <div className="rounded-full bg-sky-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
-                              {t("recurringLabel")}
-                            </div>
-                          )}
-                          {risk?.planningRisk && (
-                            <div className="rounded-full bg-rose-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
-                              {t("planningRiskLabel")}
-                            </div>
-                          )}
-                          {risk?.urgentShortage && (
-                            <div className="rounded-full bg-rose-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
-                              {t("urgentShortageLabel")}
-                            </div>
-                          )}
-                          {order.isUrgent && (
-                            <div className="rounded-full bg-orange-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-orange-700 dark:bg-orange-950/40 dark:text-orange-300">
-                              <Zap size={12} className="mr-1 inline-block" />
-                              {t("urgentLabel")}
-                            </div>
-                          )}
-                          <div className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                            <Clock size={12} className="mr-1 inline-block" />
-                            {t("draftLabel")}
-                          </div>
-                        </div>
-                      </div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                      {dayLabel(day)}
                     </div>
-
-                    <div className="space-y-4 p-6">
-                      {risk && (risk.missingDates || risk.invalidDateRange || risk.urgentShortage || risk.planningRisk) && (
-                        <div className="rounded-3xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
-                          <div className="font-medium">{t("planningChecks")}</div>
-                          <div className="mt-1 text-xs">
-                            {risk.missingDates && <div>{t("plannedDatesRequired")}</div>}
-                            {risk.invalidDateRange && <div>{t("plannedEndAfterStart")}</div>}
-                            {risk.planningRisk && <div>{t("plannedEndLaterThanPromised")}</div>}
-                            {risk.urgentShortage && <div>{t("urgentOrderNotFullyAllocated")}</div>}
-                            {risk.planningRisk && (
-                              <div className="mt-1 text-amber-700 dark:text-amber-300">
-                                {t("suggestedAlternativeDates")}
-                              </div>
-                            )}
-                            {risk.urgentShortage && (
-                              <div className="mt-1 text-amber-700 dark:text-amber-300">
-                                {t("suggestedAlternativeUrgent")}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                      {order.lines.map((line, index) => {
-                        if (!line.productId?._id) {
-                          return (
-                            <div
-                              key={`missing-${index}`}
-                              className="rounded-3xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400"
-                            >
-                              {t("missingProductOrdonnancement")}
-                            </div>
-                          );
-                        }
-
-                        const productId = String(line.productId._id);
-                        const allocated = Math.max(0, Number(allocations[order._id]?.[productId] || 0));
-                        const production = Math.max(0, line.quantity - allocated);
-                        const group = groupedByProductMap.get(productId);
-                        const available = group?.available || 0;
-                        const totalAllocatedForProduct = group?.totalAllocated || 0;
-                        const remainingSharedStock = Math.max(0, available - (totalAllocatedForProduct - allocated));
-                        const maxAllowed = Math.min(line.quantity, remainingSharedStock);
-
-                        return (
-                          <div
-                            key={`${productId}-${index}`}
-                            className="rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950"
-                          >
-                            <div className="flex items-start justify-between gap-4">
-                              <div>
-                                <p className="font-medium text-slate-950 dark:text-white">{line.productId.name}</p>
-                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{line.productId.sku}</p>
-                              </div>
-                              <div className="rounded-full bg-white px-3 py-1 text-xs text-slate-500 shadow-sm dark:bg-slate-900 dark:text-slate-400">
-                                {t("sharedAvailable")}: {remainingSharedStock} {line.productId.unit}
-                              </div>
-                            </div>
-
-                            <div className="mt-4 grid gap-4 md:grid-cols-[1fr_180px]">
-                              <div>
-                                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                                  <span>{t("servedFromStock")}</span>
-                                  <span>
-                                    {allocated} / {line.quantity}
-                                  </span>
-                                </div>
-                                <AllocationMeter allocated={allocated} ordered={line.quantity} color="bg-emerald-500" />
-                                <div className="mt-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                                  <span>{t("plannedProduction")}</span>
-                                  <span>{production}</span>
-                                </div>
-                                <AllocationMeter allocated={production} ordered={line.quantity} color="bg-amber-500" />
-                              </div>
-
-                              <div>
-                                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-                                  {t("allocatedQty")}
-                                </label>
-                                <input
-                                  type="range"
-                                  min={0}
-                                  max={maxAllowed}
-                                  value={allocated}
-                                  onChange={(event) =>
-                                    setLineAllocation(order._id, productId, Number(event.target.value), maxAllowed)
-                                  }
-                                  className="w-full accent-amber-500"
-                                />
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={maxAllowed}
-                                  value={allocations[order._id]?.[productId] ?? "0"}
-                                  onChange={(event) =>
-                                    setLineAllocation(order._id, productId, Number(event.target.value), maxAllowed)
-                                  }
-                                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-white"
-                                />
-                                <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-                                  {t("maxAllocatableNow")}: {maxAllowed} {line.productId.unit}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                      <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-                        <div className="mb-3 flex items-center justify-between">
-                          <p className="text-sm font-semibold text-slate-950 dark:text-white">{t("plannedDatesTitle")}</p>
-                          <div className="flex items-center gap-2">
-                            {(risk?.missingDates || risk?.invalidDateRange || risk?.planningRisk) && (
-                              <button
-                                type="button"
-                                onClick={() => applyOrderDateSuggestion(order)}
-                                className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700 hover:bg-amber-100 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"
-                              >
-                                {t("useSuggestion")}
-                              </button>
-                            )}
-                            {risk?.planningRisk && (
-                              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
-                                {t("planningRiskLabel")}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="grid gap-4 md:grid-cols-2">
-                          <div>
-                            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-                              {t("plannedStart")}
-                            </label>
-                            <input
-                              type="date"
-                              value={plannedDates[order._id]?.plannedStartDate || ""}
-                              onChange={(event) =>
-                                setPlannedDates((prev) => ({
-                                  ...prev,
-                                  [order._id]: {
-                                    plannedStartDate: event.target.value,
-                                    plannedEndDate: prev[order._id]?.plannedEndDate || event.target.value,
-                                  },
-                                }))
-                              }
-                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-                              {t("plannedEnd")}
-                            </label>
-                            <input
-                              type="date"
-                              value={plannedDates[order._id]?.plannedEndDate || ""}
-                              onChange={(event) =>
-                                setPlannedDates((prev) => ({
-                                  ...prev,
-                                  [order._id]: {
-                                    plannedStartDate: prev[order._id]?.plannedStartDate || event.target.value,
-                                    plannedEndDate: event.target.value,
-                                  },
-                                }))
-                              }
-                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-white"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between border-t border-slate-100 px-6 py-4 dark:border-slate-800">
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        <span className="inline-flex items-center gap-1">
-                          <Package size={12} /> Ordered {order.lines.reduce((sum, line) => sum + line.quantity, 0)}
-                        </span>
-                        <span className="ml-4 inline-flex items-center gap-1">
-                          <Factory size={12} /> Planned production{" "}
-                          {order.lines.reduce((sum, line) => {
-                            const productId = line.productId?._id;
-                            const allocated = productId ? Number(allocations[order._id]?.[productId] || 0) : 0;
-                            return sum + Math.max(0, line.quantity - allocated);
-                          }, 0)}
-                        </span>
-                      </div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        Save is done globally for the whole ordonnancement board.
-                      </div>
+                    <div className="mt-1 text-sm font-bold text-slate-900 dark:text-white">
+                      {day.getDate()}
                     </div>
                   </div>
-                    );
-                  })()
                 ))}
               </div>
-            )}
-          </>
+
+              {!orders.length ? (
+                <div className="py-20 text-center text-sm text-slate-500 dark:text-slate-400">
+                  No plannable orders to show.
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {orders.map((order) => {
+                    const bar = getBarStyle(order);
+                    const risk = hasRisk(order);
+                    const draft = drafts[order._id];
+                    const allocatedQty = order.lines.reduce(
+                      (sum, _, index) => sum + totalAllocated(draft?.lines[lineKey(index)]?.allocations || []),
+                      0
+                    );
+
+                    return (
+                      <button
+                        key={order._id}
+                        onClick={() => setSelectedId(order._id)}
+                        className={`grid w-full text-left transition hover:bg-slate-50/80 dark:hover:bg-slate-950/40 ${
+                          selectedId === order._id ? "bg-slate-50 dark:bg-slate-950/40" : ""
+                        }`}
+                        style={{ gridTemplateColumns: `${sideWidth}px repeat(${dayCount}, minmax(0, 1fr))` }}
+                      >
+                        <div className="border-r border-slate-200 px-6 py-5 dark:border-slate-800">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-lg font-bold text-slate-950 dark:text-white">
+                                {order.orderNo}
+                              </p>
+                              <p className="mt-1 text-sm font-medium text-slate-800 dark:text-slate-100">
+                                {order.customerName}
+                              </p>
+                              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                {allocatedQty} allocated ·{" "}
+                                {order.lines.reduce((sum, line) => sum + line.quantity, 0)} ordered
+                              </p>
+                            </div>
+
+                            {risk ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-1 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
+                                <AlertTriangle size={11} />
+                                {order.isUrgent ? "Urgent" : "Risk"}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <div className="relative col-span-14">
+                          <div
+                            className="absolute inset-0 grid"
+                            style={{ gridTemplateColumns: `repeat(${dayCount}, minmax(0, 1fr))` }}
+                          >
+                            {days.map((day) => (
+                              <div
+                                key={`${order._id}-${day.toISOString()}`}
+                                className="border-l border-slate-100 dark:border-slate-800"
+                              />
+                            ))}
+                          </div>
+
+                          {bar ? (
+                            <div
+                              className={`absolute inset-y-4 rounded-2xl px-4 text-sm font-semibold shadow-[0_14px_30px_-16px_rgba(15,23,42,0.45)] ${orderBarClass(order, risk)}`}
+                              style={bar}
+                            >
+                              <div className="flex h-11 items-center justify-between gap-3">
+                                <span>{order.orderNo}</span>
+                                <span className="hidden text-[11px] font-medium text-white/80 md:inline">
+                                  {order.lines.length} lines
+                                </span>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className={`${surface} p-6`}>
+              <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
+                Planning panel
+              </h2>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Split each line by depot. Each depot quantity will later appear separately in preparation.
+              </p>
+              {!selectedOrder || !selectedDraft ? (
+                <div className="mt-10 rounded-3xl border border-dashed border-slate-300 bg-slate-50/70 px-6 py-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400">
+                  Select a row from the board.
+                </div>
+              ) : (
+                <div className="mt-6 space-y-5">
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      onClick={requestProduction}
+                      disabled={requestingProduction || !canRequestProduction}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-900 transition hover:bg-slate-50 disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800"
+                    >
+                      {requestingProduction ? (
+                        <Loader2 size={15} className="animate-spin" />
+                      ) : (
+                        <Factory size={15} />
+                      )}
+                      Request production
+                    </button>
+                    {!canRequestProduction ? (
+                      <p className="self-center text-xs text-slate-500 dark:text-slate-400">
+                        Production request is available only when remaining stock is 0.
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-800 dark:bg-slate-950/50">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                      {selectedOrder.orderNo}
+                    </p>
+                    <p className="mt-2 text-lg font-bold text-slate-950 dark:text-white">
+                      {selectedOrder.customerName}
+                    </p>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                        Start
+                      </label>
+                      <input
+                        type="date"
+                        className={inputClass}
+                        value={selectedDraft.plannedStartDate}
+                        onChange={(event) =>
+                          setOrderDate(selectedOrder._id, "plannedStartDate", event.target.value)
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                        End
+                      </label>
+                      <input
+                        type="date"
+                        className={inputClass}
+                        value={selectedDraft.plannedEndDate}
+                        onChange={(event) =>
+                          setOrderDate(selectedOrder._id, "plannedEndDate", event.target.value)
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  {selectedOrder.lines.map((line, index) => {
+                    const product = line.productId!;
+                    const key = lineKey(index);
+                    const lineState = selectedDraft.lines[key] || { allocations: [] };
+                    const allocations = lineState.allocations;
+                    const allocated = totalAllocated(allocations);
+                    const production = Math.max(0, line.quantity - allocated);
+                    const remainingGlobal = Math.max(
+                      0,
+                      (stockByProduct[product._id] || 0) -
+                        ((totalAllocatedByProduct[product._id] || 0) - allocated)
+                    );
+                    const compatibleDepots = getCompatibleDepots(product.type);
+                    const visibleAllocations =
+                      allocations.length > 0 ? allocations : [{ depotId: "", allocatedQuantity: 0 }];
+
+                    return (
+                      <div
+                        key={`${selectedOrder._id}-${key}`}
+                        className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="font-semibold text-slate-900 dark:text-white">
+                              {product.name}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                              {product.sku}
+                            </p>
+                          </div>
+                          <div className="text-right text-xs text-slate-500 dark:text-slate-400">
+                            <div>
+                              Ordered:{" "}
+                              <span className="font-semibold text-slate-900 dark:text-white">
+                                {line.quantity}
+                              </span>
+                            </div>
+                            <div>
+                              Global stock:{" "}
+                              <span className="font-semibold text-slate-900 dark:text-white">
+                                {remainingGlobal}
+                              </span>
+                            </div>
+                            <div>
+                              Production:{" "}
+                              <span className="font-semibold text-slate-900 dark:text-white">
+                                {production}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 space-y-3">
+                          {visibleAllocations.map((allocation, allocationIndex) => {
+                            const optionMap: Record<string, number> = {};
+                            compatibleDepots.forEach((depot) => {
+                              const context = getAllocationContext(
+                                product._id,
+                                depot._id,
+                                allocation.depotId === depot._id ? allocation.allocatedQuantity : 0
+                              );
+                              optionMap[depot._id] = context.effectiveRemaining;
+                            });
+
+                            return (
+                              <div
+                                key={`${key}-${allocationIndex}`}
+                                className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950"
+                              >
+                                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_110px_42px]">
+                                  <select
+                                    className={inputClass}
+                                    value={allocation.depotId}
+                                    onChange={(event) =>
+                                      updateAllocation(selectedOrder._id, index, allocationIndex, {
+                                        depotId: event.target.value,
+                                      })
+                                    }
+                                  >
+                                    <option value="">Select depot</option>
+                                    {compatibleDepots.map((depot) => (
+                                      <option key={depot._id} value={depot._id}>
+                                        {depot.name} ({optionMap[depot._id] || 0} available)
+                                      </option>
+                                    ))}
+                                  </select>
+
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={line.quantity}
+                                    className={inputClass}
+                                    value={allocation.allocatedQuantity}
+                                    onChange={(event) =>
+                                      updateAllocation(selectedOrder._id, index, allocationIndex, {
+                                        allocatedQuantity: Number(event.target.value),
+                                      })
+                                    }
+                                  />
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      removeAllocationRow(selectedOrder._id, index, allocationIndex)
+                                    }
+                                    className="inline-flex h-[46px] items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </div>
+
+                                {allocation.depotId ? (
+                                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    Depot available:{" "}
+                                    <span className="font-semibold text-slate-900 dark:text-white">
+                                      {optionMap[allocation.depotId] || 0}
+                                    </span>
+                                  </p>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+
+                          <button
+                            type="button"
+                            onClick={() => addAllocationRow(selectedOrder._id, index)}
+                            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                          >
+                            <Plus size={14} />
+                            Add depot split
+                          </button>
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-3 gap-3 text-center text-xs">
+                          <div className="rounded-2xl bg-slate-50 px-3 py-2 dark:bg-slate-950">
+                            <div className="text-slate-500 dark:text-slate-400">Ordered</div>
+                            <div className="mt-1 font-semibold text-slate-900 dark:text-white">
+                              {line.quantity}
+                            </div>
+                          </div>
+                          <div className="rounded-2xl bg-slate-100 px-3 py-2 dark:bg-slate-800/70">
+                            <div className="text-slate-500 dark:text-slate-400">Allocated</div>
+                            <div className="mt-1 font-semibold text-slate-900 dark:text-white">
+                              {allocated}
+                            </div>
+                          </div>
+                          <div className="rounded-2xl bg-amber-50 px-3 py-2 dark:bg-amber-950/20">
+                            <div className="text-slate-500 dark:text-slate-400">Production</div>
+                            <div className="mt-1 font-semibold text-amber-700 dark:text-amber-300">
+                              {production}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
     </ProtectedRoute>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  danger = false,
-}: {
-  label: string;
-  value: string;
-  danger?: boolean;
-}) {
-  return (
-    <div className="rounded-2xl bg-slate-50 px-3 py-3 dark:bg-slate-950">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</p>
-      <p
-        className={`mt-2 text-lg font-bold ${
-          danger ? "text-amber-600 dark:text-amber-400" : "text-slate-950 dark:text-white"
-        }`}
-      >
-        {value}
-      </p>
-    </div>
   );
 }

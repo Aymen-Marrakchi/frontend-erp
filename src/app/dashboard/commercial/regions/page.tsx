@@ -263,12 +263,19 @@ export default function RegionsPage() {
             .map((gov) => {
               const count = countByGov[normalizeGovernorate(gov.id)] || 0;
               const discovered = discoveredSet.has(normalizeGovernorate(gov.id));
+              const disabled = count === 0;
               return (
                 <button
                   key={gov.id}
+                  type="button"
+                  disabled={disabled}
                   onClick={() => setSelected(selected === gov.id ? null : gov.id)}
                   className={`flex items-center justify-between gap-2 rounded-2xl border px-3 py-2 text-left text-xs font-medium transition-all ${
-                    selected === gov.id
+                    disabled
+                      ? discovered
+                        ? "cursor-not-allowed border-amber-200 bg-amber-50 text-amber-700 opacity-80 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300"
+                        : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-70 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-500"
+                      : selected === gov.id
                       ? "border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-950"
                       : "border-slate-200 text-slate-700 hover:border-slate-300 dark:border-slate-800 dark:text-slate-300 dark:hover:border-slate-700"
                   }`}

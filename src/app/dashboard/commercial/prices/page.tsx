@@ -183,13 +183,13 @@ export default function PricesPage() {
                             onKeyDown={(e) => { if (e.key === "Enter") savePrice(p._id); if (e.key === "Escape") cancelEdit(p._id); }}
                             className={inputClass}
                           />
-                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-400">DA</span>
+                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-400">TND</span>
                         </div>
                       ) : (
                         <div className="flex items-center gap-2">
                           {hasPrice ? (
                             <span className="text-sm font-semibold text-slate-900 dark:text-white">
-                              {p.salePrice.toLocaleString("fr-DZ", { minimumFractionDigits: 2 })} DA
+                              {p.salePrice.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
                             </span>
                           ) : (
                             <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-600 dark:bg-amber-950/30 dark:text-amber-400">

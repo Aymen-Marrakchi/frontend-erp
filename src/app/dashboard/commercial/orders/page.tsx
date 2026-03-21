@@ -25,9 +25,9 @@ import {
   Zap,
   ShieldCheck,
   ShieldX,
-  Send,
 } from "lucide-react";
 import { backorderService } from "@/services/commercial/backorderService";
+import { rmaService } from "@/services/commercial/rmaService";
 import { customerService, type Customer } from "@/services/commercial/customerService";
 
 interface Product {
@@ -83,8 +83,9 @@ interface Order {
   _id: string;
   orderNo: string;
   customerName: string;
+  splitFromOrderId?: string | { _id: string; orderNo?: string } | null;
   source?: "MANUAL" | "RECURRING";
-  status: "DRAFT" | "ORDONNANCED" | "CONFIRMED" | "PREPARED" | "SHIPPED" | "DELIVERED" | "CLOSED" | "CANCELLED";
+  status: "DRAFT" | "ORDONNANCED" | "CONFIRMED" | "PREPARED" | "SHIPPED" | "DELIVERED" | "RETURNED" | "CLOSED" | "CANCELLED";
   plannedStartDate?: string;
   plannedEndDate?: string;
   ordonnancedAt?: string;
@@ -125,6 +126,7 @@ function statusBadge(status: string) {
     PREPARED: "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300",
     SHIPPED: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
     DELIVERED: "bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300",
+    RETURNED: "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
     CLOSED: "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300",
     CANCELLED: "bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300",
   };
@@ -137,6 +139,7 @@ function StatusIcon({ status }: { status: string }) {
   if (status === "PREPARED") return <Package size={12} className="text-violet-500" />;
   if (status === "SHIPPED") return <Truck size={12} className="text-emerald-500" />;
   if (status === "DELIVERED") return <CheckCircle size={12} className="text-teal-500" />;
+  if (status === "RETURNED") return <RotateCcw size={12} className="text-rose-500" />;
   if (status === "CANCELLED") return <XCircle size={12} className="text-rose-500" />;
   return <Package size={12} className="text-slate-400" />;
 }
@@ -189,6 +192,7 @@ export default function CommercialOrdersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [backorderedIds, setBackorderedIds] = useState<Set<string>>(new Set());
+  const [closedReturnOrderIds, setClosedReturnOrderIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
@@ -196,15 +200,11 @@ export default function CommercialOrdersPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [rejectingId, setRejectingId] = useState<string | null>(null);
-  const [rejectReason, setRejectReason] = useState("");
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fetchRetryCountRef = useRef(0);
 
   const [form, setForm] = useState({
-    orderNoSuffix: "",
     customerId: "",
-    notes: "",
     promisedDate: toDateInputValue(suggestedPromiseDate([EMPTY_ORDER_LINE])),
   });
   const [lines, setLines] = useState<OrderLine[]>([EMPTY_ORDER_LINE]);
@@ -233,11 +233,12 @@ export default function CommercialOrdersPage() {
     try {
       setLoading(true);
       setError("");
-      const [productResult, orderResult, backorderResult, customerResult] = await Promise.allSettled([
+      const [productResult, orderResult, backorderResult, customerResult, rmaResult] = await Promise.allSettled([
         stockProductService.getAll(),
         salesOrderService.getAll(),
         backorderService.getAll(),
         customerService.getActive(),
+        rmaService.getAll(),
       ]);
 
       if (orderResult.status !== "fulfilled") {
@@ -256,6 +257,10 @@ export default function CommercialOrdersPage() {
         customerResult.status === "fulfilled" && Array.isArray(customerResult.value)
           ? customerResult.value
           : [];
+      const rmaData =
+        rmaResult.status === "fulfilled" && Array.isArray(rmaResult.value)
+          ? rmaResult.value
+          : [];
       const orderData = Array.isArray(orderResult.value) ? orderResult.value : [];
 
       setProducts(
@@ -270,6 +275,22 @@ export default function CommercialOrdersPage() {
         )
       );
       setCustomers(customerData);
+      setClosedReturnOrderIds(
+        new Set(
+          Array.from(
+            rmaData.reduce<Map<string, string[]>>((map, rma) => {
+              const orderId = String(rma.salesOrderId?._id || "");
+              if (!orderId) return map;
+              const existing = map.get(orderId) || [];
+              existing.push(rma.status);
+              map.set(orderId, existing);
+              return map;
+            }, new Map())
+          )
+            .filter(([, statuses]) => statuses.length > 0 && statuses.every((status) => status === "CLOSED"))
+            .map(([orderId]) => orderId)
+        )
+      );
       fetchRetryCountRef.current = 0;
     } catch (error: unknown) {
       setError(getErrorMessage(error, "Failed to load orders"));
@@ -297,10 +318,6 @@ export default function CommercialOrdersPage() {
   };
 
   const handleCreate = async () => {
-    if (!form.orderNoSuffix.trim()) {
-      setError("Order number is required");
-      return;
-    }
     if (!form.customerId) {
       setError("Please select a customer");
       return;
@@ -314,9 +331,7 @@ export default function CommercialOrdersPage() {
       setSubmitting(true);
       setError("");
       await salesOrderService.create({
-        orderNo: `ORD-${form.orderNoSuffix.trim()}`,
         customerId: form.customerId,
-        notes: form.notes,
         promisedDate: form.promisedDate ? new Date(form.promisedDate).toISOString() : undefined,
         lines: validLines.map((l) => ({
           productId: l.productId,
@@ -326,9 +341,7 @@ export default function CommercialOrdersPage() {
         })),
       });
       setForm({
-        orderNoSuffix: "",
         customerId: "",
-        notes: "",
         promisedDate: toDateInputValue(suggestedPromiseDate([EMPTY_ORDER_LINE])),
       });
       setLines([{ ...EMPTY_ORDER_LINE }]);
@@ -342,7 +355,7 @@ export default function CommercialOrdersPage() {
   };
 
   const runAction = async (
-    action: "confirm" | "prepare" | "cancel" | "deliver" | "close" | "markUrgent" | "unmarkUrgent" | "requestApproval" | "approveShip",
+    action: "confirm" | "prepare" | "cancel" | "deliver" | "markReturned" | "reorder" | "markUrgent" | "unmarkUrgent",
     id: string
   ) => {
     try {
@@ -353,31 +366,14 @@ export default function CommercialOrdersPage() {
       if (action === "prepare") await salesOrderService.prepare(id);
       if (action === "cancel") await salesOrderService.cancel(id);
       if (action === "deliver") await salesOrderService.deliver(id);
-      if (action === "close") await salesOrderService.close(id);
+      if (action === "markReturned") await salesOrderService.markReturned(id);
+      if (action === "reorder") await salesOrderService.reorder(id);
       if (action === "markUrgent") await salesOrderService.markUrgent(id, true);
       if (action === "unmarkUrgent") await salesOrderService.markUrgent(id, false);
-      if (action === "requestApproval") await salesOrderService.requestApproval(id);
-      if (action === "approveShip") await salesOrderService.approveShip(id);
 
       await fetchAll();
     } catch (error: unknown) {
       setError(getErrorMessage(error, `Failed to ${action} order`));
-    } finally {
-      setActionId(null);
-    }
-  };
-
-  const runReject = async (id: string) => {
-    if (!rejectReason.trim()) return;
-    try {
-      setActionId(id);
-      setError("");
-      await salesOrderService.rejectShip(id, rejectReason.trim());
-      setRejectingId(null);
-      setRejectReason("");
-      await fetchAll();
-    } catch (error: unknown) {
-      setError(getErrorMessage(error, "Failed to reject approval"));
     } finally {
       setActionId(null);
     }
@@ -478,20 +474,14 @@ export default function CommercialOrdersPage() {
             </h2>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className={labelClass}>{t("orderNumber")}</label>
-                <div className="flex items-center gap-0">
-                  <span className="flex h-[42px] items-center rounded-l-2xl border border-r-0 border-slate-200 bg-slate-100 px-3 text-sm font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-800 dark:text-slate-400">
-                    ORD-
-                  </span>
-                  <input
-                    className="flex-1 rounded-l-none rounded-r-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 dark:border-slate-800 dark:bg-slate-950 dark:text-white dark:focus:border-slate-600"
-                    placeholder="001"
-                    value={form.orderNoSuffix}
-                    onChange={(e) => setForm((f) => ({ ...f, orderNoSuffix: e.target.value }))}
-                  />
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                    {t("orderNumber")}
+                  </p>
+                  <p className="mt-1 font-medium text-slate-900 dark:text-white">
+                    Order number will be generated automatically
+                  </p>
                 </div>
-              </div>
               <div>
                 <label className={labelClass}>{t("customerName")}</label>
                 <select
@@ -526,17 +516,6 @@ export default function CommercialOrdersPage() {
               </div>
             </div>
 
-            <div className="mt-4">
-              <label className={labelClass}>{t("notesOptional")}</label>
-              <textarea
-                className={inputClass}
-                rows={2}
-                placeholder={t("notesOptional")}
-                value={form.notes}
-                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-              />
-            </div>
-
             {/* Lines */}
             <div className="mt-5">
               <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
@@ -568,7 +547,7 @@ export default function CommercialOrdersPage() {
                       <option value="">{t("selectProduct")}</option>
                       {products.map((p) => (
                         <option key={p._id} value={p._id}>
-                          {p.sku} · {p.name}{p.salePrice ? ` — ${p.salePrice} DA` : ""}
+                          {p.sku} · {p.name}{p.salePrice ? ` — ${p.salePrice} TND` : ""}
                         </option>
                       ))}
                     </select>
@@ -669,6 +648,7 @@ export default function CommercialOrdersPage() {
                 <option value="PREPARED">{t("prepared") || "Prepared"}</option>
                 <option value="SHIPPED">{t("shipped")}</option>
                 <option value="DELIVERED">{t("delivered") || "Delivered"}</option>
+                <option value="RETURNED">Returned</option>
                 <option value="CLOSED">{t("closedStatus")}</option>
                 <option value="CANCELLED">{t("cancelled")}</option>
               </select>
@@ -764,6 +744,11 @@ export default function CommercialOrdersPage() {
                               {t("rejected") || "Rejected"}
                             </span>
                           )}
+                          {order.splitFromOrderId && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-slate-950 px-2.5 py-0.5 text-[10px] font-semibold text-white dark:bg-white dark:text-slate-950">
+                              Split Order
+                            </span>
+                          )}
                           {hasPlanningRisk(order) && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
                               <Clock size={10} />
@@ -773,6 +758,11 @@ export default function CommercialOrdersPage() {
                         </div>
                         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
                           {order.customerName}
+                          {order.splitFromOrderId && (
+                            <span className="ml-2 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                              Split waiting quantity
+                            </span>
+                          )}
                           {order.source === "RECURRING" && (
                             <span className="ml-2 text-[11px] font-medium text-sky-600 dark:text-sky-400">
                               · {t("recurringLabel")}
@@ -798,18 +788,8 @@ export default function CommercialOrdersPage() {
 
                       {/* Actions */}
                       <div className="flex shrink-0 flex-wrap items-center gap-2">
-                        {/* Managers only: ordonance draft */}
+                        {/* Managers only: confirm draft */}
                         {order.status === "DRAFT" && isManager && (
-                          <Link
-                            href={`/dashboard/commercial/ordonnancement?order=${order._id}`}
-                            className="inline-flex items-center gap-1.5 rounded-2xl bg-amber-500 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-amber-600"
-                          >
-                            <Clock size={11} />
-                            {t("ordonanceAction")}
-                          </Link>
-                        )}
-
-                        {order.status === "ORDONNANCED" && isManager && (
                           <button
                             onClick={() => runAction("confirm", order._id)}
                             disabled={busy}
@@ -818,6 +798,16 @@ export default function CommercialOrdersPage() {
                             {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
                             {t("confirm")}
                           </button>
+                        )}
+
+                        {order.status === "CONFIRMED" && isManager && (
+                          <Link
+                            href={`/dashboard/commercial/ordonnancement?order=${order._id}`}
+                            className="inline-flex items-center gap-1.5 rounded-2xl bg-amber-500 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-amber-600"
+                          >
+                            <Clock size={11} />
+                            {t("ordonanceAction")}
+                          </Link>
                         )}
 
                         {/* Managers only: mark/unmark urgent on active orders */}
@@ -836,113 +826,33 @@ export default function CommercialOrdersPage() {
                           </button>
                         )}
 
-                        {/* Prepare on CONFIRMED */}
-                        {order.status === "CONFIRMED" && (
-                          backorderedIds.has(order._id) ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-2xl bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 dark:bg-amber-950/20 dark:text-amber-400">
-                              <RotateCcw size={11} />
-                              {t("backorderPending")}
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => runAction("prepare", order._id)}
-                              disabled={busy}
-                              className="inline-flex items-center gap-1.5 rounded-2xl bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
-                            >
-                              {busy ? <Loader2 size={11} className="animate-spin" /> : <Package size={11} />}
-                              {t("prepared") || "Prepare"}
-                            </button>
-                          )
+                        {/* Operational actions are handled from dedicated workflow pages */}
+                        {order.status === "ORDONNANCED" && backorderedIds.has(order._id) && (
+                          <span className="inline-flex items-center gap-1.5 rounded-2xl bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 dark:bg-amber-950/20 dark:text-amber-400">
+                            <RotateCcw size={11} />
+                            {t("backorderPending")}
+                          </span>
                         )}
 
-                        {/* Shipment / approval flow on PREPARED */}
-                        {order.status === "PREPARED" && (() => {
-                          const approval = order.shipApproval?.status ?? "NONE";
-                          const canOpenShipment = !order.isUrgent || approval === "APPROVED";
-
-                          if (canOpenShipment) {
-                            return (
-                              <Link
-                                href={`/dashboard/commercial/shipments?order=${order._id}`}
-                                className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
-                              >
-                                <Truck size={11} />
-                                {t("openShipment")}
-                              </Link>
-                            );
-                          }
-
-                          // Urgent — awaiting manager decision
-                          if (approval === "PENDING") {
-                            return (
-                              <span className="inline-flex items-center gap-1.5 rounded-2xl bg-yellow-50 px-3 py-1.5 text-xs font-medium text-yellow-700 dark:bg-yellow-950/20 dark:text-yellow-400">
-                                <Clock size={11} />
-                                {t("awaitingApproval")}
-                              </span>
-                            );
-                          }
-
-                          // NONE or REJECTED → allow request
-                          return (
-                            <button
-                              onClick={() => runAction("requestApproval", order._id)}
-                              disabled={busy}
-                              className="inline-flex items-center gap-1.5 rounded-2xl bg-orange-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-orange-700 disabled:opacity-50"
-                            >
-                              {busy ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
-                              {t("requestApproval")}
-                            </button>
-                          );
-                        })()}
-
-                        {/* Managers: approve / reject pending approval */}
-                        {isManager && order.status === "PREPARED" && order.isUrgent && order.shipApproval?.status === "PENDING" && (
-                          <>
-                            <button
-                              onClick={() => runAction("approveShip", order._id)}
-                              disabled={busy}
-                              className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
-                            >
-                              {busy ? <Loader2 size={11} className="animate-spin" /> : <ShieldCheck size={11} />}
-                              {t("approveShip")}
-                            </button>
-                            {rejectingId === order._id ? (
-                              <div className="flex items-center gap-1.5">
-                                <input
-                                  autoFocus
-                                  value={rejectReason}
-                                  onChange={(e) => setRejectReason(e.target.value)}
-                                  placeholder={t("rejectionReason")}
-                                  className="w-44 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs outline-none focus:border-rose-300 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                                />
-                                <button
-                                  onClick={() => runReject(order._id)}
-                                  disabled={!rejectReason.trim() || busy}
-                                  className="inline-flex items-center gap-1 rounded-xl bg-rose-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-rose-700 disabled:opacity-50"
-                                >
-                                  {t("confirmReject")}
-                                </button>
-                                <button
-                                  onClick={() => { setRejectingId(null); setRejectReason(""); }}
-                                  className="flex h-7 w-7 items-center justify-center rounded-xl border border-slate-200 text-slate-400 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
-                                >
-                                  <X size={11} />
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => { setRejectingId(order._id); setRejectReason(""); }}
-                                className="inline-flex items-center gap-1.5 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-600 transition hover:bg-rose-100 disabled:opacity-50 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400"
-                              >
-                                <ShieldX size={11} />
-                                {t("rejectShip")}
-                              </button>
-                            )}
-                          </>
+                        {order.isUrgent && order.shipApproval?.status === "PENDING" && (
+                          <span className="inline-flex items-center gap-1.5 rounded-2xl bg-yellow-50 px-3 py-1.5 text-xs font-medium text-yellow-700 dark:bg-yellow-950/20 dark:text-yellow-400">
+                            <Clock size={11} />
+                            {t("awaitingApproval")}
+                          </span>
                         )}
 
-                        {/* Cancel: managers only */}
-                        {isManager && ["ORDONNANCED", "CONFIRMED", "PREPARED"].includes(order.status) && (
+                        {isManager && order.isUrgent && order.shipApproval?.status === "PENDING" && (
+                          <Link
+                            href="/dashboard/commercial/approvals"
+                            className="inline-flex items-center gap-1.5 rounded-2xl bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"
+                          >
+                            <ShieldCheck size={11} />
+                            {t("approvalQueueTitle")}
+                          </Link>
+                        )}
+
+                        {/* Cancel: managers only, before ordonnancement */}
+                        {isManager && order.status === "DRAFT" && (
                           <button
                             onClick={() => runAction("cancel", order._id)}
                             disabled={busy}
@@ -952,27 +862,25 @@ export default function CommercialOrdersPage() {
                           </button>
                         )}
 
-                        {/* Deliver: managers only */}
-                        {order.status === "SHIPPED" && isManager && (
+                        {order.status === "DELIVERED" && isManager && closedReturnOrderIds.has(order._id) && (
                           <button
-                            onClick={() => runAction("deliver", order._id)}
+                            onClick={() => runAction("markReturned", order._id)}
                             disabled={busy}
-                            className="inline-flex items-center gap-1.5 rounded-2xl bg-teal-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-teal-700 disabled:opacity-50"
+                            className="inline-flex items-center gap-1.5 rounded-2xl bg-rose-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-rose-700 disabled:opacity-50"
                           >
-                            {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
-                            {t("delivered") || "Deliver"}
+                            {busy ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
+                            Returned
                           </button>
                         )}
 
-                        {/* Close: managers only */}
-                        {order.status === "DELIVERED" && isManager && (
+                        {isManager && order.status === "DELIVERED" && (
                           <button
-                            onClick={() => runAction("close", order._id)}
+                            onClick={() => runAction("reorder", order._id)}
                             disabled={busy}
-                            className="inline-flex items-center gap-1.5 rounded-2xl bg-slate-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-700 disabled:opacity-50"
+                            className="inline-flex items-center gap-1.5 rounded-2xl bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"
                           >
-                            {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
-                            {t("closeOrder")}
+                            {busy ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
+                            Reorder
                           </button>
                         )}
                       </div>

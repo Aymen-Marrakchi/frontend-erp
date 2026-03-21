@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import {
   ArrowLeft,
   CheckCircle,
+  Factory,
   Loader2,
   RotateCcw,
   X,
@@ -22,6 +23,12 @@ const statusColors: Record<string, string> = {
   PENDING: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
   FULFILLED: "bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300",
   CANCELLED: "bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300",
+};
+
+const productionStatusColors: Record<string, string> = {
+  NONE: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+  PENDING: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
+  DONE: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
 };
 
 export default function BackorderDetailPage() {
@@ -49,13 +56,14 @@ export default function BackorderDetailPage() {
     if (params.id) fetchBo();
   }, [params.id]);
 
-  const runAction = async (action: "fulfill" | "cancel") => {
+  const runAction = async (action: "fulfill" | "cancel" | "markDone") => {
     if (!bo) return;
     try {
       setActionId(action);
       setError("");
       if (action === "fulfill") await backorderService.fulfill(bo._id);
       if (action === "cancel") await backorderService.cancel(bo._id);
+      if (action === "markDone") await backorderService.markProductionDone(bo._id);
       await fetchBo();
     } catch (err: any) {
       setError(err.response?.data?.message || `Failed to ${action} backorder`);
@@ -137,10 +145,17 @@ export default function BackorderDetailPage() {
                   <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusColors[bo.status] ?? statusColors.PENDING}`}>
                     {bo.status}
                   </span>
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${productionStatusColors[bo.productionRequestStatus || "NONE"] ?? productionStatusColors.NONE}`}
+                  >
+                    Production {bo.productionRequestStatus || "NONE"}
+                  </span>
                 </div>
 
                 <div className="mt-5 flex flex-wrap gap-4 text-[11px] text-slate-500 dark:text-slate-400">
                   {bo.createdAt && <span>{t("createdOnLabel")}: {new Date(bo.createdAt).toLocaleDateString("fr-TN")}</span>}
+                  {bo.productionRequestedAt && <span>Production requested: {new Date(bo.productionRequestedAt).toLocaleDateString("fr-TN")}</span>}
+                  {bo.productionCompletedAt && <span>Production done: {new Date(bo.productionCompletedAt).toLocaleDateString("fr-TN")}</span>}
                   {bo.fulfilledAt && <span>{t("fulfilled")}: {new Date(bo.fulfilledAt).toLocaleDateString("fr-TN")}</span>}
                   {bo.cancelledAt && <span>{t("cancelled")}: {new Date(bo.cancelledAt).toLocaleDateString("fr-TN")}</span>}
                 </div>
@@ -184,6 +199,15 @@ export default function BackorderDetailPage() {
                       >
                         <XCircle size={14} /> {t("cancelBackorderAction")}
                       </button>
+                      {bo.productionRequestStatus === "PENDING" && (
+                        <button
+                          onClick={() => runAction("markDone")}
+                          disabled={!!actionId}
+                          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300"
+                        >
+                          <Factory size={14} /> Mark production done
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}

@@ -26,7 +26,6 @@ import {
   Wallet,
   CreditCard,
   CalendarDays,
-  Tag,
   Receipt,
   Settings,
   Building2,
@@ -109,18 +108,15 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
   const commercialItems: NavItem[] = [
     { href: "/dashboard/commercial", label: t("dashboard"), icon: LayoutDashboard },
     { href: "/dashboard/commercial/customers", label: t("customersTitle") || "Customers", icon: Users },
-    { href: "/dashboard/commercial/prices", label: t("pricesTitle") || "Sale Prices", icon: Tag },
-    { href: "/dashboard/commercial/orders", label: t("onlineOrders"), icon: FileText },
-    { href: "/dashboard/commercial/invoices", label: "Invoices", icon: Receipt },
     { href: "/dashboard/commercial/cyclic-orders", label: "Recurring Orders", icon: RotateCcw },
+    { href: "/dashboard/commercial/orders", label: t("onlineOrders"), icon: FileText },
     { href: "/dashboard/commercial/ordonnancement", label: "Ordonnancement", icon: Sparkles },
-    { href: "/dashboard/commercial/notifications", label: "Notifications", icon: Bell },
-    { href: "/dashboard/commercial/returns", label: t("returnsRefunds"), icon: RotateCcw },
-    { href: "/dashboard/commercial/preparation", label: t("prepared") || "Preparation", icon: Package },
-    { href: "/dashboard/commercial/shipments", label: t("shipped") || "Shipments", icon: Truck },
-    { href: "/dashboard/commercial/carriers", label: t("carriersTitle") || "Carriers", icon: Truck },
-    { href: "/dashboard/commercial/fleet", label: t("fleetTitle") || "Fleet", icon: Car },
+    { href: "/dashboard/commercial/preparation", label: "Preparation", icon: Package },
     { href: "/dashboard/commercial/planning", label: t("deliveryPlanning") || "Delivery Planning", icon: CalendarDays },
+    { href: "/dashboard/commercial/returns", label: t("returnsRefunds"), icon: RotateCcw },
+    { href: "/dashboard/commercial/invoices", label: "Invoices", icon: Receipt },
+    { href: "/dashboard/commercial/carriers", label: t("carriersTitle") || "Carriers", icon: Truck },
+    { href: "/dashboard/commercial/vehicule", label: t("fleetTitle") || "Vehicles", icon: Car },
     { href: "/dashboard/commercial/regions", label: t("regionsTitle") || "Régions", icon: Globe },
     { href: "/dashboard/commercial/backorders", label: t("backorders") || "Backorders", icon: RotateCcw },
     { href: "/dashboard/commercial/approvals", label: "Approbations", icon: ShieldAlert },
@@ -151,6 +147,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
 
   const depotItems: NavItem[] = [
     { href: "/dashboard/depot", label: t("dashboard"), icon: LayoutDashboard },
+    { href: "/dashboard/depot/preparation", label: "Preparation", icon: Package },
     { href: "/dashboard/stock/movements", label: t("movements"), icon: FileText },
     { href: "/dashboard/stock/inventories", label: t("inventories"), icon: ClipboardList },
   ];
@@ -171,8 +168,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
 
   const warehouseOperatorItems: NavItem[] = [
     { href: "/dashboard/commercial/orders", label: t("onlineOrders"), icon: FileText },
-    { href: "/dashboard/commercial/preparation", label: t("prepared") || "Preparation", icon: Package },
-    { href: "/dashboard/commercial/shipments", label: t("shipped") || "Shipments", icon: Truck },
+    { href: "/dashboard/commercial/preparation", label: "Preparation", icon: Package },
   ];
 
   let items: NavItem[] = [{ href: dashboardPath, label: t("dashboard"), icon: LayoutDashboard }];

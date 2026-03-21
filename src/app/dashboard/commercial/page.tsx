@@ -17,7 +17,6 @@ import {
   RotateCcw,
   CalendarDays,
   Sparkles,
-  Bell,
 } from "lucide-react";
 
 const surface =
@@ -50,19 +49,13 @@ const quickLinks = [
   },
   {
     label: "Preparation",
-    desc: "Prepare confirmed orders before shipping.",
+    desc: "Prepare confirmed orders before delivery planning.",
     href: "/dashboard/commercial/preparation",
     icon: Package,
   },
   {
-    label: "Shipments",
-    desc: "Ship prepared orders and follow delivery.",
-    href: "/dashboard/commercial/shipments",
-    icon: Truck,
-  },
-  {
     label: "Planning",
-    desc: "Organize delivery planning and discovery flow.",
+    desc: "Organize delivery planning after preparation is complete.",
     href: "/dashboard/commercial/planning",
     icon: CalendarDays,
   },
@@ -71,12 +64,6 @@ const quickLinks = [
     desc: "Track shortages still pending.",
     href: "/dashboard/commercial/backorders",
     icon: RotateCcw,
-  },
-  {
-    label: "Notifications",
-    desc: "Review shipment and delivery notifications.",
-    href: "/dashboard/commercial/notifications",
-    icon: Bell,
   },
   {
     label: "Reports",
@@ -130,7 +117,7 @@ export default function CommercialDashboardPage() {
     const ordonnancedOrders = orders.filter((o) => o.status === "ORDONNANCED").length;
     const confirmedOrders = orders.filter((o) => o.status === "CONFIRMED").length;
     const preparedOrders = orders.filter((o) => o.status === "PREPARED").length;
-    const shippedOrders = orders.filter((o) => o.status === "SHIPPED").length;
+    const deliveredOrders = orders.filter((o) => o.status === "DELIVERED").length;
     const lateOrders = orders.filter(
       (o) =>
         o.promisedDate &&
@@ -144,7 +131,7 @@ export default function CommercialDashboardPage() {
       ordonnancedOrders,
       confirmedOrders,
       preparedOrders,
-      shippedOrders,
+      deliveredOrders,
       lateOrders,
     };
   }, [orders]);
@@ -191,7 +178,7 @@ export default function CommercialDashboardPage() {
                 { label: "Ordonnanced", value: metrics.ordonnancedOrders, icon: Sparkles, bg: "bg-orange-50 dark:bg-orange-950/30", color: "text-orange-600 dark:text-orange-400" },
                 { label: t("confirmedOrders"), value: metrics.confirmedOrders, icon: Package, bg: "bg-blue-50 dark:bg-blue-950/30", color: "text-blue-600 dark:text-blue-400" },
                 { label: t("prepared") || "Prepared", value: metrics.preparedOrders, icon: Package, bg: "bg-violet-50 dark:bg-violet-950/30", color: "text-violet-600 dark:text-violet-400" },
-                { label: t("shipped"), value: metrics.shippedOrders, icon: Truck, bg: "bg-emerald-50 dark:bg-emerald-950/30", color: "text-emerald-600 dark:text-emerald-400" },
+                { label: t("delivered") || "Delivered", value: metrics.deliveredOrders, icon: Truck, bg: "bg-emerald-50 dark:bg-emerald-950/30", color: "text-emerald-600 dark:text-emerald-400" },
                 { label: t("lateOrders") || "Late Orders", value: metrics.lateOrders, icon: AlertTriangle, bg: "bg-rose-50 dark:bg-rose-950/30", color: "text-rose-600 dark:text-rose-400" },
                 { label: "Active Flow", value: metrics.draftOrders + metrics.ordonnancedOrders + metrics.confirmedOrders + metrics.preparedOrders, icon: BarChart3, bg: "bg-slate-100 dark:bg-slate-800", color: "text-slate-600 dark:text-slate-300" },
               ].map((kpi) => (

@@ -2,11 +2,14 @@ import api from "../api";
 
 export interface SalesOrderLine {
   productId: { _id: string; name: string; sku: string; type?: string; unit?: string } | null;
+  depotId?: { _id: string; name: string; productTypeScope?: string; status?: string } | null;
   quantity: number;
   unitPrice: number;
   discount?: number;
   allocatedQuantity?: number;
   plannedProductionQuantity?: number;
+  depotPreparedAt?: string | null;
+  depotPreparedBy?: { _id: string; name: string; role?: string } | null;
 }
 
 export interface ShipApproval {
@@ -25,13 +28,15 @@ export interface SalesOrder {
   _id: string;
   orderNo: string;
   customerName: string;
+  splitFromOrderId?: string | { _id: string; orderNo?: string } | null;
   source?: "MANUAL" | "RECURRING";
-  status: "DRAFT" | "ORDONNANCED" | "CONFIRMED" | "PREPARED" | "SHIPPED" | "DELIVERED" | "CLOSED" | "CANCELLED";
+  status: "DRAFT" | "ORDONNANCED" | "CONFIRMED" | "PREPARED" | "SHIPPED" | "DELIVERED" | "RETURNED" | "CLOSED" | "CANCELLED";
   promisedDate?: string;
   plannedStartDate?: string;
   plannedEndDate?: string;
   ordonnancedAt?: string;
   preparedAt?: string;
+  preparedBy?: { _id: string; name: string; role?: string } | null;
   pickingSlipPrintedAt?: string;
   pickingSlipPrintedBy?: { _id: string; name: string } | null;
   packingValidatedAt?: string;
@@ -59,12 +64,23 @@ export interface SalesOrderLinePayload {
 }
 
 export interface CreateSalesOrderPayload {
-  orderNo: string;
+  orderNo?: string;
   customerId?: string;
   customerName?: string;
   notes?: string;
   promisedDate?: string;
   lines: SalesOrderLinePayload[];
+}
+
+export interface SalesOrderAllocationEntryPayload {
+  depotId: string;
+  allocatedQuantity: number;
+}
+
+export interface SalesOrderOrdonnanceLinePayload {
+  lineIndex: number;
+  productId: string;
+  allocations: SalesOrderAllocationEntryPayload[];
 }
 
 export const salesOrderService = {
@@ -81,7 +97,11 @@ export const salesOrderService = {
 
   ordonance: async (
     id: string,
-    payload: { lines: { productId: string; allocatedQuantity: number }[] }
+    payload: {
+      plannedStartDate: string;
+      plannedEndDate: string;
+      lines: SalesOrderOrdonnanceLinePayload[];
+    }
   ) => (await api.post(`/commercial/orders/${id}/ordonance`, payload)).data,
 
   ordonanceBulk: async (
@@ -90,10 +110,17 @@ export const salesOrderService = {
         orderId: string;
         plannedStartDate: string;
         plannedEndDate: string;
-        lines: { productId: string; allocatedQuantity: number }[];
+        lines: SalesOrderOrdonnanceLinePayload[];
       }[];
     }
   ) => (await api.post("/commercial/orders/ordonance/bulk", payload)).data,
+
+  requestProduction: async (
+    id: string,
+    payload: {
+      lines: SalesOrderOrdonnanceLinePayload[];
+    }
+  ) => (await api.post(`/commercial/orders/${id}/request-production`, payload)).data,
 
   prepare: async (id: string) =>
     (await api.post(`/commercial/orders/${id}/prepare`)).data,
@@ -115,6 +142,12 @@ export const salesOrderService = {
 
   close: async (id: string) =>
     (await api.post(`/commercial/orders/${id}/close`)).data,
+
+  markReturned: async (id: string) =>
+    (await api.post(`/commercial/orders/${id}/mark-returned`)).data,
+
+  reorder: async (id: string) =>
+    (await api.post(`/commercial/orders/${id}/reorder`)).data,
 
   markUrgent: async (id: string, urgent: boolean) =>
     (await api.post(`/commercial/orders/${id}/mark-urgent`, { urgent })).data,

@@ -161,13 +161,21 @@ function VehicleCard({
   const durPct = vehicle.durabilityPercent ?? calcDurability(vehicle.purchaseDate, vehicle.lifeExpectancyDays);
   const c = durColor(durPct);
   const history = useMemo(() => {
-    const orders = deliveries.flatMap((delivery) => delivery.orderIds || []);
+    const completedDeliveries = deliveries.filter((delivery) => delivery.status === "COMPLETED");
+    const activeFuelDeliveries = deliveries.filter((delivery) => delivery.status !== "CANCELLED");
+    const orders = completedDeliveries.flatMap((delivery) => delivery.orderIds || []);
+    const revenueOrders = orders.filter(
+      (order) => !["RETURNED", "CANCELLED"].includes(String(order.status || "").toUpperCase())
+    );
     const orderCount = orders.length;
-    const income = orders.reduce(
+    const income = revenueOrders.reduce(
       (sum, order) => sum + order.lines.reduce((lineSum, line) => lineSum + salesLineAmount(line), 0),
       0
     );
-    const fuelOutcome = orders.reduce((sum, order) => sum + (order.shippingCost || 0), 0);
+    const fuelOutcome = activeFuelDeliveries.reduce(
+      (sum, delivery) => sum + Number(delivery.fuelAddedLiters || 0),
+      0
+    );
 
     return { orderCount, income, fuelOutcome };
   }, [deliveries]);
@@ -273,7 +281,7 @@ function VehicleCard({
               <div className="rounded-2xl border border-slate-100 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{t("fuelLabel")}</p>
                 <p className="mt-2 text-lg font-bold text-rose-600 dark:text-rose-400">
-                  {history.fuelOutcome.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
+                  {history.fuelOutcome.toLocaleString("fr-TN", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} L
                 </p>
               </div>
             </div>
@@ -323,7 +331,6 @@ interface FormState {
   purchaseDate: string;
   lifeExpectancyDays: string;
   durabilityPercent: string;
-  notes: string;
 }
 
 const EMPTY: FormState = {
@@ -333,7 +340,6 @@ const EMPTY: FormState = {
   purchaseDate: "",
   lifeExpectancyDays: "3650",
   durabilityPercent: String(calcDurabilityFromLifeDays(3650)),
-  notes: "",
 };
 
 function splitMatricule(value: string) {
@@ -367,7 +373,6 @@ function VehicleModal({
           purchaseDate: initial.purchaseDate.split("T")[0],
           lifeExpectancyDays: String(initial.lifeExpectancyDays ?? 3650),
           durabilityPercent: String(initial.durabilityPercent ?? calcDurabilityFromLifeDays(initial.lifeExpectancyDays ?? 3650)),
-          notes: initial.notes,
         }
       : EMPTY
   );
@@ -376,7 +381,7 @@ function VehicleModal({
   const matriculeParts = splitMatricule(form.matricule);
 
   const set = (field: keyof FormState) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    (e: React.ChangeEvent<HTMLInputElement>) =>
       setForm((p) => ({
         ...p,
         [field]: e.target.value,
@@ -526,18 +531,6 @@ function VehicleModal({
             </div>
           )}
 
-          {/* Notes */}
-          <div>
-            <label className={labelClass}>{t("notesField")}</label>
-            <textarea
-              rows={2}
-              className={`${inputClass} resize-none`}
-              placeholder={t("optionalLabel")}
-              value={form.notes}
-              onChange={set("notes")}
-            />
-          </div>
-
           {err && <p className="text-xs text-red-500">{err}</p>}
 
           <div className="flex gap-3 pt-1">
@@ -600,7 +593,6 @@ export default function FleetPage() {
       purchaseDate: form.purchaseDate,
       lifeExpectancyDays: Number(form.lifeExpectancyDays),
       durabilityPercent: Number(form.durabilityPercent),
-      notes: form.notes,
     };
     if (editing) {
       const updated = await vehicleService.update(editing._id, payload);
@@ -696,4 +688,3 @@ export default function FleetPage() {
     </div>
   );
 }
-

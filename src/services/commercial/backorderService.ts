@@ -14,6 +14,9 @@ export interface BackOrder {
   customerName: string;
   lines: BackOrderLine[];
   status: "PENDING" | "FULFILLED" | "CANCELLED";
+  productionRequestStatus?: "NONE" | "PENDING" | "DONE";
+  productionRequestedAt?: string;
+  productionCompletedAt?: string;
   fulfilledAt?: string;
   cancelledAt?: string;
   notes?: string;
@@ -31,4 +34,10 @@ export const backorderService = {
 
   cancel: async (id: string): Promise<BackOrder> =>
     (await api.post(`/commercial/backorders/${id}/cancel`)).data,
+
+  requestProduction: async (id: string): Promise<BackOrder> =>
+    (await api.post(`/commercial/backorders/${id}/request-production`)).data,
+
+  markProductionDone: async (id: string): Promise<BackOrder> =>
+    (await api.post(`/commercial/backorders/${id}/mark-production-done`)).data,
 };

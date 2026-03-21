@@ -2,10 +2,8 @@
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useLanguage } from "@/context/LanguageContext";
-import { salesOrderService, type SalesOrder } from "@/services/commercial/salesOrderService";
 import {
   rmaService,
-  type CreateRmaPayload,
   type Rma,
 } from "@/services/commercial/rmaService";
 import { useEffect, useMemo, useState } from "react";
@@ -13,7 +11,6 @@ import {
   Archive,
   CheckCircle2,
   Loader2,
-  Plus,
   RotateCcw,
   Search,
   Trash2,
@@ -29,13 +26,28 @@ const inputClass =
 const labelClass =
   "mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400";
 
-type DraftLine = {
-  productId: string;
-  quantity: number;
-  reason: string;
-};
+function getErrorMessage(error: unknown, fallback: string) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "response" in error &&
+    error.response &&
+    typeof error.response === "object" &&
+    "data" in error.response &&
+    error.response.data &&
+    typeof error.response.data === "object" &&
+    "message" in error.response.data &&
+    typeof error.response.data.message === "string"
+  ) {
+    return error.response.data.message;
+  }
 
-const emptyDraft = { salesOrderId: "", notes: "", lines: [] as DraftLine[] };
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return fallback;
+}
 
 function statusBadge(status: Rma["status"]) {
   const map: Record<Rma["status"], string> = {
@@ -61,17 +73,13 @@ function resolutionBadge(resolution: Rma["resolution"]) {
 export default function CommercialReturnsPage() {
   const { t } = useLanguage();
   const [rmas, setRmas] = useState<Rma[]>([]);
-  const [orders, setOrders] = useState<SalesOrder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
-  const [showCreate, setShowCreate] = useState(false);
   const [showProcess, setShowProcess] = useState(false);
   const [selectedRma, setSelectedRma] = useState<Rma | null>(null);
-  const [draft, setDraft] = useState(emptyDraft);
   const [processResolution, setProcessResolution] = useState<"RESTOCK" | "DESTROY">("RESTOCK");
   const [processNotes, setProcessNotes] = useState("");
 
@@ -79,14 +87,10 @@ export default function CommercialReturnsPage() {
     try {
       setLoading(true);
       setError("");
-      const [rmaData, orderData] = await Promise.all([
-        rmaService.getAll(),
-        salesOrderService.getAll(),
-      ]);
+      const rmaData = await rmaService.getAll();
       setRmas(rmaData);
-      setOrders(orderData);
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to load returns");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to load returns"));
     } finally {
       setLoading(false);
     }
@@ -95,34 +99,6 @@ export default function CommercialReturnsPage() {
   useEffect(() => {
     fetchAll();
   }, []);
-
-  const eligibleOrders = useMemo(
-    () => orders.filter((order) => ["DELIVERED", "CLOSED"].includes(order.status)),
-    [orders]
-  );
-
-  const selectedOrder = useMemo(
-    () => eligibleOrders.find((order) => order._id === draft.salesOrderId) || null,
-    [eligibleOrders, draft.salesOrderId]
-  );
-
-  useEffect(() => {
-    if (!selectedOrder) {
-      setDraft((current) => ({ ...current, lines: [] }));
-      return;
-    }
-
-    setDraft((current) => ({
-      ...current,
-      lines: selectedOrder.lines
-        .filter((line) => line.productId?._id)
-        .map((line) => ({
-          productId: line.productId!._id,
-          quantity: 0,
-          reason: "",
-        })),
-    }));
-  }, [selectedOrder]);
 
   const filtered = useMemo(() => {
     const query = search.toLowerCase();
@@ -146,36 +122,6 @@ export default function CommercialReturnsPage() {
     [rmas]
   );
 
-  const submitCreate = async () => {
-    const lines = draft.lines.filter((line) => line.quantity > 0);
-    if (!draft.salesOrderId) {
-      setError(t("selectDeliveredOrder"));
-      return;
-    }
-    if (lines.length === 0) {
-      setError(t("addReturnedLineRequired"));
-      return;
-    }
-
-    try {
-      setSaving(true);
-      setError("");
-      const payload: CreateRmaPayload = {
-        salesOrderId: draft.salesOrderId,
-        notes: draft.notes,
-        lines,
-      };
-      await rmaService.create(payload);
-      setShowCreate(false);
-      setDraft(emptyDraft);
-      await fetchAll();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to create return");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const runAction = async (
     action: "receive" | "close" | "cancel" | "process",
     id: string,
@@ -189,8 +135,8 @@ export default function CommercialReturnsPage() {
       if (action === "cancel") await rmaService.cancel(id);
       if (action === "process" && payload) await rmaService.process(id, payload);
       await fetchAll();
-    } catch (err: any) {
-      setError(err.response?.data?.message || `Failed to ${action} return`);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, `Failed to ${action} return`));
     } finally {
       setActionId(null);
       setShowProcess(false);
@@ -222,15 +168,6 @@ export default function CommercialReturnsPage() {
               </div>
             </div>
           </div>
-          <button
-            onClick={() => {
-              setShowCreate(true);
-              setError("");
-            }}
-            className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
-          >
-            <Plus size={15} /> {t("newReturn")}
-          </button>
         </div>
 
         {error && (
@@ -423,164 +360,6 @@ export default function CommercialReturnsPage() {
             </div>
           )}
         </div>
-
-        {showCreate ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-3xl rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
-              <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5 dark:border-slate-800">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800">
-                    <RotateCcw size={16} className="text-slate-600 dark:text-slate-300" />
-                  </div>
-                  <h2 className="text-base font-semibold text-slate-950 dark:text-white">
-                    {t("newReturn")}
-                  </h2>
-                </div>
-                <button
-                  onClick={() => {
-                    setShowCreate(false);
-                    setDraft(emptyDraft);
-                    setError("");
-                  }}
-                  className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-
-              <div className="space-y-4 p-6">
-                <div>
-                  <label className={labelClass}>{t("order")}</label>
-                  <select
-                    value={draft.salesOrderId}
-                    onChange={(e) =>
-                      setDraft((current) => ({ ...current, salesOrderId: e.target.value }))
-                    }
-                    className={inputClass}
-                  >
-                    <option value="">{t("selectDeliveredOrder")}</option>
-                    {eligibleOrders.map((order) => (
-                      <option key={order._id} value={order._id}>
-                        {order.orderNo} - {order.customerName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {selectedOrder ? (
-                  <div className={`${surface} overflow-hidden`}>
-                    <div className="border-b border-slate-100 px-5 py-4 dark:border-slate-800">
-                      <p className="font-semibold text-slate-900 dark:text-white">
-                        {selectedOrder.orderNo} · {selectedOrder.customerName}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        Select the returned quantities for each product line
-                      </p>
-                    </div>
-                    <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {selectedOrder.lines.map((line, index) => {
-                        const lineId = line.productId?._id;
-                        if (!lineId) return null;
-                        const draftLine = draft.lines.find((item) => item.productId === lineId);
-                        return (
-                          <div
-                            key={`${selectedOrder._id}-${index}`}
-                            className="grid gap-3 px-5 py-4 md:grid-cols-[2fr,120px,1fr]"
-                          >
-                            <div>
-                              <p className="font-medium text-slate-900 dark:text-white">
-                                {line.productId?.name}
-                                {line.productId?.sku ? (
-                                  <span className="ml-1.5 text-[11px] text-slate-400">
-                                    ({line.productId.sku})
-                                  </span>
-                                ) : null}
-                              </p>
-                              <p className="mt-1 text-xs text-slate-400">
-                                Ordered quantity: {line.quantity}
-                              </p>
-                            </div>
-                            <input
-                              type="number"
-                              min={0}
-                              max={line.quantity}
-                              value={draftLine?.quantity ?? 0}
-                              onChange={(e) => {
-                                const nextQuantity = Number(e.target.value || 0);
-                                setDraft((current) => ({
-                                  ...current,
-                                  lines: current.lines.map((item) =>
-                                    item.productId === lineId
-                                      ? {
-                                          ...item,
-                                          quantity: Math.min(
-                                            line.quantity,
-                                            Math.max(0, nextQuantity)
-                                          ),
-                                        }
-                                      : item
-                                  ),
-                                }));
-                              }}
-                              className={inputClass}
-                            />
-                            <input
-                              value={draftLine?.reason ?? ""}
-                              onChange={(e) =>
-                                setDraft((current) => ({
-                                  ...current,
-                                  lines: current.lines.map((item) =>
-                                    item.productId === lineId
-                                      ? { ...item, reason: e.target.value }
-                                      : item
-                                  ),
-                                }))
-                              }
-                              placeholder={t("reason")}
-                              className={inputClass}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : null}
-
-                <div>
-                  <label className={labelClass}>{t("notes")}</label>
-                  <textarea
-                    rows={3}
-                    value={draft.notes}
-                    onChange={(e) => setDraft((current) => ({ ...current, notes: e.target.value }))}
-                    className={`${inputClass} resize-none`}
-                    placeholder={t("notesPlaceholder")}
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 border-t border-slate-100 px-6 py-4 dark:border-slate-800">
-                <button
-                  onClick={() => {
-                    setShowCreate(false);
-                    setDraft(emptyDraft);
-                    setError("");
-                  }}
-                  className="rounded-2xl border border-slate-200 px-5 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                >
-                  {t("cancel")}
-                </button>
-                <button
-                  onClick={submitCreate}
-                  disabled={saving}
-                  className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
-                >
-                  {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-                  {t("createBtn")}
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
 
         {showProcess && selectedRma ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">

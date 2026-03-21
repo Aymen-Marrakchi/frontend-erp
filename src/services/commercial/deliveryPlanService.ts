@@ -1,33 +1,41 @@
 import api from "../api";
 import { SalesOrder } from "./salesOrderService";
 import { Carrier } from "./carrierService";
+import { Vehicle } from "./vehicleService";
 
-export type DeliveryPlanStatus = "PLANNED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
+export type DeliveryPlanStatus = "PLANNED" | "IN_PROGRESS" | "COMPLETED" | "RETURNED" | "CANCELLED";
 export type DeliveryPlanType = "SHIPMENT" | "DISCOVER";
 
 export interface DeliveryPlan {
   _id: string;
   planNo: string;
   planDate: string;
+  vehicleId?: Vehicle | null;
   carrierId?: Carrier | null;
   zone?: string;
   startDate?: string | null;
+  fuelAddedLiters?: number;
   orderIds: SalesOrder[];
   status: DeliveryPlanStatus;
   planType: DeliveryPlanType;
   notes?: string;
   startedAt?: string;
   completedAt?: string;
+  returnedAt?: string;
   cancelledAt?: string;
   createdAt?: string;
+  returnedOrderIds?: Array<string | { _id: string; orderNo?: string }>;
+  rmaIds?: Array<{ _id: string; rmaNo: string; status: string; orderNo: string; createdAt?: string }>;
 }
 
 export interface CreateDeliveryPlanPayload {
   planNo?: string;
   planDate: string;
+  vehicleId?: string;
   carrierId?: string;
   zone?: string;
   startDate?: string;
+  fuelAddedLiters?: number;
   orderIds?: string[];
   notes?: string;
   planType?: DeliveryPlanType;
@@ -54,6 +62,9 @@ export const deliveryPlanService = {
 
   complete: async (id: string): Promise<DeliveryPlan> =>
     (await api.post(`/commercial/delivery-plans/${id}/complete`)).data,
+
+  returnPlan: async (id: string, reason: string, orderId?: string): Promise<DeliveryPlan> =>
+    (await api.post(`/commercial/delivery-plans/${id}/return`, { reason, orderId })).data,
 
   cancel: async (id: string): Promise<DeliveryPlan> =>
     (await api.post(`/commercial/delivery-plans/${id}/cancel`)).data,

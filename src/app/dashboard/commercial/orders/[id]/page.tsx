@@ -3,6 +3,7 @@
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
 import { salesOrderService, SalesOrder } from "@/services/commercial/salesOrderService";
+import { rmaService } from "@/services/commercial/rmaService";
 import { useParams } from "next/navigation";
 import { useLanguage } from "@/context/LanguageContext";
 import { useEffect, useMemo, useState } from "react";
@@ -12,11 +13,10 @@ import {
   Clock,
   Loader2,
   Package,
-  Send,
+  RotateCcw,
+  ShoppingCart,
   ShieldCheck,
   ShieldX,
-  ShoppingCart,
-  Truck,
   X,
   XCircle,
   Zap,
@@ -33,6 +33,7 @@ const statusColors: Record<string, string> = {
   PREPARED: "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300",
   SHIPPED: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
   DELIVERED: "bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300",
+  RETURNED: "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
   CLOSED: "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300",
   CANCELLED: "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
 };
@@ -44,7 +45,7 @@ function lineAmount(line: { quantity: number; unitPrice: number; discount?: numb
 
 function isLate(order: SalesOrder): boolean {
   if (!order.promisedDate) return false;
-  if (["DELIVERED", "CLOSED", "CANCELLED"].includes(order.status)) return false;
+  if (["DELIVERED", "RETURNED", "CLOSED", "CANCELLED"].includes(order.status)) return false;
   return new Date(order.promisedDate) < new Date();
 }
 
@@ -82,15 +83,21 @@ export default function CommercialOrderDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [rejectingApproval, setRejectingApproval] = useState(false);
-  const [rejectReason, setRejectReason] = useState("");
+  const [canCloseReturned, setCanCloseReturned] = useState(false);
 
   const fetchOrder = async () => {
     try {
       setLoading(true);
       setError("");
-      const data = await salesOrderService.getById(params.id);
+      const [data, rmas] = await Promise.all([
+        salesOrderService.getById(params.id),
+        rmaService.getAll(),
+      ]);
       setOrder(data);
+      const relatedRmas = rmas.filter((rma) => rma.salesOrderId?._id === params.id);
+      setCanCloseReturned(
+        relatedRmas.length > 0 && relatedRmas.every((rma) => rma.status === "CLOSED")
+      );
     } catch (error: unknown) {
       setError(getErrorMessage(error, "Failed to load order"));
     } finally {
@@ -197,6 +204,11 @@ export default function CommercialOrderDetailsPage() {
                         {t("recurringLabel")}
                       </span>
                     )}
+                    {order.splitFromOrderId && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-950 px-2.5 py-1 text-xs font-semibold text-white dark:bg-white dark:text-slate-950">
+                        Split Order
+                      </span>
+                    )}
                     <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusColors[order.status] ?? statusColors.DRAFT}`}>
                       {order.status}
                     </span>
@@ -260,6 +272,11 @@ export default function CommercialOrderDetailsPage() {
                     {order.notes}
                   </div>
                 )}
+                {order.splitFromOrderId && (
+                  <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+                    This order was created from a split waiting quantity.
+                  </div>
+                )}
               </div>
 
               {/* Right panel: total + actions */}
@@ -282,18 +299,8 @@ export default function CommercialOrderDetailsPage() {
                     {t("actionsPanelTitle")}
                   </p>
                   <div className="flex flex-col gap-2">
-                    {/* Ordonance DRAFT */}
+                    {/* Confirm DRAFT */}
                     {order.status === "DRAFT" && isManager && (
-                      <Link
-                        href="/dashboard/commercial/orders"
-                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-amber-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-amber-600"
-                      >
-                        <Clock size={14} />
-                        {t("ordonanceAction")}
-                      </Link>
-                    )}
-
-                    {order.status === "ORDONNANCED" && isManager && (
                       <button
                         onClick={() => runAction(() => salesOrderService.confirm(order._id))}
                         disabled={busy}
@@ -302,6 +309,16 @@ export default function CommercialOrderDetailsPage() {
                         {busy ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
                         {t("confirm")}
                       </button>
+                    )}
+
+                    {order.status === "CONFIRMED" && isManager && (
+                      <Link
+                        href={`/dashboard/commercial/ordonnancement?order=${order._id}`}
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-amber-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-amber-600"
+                      >
+                        <Clock size={14} />
+                        {t("ordonanceAction")}
+                      </Link>
                     )}
 
                     {/* Mark / unmark urgent */}
@@ -320,129 +337,54 @@ export default function CommercialOrderDetailsPage() {
                       </button>
                     )}
 
-                    {/* Prepare CONFIRMED */}
-                    {order.status === "CONFIRMED" && (
+                    {order.status === "ORDONNANCED" && (
+                      <span className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-100 px-4 py-2.5 text-sm font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                        <Package size={14} />
+                        {t("preparationPageTitle") || "Preparation"}
+                      </span>
+                    )}
+
+                    {order.isUrgent && order.shipApproval?.status === "PENDING" && (
+                      <span className="inline-flex items-center justify-center gap-2 rounded-2xl bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-700 dark:bg-amber-950/20 dark:text-amber-400">
+                        <Clock size={14} />
+                        {t("awaitingApproval")}
+                      </span>
+                    )}
+
+                    {isManager && order.isUrgent && order.shipApproval?.status === "PENDING" && (
+                      <Link
+                        href="/dashboard/commercial/approvals"
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"
+                      >
+                        <ShieldCheck size={14} />
+                        {t("approvalQueueTitle")}
+                      </Link>
+                    )}
+
+                    {order.status === "DELIVERED" && isManager && canCloseReturned && (
                       <button
-                        onClick={() => runAction(() => salesOrderService.prepare(order._id))}
+                        onClick={() => runAction(() => salesOrderService.markReturned(order._id))}
                         disabled={busy}
-                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-rose-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-rose-700 disabled:opacity-50"
+                      >
+                        {busy ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                        Returned
+                      </button>
+                    )}
+
+                    {isManager && order.status === "DELIVERED" && (
+                      <button
+                        onClick={() => runAction(() => salesOrderService.reorder(order._id))}
+                        disabled={busy}
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"
                       >
                         {busy ? <Loader2 size={14} className="animate-spin" /> : <Package size={14} />}
-                        {t("prepareOrderAction")}
+                        Reorder
                       </button>
                     )}
 
-                    {/* Ship approval flow on PREPARED */}
-                    {order.status === "PREPARED" && (() => {
-                      const approval = order.shipApproval?.status ?? "NONE";
-                      const canOpenShipment = !order.isUrgent || approval === "APPROVED";
-                      return (
-                        <>
-                          {canOpenShipment ? (
-                            <Link
-                              href={`/dashboard/commercial/shipments?order=${order._id}`}
-                              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700"
-                            >
-                              <Truck size={14} />
-                              {t("openShipment")}
-                            </Link>
-                          ) : approval === "PENDING" ? (
-                            <span className="inline-flex items-center justify-center gap-2 rounded-2xl bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-700 dark:bg-amber-950/20 dark:text-amber-400">
-                              <Clock size={14} /> {t("awaitingApproval")}
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => runAction(() => salesOrderService.requestApproval(order._id))}
-                              disabled={busy}
-                              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-amber-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-amber-600 disabled:opacity-50"
-                            >
-                              {busy ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                              {t("requestApproval")}
-                            </button>
-                          )}
-
-                          {/* Manager: approve / reject pending */}
-                          {isManager && approval === "PENDING" && (
-                            <>
-                              <button
-                                onClick={() => runAction(() => salesOrderService.approveShip(order._id))}
-                                disabled={busy}
-                                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
-                              >
-                                {busy ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
-                                {t("approveShipAction")}
-                              </button>
-
-                              {rejectingApproval ? (
-                                <div className="space-y-2">
-                                  <textarea
-                                    autoFocus
-                                    value={rejectReason}
-                                    onChange={(e) => setRejectReason(e.target.value)}
-                                    placeholder={t("rejectReasonPlaceholderText")}
-                                    rows={2}
-                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs outline-none focus:border-rose-300 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-                                  />
-                                  <div className="flex gap-2">
-                                    <button
-                                      onClick={() => runAction(async () => {
-                                        await salesOrderService.rejectShip(order._id, rejectReason);
-                                        setRejectingApproval(false);
-                                        setRejectReason("");
-                                      })}
-                                      disabled={!rejectReason.trim() || busy}
-                                      className="flex-1 rounded-2xl bg-rose-600 px-3 py-2 text-xs font-medium text-white hover:bg-rose-700 disabled:opacity-50"
-                                    >
-                                      {t("confirmReject")}
-                                    </button>
-                                    <button
-                                      onClick={() => { setRejectingApproval(false); setRejectReason(""); }}
-                                      className="rounded-2xl border border-slate-200 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300"
-                                    >
-                                      <X size={13} />
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => setRejectingApproval(true)}
-                                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-medium text-rose-600 transition hover:bg-rose-100 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400"
-                                >
-                                  <ShieldX size={14} /> {t("rejectShip")}
-                                </button>
-                              )}
-                            </>
-                          )}
-                        </>
-                      );
-                    })()}
-
-                    {/* Deliver SHIPPED */}
-                    {order.status === "SHIPPED" && isManager && (
-                      <button
-                        onClick={() => runAction(() => salesOrderService.deliver(order._id))}
-                        disabled={busy}
-                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-teal-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-teal-700 disabled:opacity-50"
-                      >
-                        {busy ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                        {t("deliverOrderAction")}
-                      </button>
-                    )}
-
-                    {/* Close DELIVERED */}
-                    {order.status === "DELIVERED" && isManager && (
-                      <button
-                        onClick={() => runAction(() => salesOrderService.close(order._id))}
-                        disabled={busy}
-                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700 disabled:opacity-50"
-                      >
-                        {busy ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                        {t("closeOrder")}
-                      </button>
-                    )}
-
-                    {/* Cancel */}
-                    {isManager && ["CONFIRMED", "PREPARED"].includes(order.status) && (
+                    {/* Cancel: managers only, before ordonnancement */}
+                    {isManager && order.status === "DRAFT" && (
                       <button
                         onClick={() => runAction(() => salesOrderService.cancel(order._id))}
                         disabled={busy}

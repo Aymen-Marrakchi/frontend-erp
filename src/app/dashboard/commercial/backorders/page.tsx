@@ -13,6 +13,7 @@ import {
   ChevronDown,
   X,
   ExternalLink,
+  Factory,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -26,6 +27,15 @@ function statusBadge(status: string) {
     CANCELLED: "bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300",
   };
   return map[status] ?? "bg-slate-100 text-slate-600";
+}
+
+function productionStatusBadge(status?: string) {
+  const map: Record<string, string> = {
+    NONE: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+    PENDING: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
+    DONE: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
+  };
+  return map[status || "NONE"] ?? map.NONE;
 }
 
 export default function BackordersPage() {
@@ -56,12 +66,13 @@ export default function BackordersPage() {
     fetchAll();
   }, []);
 
-  const runAction = async (action: "fulfill" | "cancel", id: string) => {
+  const runAction = async (action: "fulfill" | "cancel" | "markDone", id: string) => {
     try {
       setActionId(id);
       setError("");
       if (action === "fulfill") await backorderService.fulfill(id);
       if (action === "cancel") await backorderService.cancel(id);
+      if (action === "markDone") await backorderService.markProductionDone(id);
       await fetchAll();
     } catch (err: any) {
       setError(err.response?.data?.message || `Failed to ${action} backorder`);
@@ -214,6 +225,12 @@ export default function BackordersPage() {
                           >
                             {bo.status}
                           </span>
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${productionStatusBadge(bo.productionRequestStatus)}`}
+                          >
+                            <Factory size={10} />
+                            Production {bo.productionRequestStatus || "NONE"}
+                          </span>
                         </div>
                         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
                           {bo.customerName}
@@ -251,6 +268,15 @@ export default function BackordersPage() {
                           >
                             <XCircle size={11} /> {t("cancel")}
                           </button>
+                          {bo.productionRequestStatus === "PENDING" && (
+                            <button
+                              onClick={() => runAction("markDone", bo._id)}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1.5 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300"
+                            >
+                              <CheckCircle size={11} /> Mark done
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>

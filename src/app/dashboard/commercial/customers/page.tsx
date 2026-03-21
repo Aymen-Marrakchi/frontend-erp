@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { customerService, type Customer } from "@/services/commercial/customerService";
 import {
   Users, Plus, Pencil, ToggleLeft, ToggleRight,
-  Building2, Phone, Mail, MapPin, Search, X, Loader2, UserCheck, UserX,
+  Search, X, Loader2, UserCheck, UserX,
 } from "lucide-react";
 
 const surface =
@@ -26,21 +26,6 @@ const TUNISIA_GOVERNORATES = [
   "Monastir","Nabeul","Sfax","Sidi Bouzid","Siliana","Sousse",
   "Tataouine","Tozeur","Tunis","Zaghouan",
 ];
-
-const AVATAR_COLORS = [
-  "bg-blue-500", "bg-violet-500", "bg-emerald-500", "bg-amber-500",
-  "bg-rose-500", "bg-cyan-500", "bg-fuchsia-500", "bg-teal-500",
-];
-
-function getInitials(name: string) {
-  return name.split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
-}
-
-function avatarColor(name: string) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-}
 
 export default function CustomersPage() {
   const { t } = useLanguage();
@@ -187,7 +172,7 @@ export default function CustomersPage() {
           )}
         </div>
 
-        {/* ── Customer grid ── */}
+        {/* ── Customer table ── */}
         {loading ? (
           <div className="flex justify-center py-16">
             <Loader2 size={28} className="animate-spin text-slate-400" />
@@ -198,84 +183,68 @@ export default function CustomersPage() {
             <p className="text-sm text-slate-500 dark:text-slate-400">{t("noCustomers") || "No customers found"}</p>
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((c) => (
-              <div key={c._id} className={`${surface} p-5 transition-opacity ${!c.active ? "opacity-50" : ""}`}>
-
-                {/* Avatar + name */}
-                <div className="flex items-start gap-3">
-                  <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-sm font-bold text-white ${avatarColor(c.name)}`}>
-                    {getInitials(c.name)}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold text-slate-900 dark:text-white">{c.name}</p>
-                    {c.company ? (
-                      <p className="flex items-center gap-1 truncate text-xs text-slate-500 dark:text-slate-400">
-                        <Building2 size={11} /> {c.company}
-                      </p>
-                    ) : (
-                      <p className="text-xs text-slate-400 dark:text-slate-600">—</p>
-                    )}
-                  </div>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${c.active ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}>
-                    {c.active ? (t("active") || "Active") : (t("inactive") || "Inactive")}
-                  </span>
-                </div>
-
-                {/* Contact info */}
-                <div className="mt-4 space-y-1.5 border-t border-slate-100 pt-4 dark:border-slate-800">
-                  {c.email && (
-                    <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                      <Mail size={12} className="shrink-0 text-slate-400" />
-                      <span className="truncate">{c.email}</span>
-                    </div>
-                  )}
-                  {c.phone && (
-                    <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                      <Phone size={12} className="shrink-0 text-slate-400" />
-                      <span>{c.phone}</span>
-                    </div>
-                  )}
-                  {(c.city || c.address) && (
-                    <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                      <MapPin size={12} className="shrink-0 text-slate-400" />
-                      <span className="truncate">{[c.city, c.address].filter(Boolean).join(", ")}</span>
-                    </div>
-                  )}
-                  {!c.email && !c.phone && !c.city && !c.address && (
-                    <p className="text-xs text-slate-400 dark:text-slate-600">{t("noContactInfo")}</p>
-                  )}
-                </div>
-
-                {/* Actions */}
-                <div className="mt-4 flex items-center gap-2">
-                  <button
-                    onClick={() => openEdit(c)}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border border-slate-200 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                  >
-                    <Pencil size={12} /> {t("edit") || "Edit"}
-                  </button>
-                  <button
-                    onClick={() => handleToggle(c._id)}
-                    disabled={togglingId === c._id}
-                    className={`flex flex-1 items-center justify-center gap-1.5 rounded-2xl border py-2 text-xs font-medium transition disabled:opacity-50 ${
-                      c.active
-                        ? "border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-900/40 dark:text-rose-400 dark:hover:bg-rose-950/20"
-                        : "border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900/40 dark:text-emerald-400 dark:hover:bg-emerald-950/20"
-                    }`}
-                  >
-                    {togglingId === c._id ? (
-                      <Loader2 size={12} className="animate-spin" />
-                    ) : c.active ? (
-                      <ToggleRight size={12} />
-                    ) : (
-                      <ToggleLeft size={12} />
-                    )}
-                    {c.active ? (t("deactivate") || "Deactivate") : (t("activate") || "Activate")}
-                  </button>
-                </div>
-              </div>
-            ))}
+          <div className={`${surface} overflow-hidden`}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 dark:bg-slate-800/50">
+                  <tr className="text-left text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                    <th className="px-6 py-3 font-medium">{t("customerName") || "Customer"}</th>
+                    <th className="px-6 py-3 font-medium">{t("company") || "Company"}</th>
+                    <th className="px-6 py-3 font-medium">{t("emailLabel2") || "Email"}</th>
+                    <th className="px-6 py-3 font-medium">{t("phoneLabel") || "Phone"}</th>
+                    <th className="px-6 py-3 font-medium">{t("regionLabel") || "Region"}</th>
+                    <th className="px-6 py-3 font-medium">{t("status") || "Status"}</th>
+                    <th className="px-6 py-3 font-medium text-right">{t("actionsCol") || "Actions"}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {filtered.map((c) => (
+                    <tr key={c._id} className={!c.active ? "opacity-60" : ""}>
+                      <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">{c.name}</td>
+                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{c.company || "—"}</td>
+                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{c.email || "—"}</td>
+                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{c.phone || "—"}</td>
+                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
+                        {[c.governorate, c.city].filter(Boolean).join(", ") || "—"}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold ${c.active ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}>
+                          {c.active ? (t("active") || "Active") : (t("inactive") || "Inactive")}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => openEdit(c)}
+                            className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                          >
+                            <Pencil size={12} /> {t("edit") || "Edit"}
+                          </button>
+                          <button
+                            onClick={() => handleToggle(c._id)}
+                            disabled={togglingId === c._id}
+                            className={`inline-flex items-center gap-1.5 rounded-2xl border px-3 py-2 text-xs font-medium transition disabled:opacity-50 ${
+                              c.active
+                                ? "border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-900/40 dark:text-rose-400 dark:hover:bg-rose-950/20"
+                                : "border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900/40 dark:text-emerald-400 dark:hover:bg-emerald-950/20"
+                            }`}
+                          >
+                            {togglingId === c._id ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : c.active ? (
+                              <ToggleRight size={12} />
+                            ) : (
+                              <ToggleLeft size={12} />
+                            )}
+                            {c.active ? (t("deactivate") || "Deactivate") : (t("activate") || "Activate")}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 

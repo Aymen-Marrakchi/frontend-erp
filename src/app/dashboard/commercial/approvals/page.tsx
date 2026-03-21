@@ -3,7 +3,7 @@
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useLanguage } from "@/context/LanguageContext";
 import { salesOrderService, SalesOrder } from "@/services/commercial/salesOrderService";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ShieldCheck,
@@ -24,6 +24,29 @@ function lineAmount(line: { quantity: number; unitPrice: number; discount?: numb
   return subtotal * (1 - Math.min(100, Math.max(0, line.discount || 0)) / 100);
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "response" in error &&
+    error.response &&
+    typeof error.response === "object" &&
+    "data" in error.response &&
+    error.response.data &&
+    typeof error.response.data === "object" &&
+    "message" in error.response.data &&
+    typeof error.response.data.message === "string"
+  ) {
+    return error.response.data.message;
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return fallback;
+}
+
 export default function ApprovalsPage() {
   const { t } = useLanguage();
 
@@ -40,8 +63,8 @@ export default function ApprovalsPage() {
       setError("");
       const data: SalesOrder[] = await salesOrderService.getAll();
       setOrders(data.filter((o) => o.isUrgent && o.shipApproval?.status === "PENDING"));
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to load orders");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to load orders"));
     } finally {
       setLoading(false);
     }
@@ -55,8 +78,8 @@ export default function ApprovalsPage() {
       setError("");
       await salesOrderService.approveShip(id);
       await fetchOrders();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to approve");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to approve"));
     } finally {
       setActionId(null);
     }
@@ -71,8 +94,8 @@ export default function ApprovalsPage() {
       setRejectingId(null);
       setRejectReason("");
       await fetchOrders();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to reject");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to reject"));
     } finally {
       setActionId(null);
     }
