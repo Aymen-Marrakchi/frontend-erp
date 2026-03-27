@@ -8,7 +8,9 @@ export interface Customer {
   company?: string;
   address?: string;
   city?: string;
-  governorate?: string;
+  continent?: string;
+  country?: string;
+  state?: string;
   notes?: string;
   active: boolean;
   createdAt: string;

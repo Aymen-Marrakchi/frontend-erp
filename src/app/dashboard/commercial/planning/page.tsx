@@ -13,6 +13,12 @@ import type { Customer } from "@/services/commercial/customerService";
 import { SalesOrder } from "@/services/commercial/salesOrderService";
 import { carrierService, Carrier } from "@/services/commercial/carrierService";
 import { vehicleService, Vehicle } from "@/services/commercial/vehicleService";
+import {
+  getAllDiscoverableZones,
+  getCustomerRegionKey,
+  getCustomerRegionLabel,
+  normalizeRegionValue,
+} from "@/lib/regionHierarchy";
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
@@ -136,11 +142,10 @@ export default function PlanningPage() {
       setCarriers(carriersData);
       setVehicles(vehiclesData);
       setCustomers(customersData);
-      // governorates that already have at least 1 customer
-      const govWithCustomers = [
-        ...new Set(customersData.map((c) => c.governorate || c.city).filter(Boolean)),
+      const customerRegions = [
+        ...new Set(customersData.map((customer) => getCustomerRegionLabel(customer)).filter(Boolean)),
       ];
-      setCoveredGovs(govWithCustomers as string[]);
+      setCoveredGovs(customerRegions as string[]);
     } catch (err: unknown) {
       setError(getErrorMessage(err, "Failed to load planning data"));
     } finally {
@@ -164,18 +169,11 @@ export default function PlanningPage() {
     });
   };
 
-  const normalizeGovernorate = (value: string) =>
-    value
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .trim()
-      .toLowerCase();
-
   const availableDiscoverGovs = useMemo(() => {
-    const discovered = new Set(discoveredGovs.map((gov) => normalizeGovernorate(gov)));
-    const covered = new Set(coveredGovs.map((gov) => normalizeGovernorate(gov)));
-    return TUNISIA_GOVERNORATES.filter((gov) => {
-      const key = normalizeGovernorate(gov);
+    const discovered = new Set(discoveredGovs.map((zone) => normalizeRegionValue(zone)));
+    const covered = new Set(coveredGovs.map((zone) => normalizeRegionValue(zone)));
+    return getAllDiscoverableZones().filter((zone) => {
+      const key = normalizeRegionValue(zone);
       return !discovered.has(key) && !covered.has(key);
     });
   }, [coveredGovs, discoveredGovs]);
@@ -201,16 +199,16 @@ export default function PlanningPage() {
     const customer = customerByName.get(order.customerName.trim().toLowerCase());
     if (!customer) return "Destination not set";
 
-    const parts = [customer.address, customer.city, customer.governorate]
+    const parts = [customer.address, customer.city, getCustomerRegionLabel(customer)]
       .map((value) => String(value || "").trim())
       .filter(Boolean);
 
     return parts.length > 0 ? parts.join(", ") : "Destination not set";
   };
 
-  const orderGovernorate = (order: SalesOrder) => {
+  const orderRegionLabel = (order: SalesOrder) => {
     const customer = customerByName.get(order.customerName.trim().toLowerCase());
-    return String(customer?.governorate || customer?.city || "").trim();
+    return customer ? getCustomerRegionLabel(customer) : "";
   };
 
   const filteredUnassigned = useMemo(() => {
@@ -218,8 +216,8 @@ export default function PlanningPage() {
       return unassigned;
     }
 
-    const selected = normalizeGovernorate(form.zone);
-    return unassigned.filter((order) => normalizeGovernorate(orderGovernorate(order)) === selected);
+    const selected = normalizeRegionValue(form.zone);
+    return unassigned.filter((order) => normalizeRegionValue(orderRegionLabel(order)) === selected);
   }, [form.planType, form.zone, unassigned, customerByName]);
 
   const selectedOrders = useMemo(
@@ -669,11 +667,11 @@ export default function PlanningPage() {
                     </select>
                     {form.planType === "DISCOVER" ? (
                       <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                        {availableDiscoverGovs.length} / {TUNISIA_GOVERNORATES.length} governorates are still not discovered.
+                        {availableDiscoverGovs.length} / {getAllDiscoverableZones().length} zones are still not discovered.
                       </p>
                     ) : shipmentGovs.length > 0 && (
                       <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                        {shipmentGovs.length} / {TUNISIA_GOVERNORATES.length} governorates currently have customers.
+                        {shipmentGovs.length} zones currently have customers.
                       </p>
                     )}
                   </div>
