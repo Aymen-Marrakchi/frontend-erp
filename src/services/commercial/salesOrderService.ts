@@ -27,6 +27,16 @@ export interface ShipApproval {
 export interface SalesOrder {
   _id: string;
   orderNo: string;
+  customerId?:
+    | string
+    | {
+        _id: string;
+        name?: string;
+        email?: string;
+        phone?: string;
+        company?: string;
+      }
+    | null;
   customerName: string;
   splitFromOrderId?: string | { _id: string; orderNo?: string } | null;
   source?: "MANUAL" | "RECURRING";

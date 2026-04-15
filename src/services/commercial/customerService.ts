@@ -12,6 +12,7 @@ export interface Customer {
   country?: string;
   state?: string;
   notes?: string;
+  totalOrderAmount?: number;
   active: boolean;
   createdAt: string;
 }

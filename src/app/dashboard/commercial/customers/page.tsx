@@ -192,6 +192,12 @@ export default function CustomersPage() {
     [customers, search]
   );
 
+  const formatMoney = (value: number) =>
+    `${value.toLocaleString("fr-TN", {
+      minimumFractionDigits: 3,
+      maximumFractionDigits: 3,
+    })} TND`;
+
   const countryOptions = COUNTRIES_BY_CONTINENT[form.continent] || [];
   const stateOptions = STATES_BY_COUNTRY[form.country] || [];
   const total = customers.length;
@@ -288,6 +294,7 @@ export default function CustomersPage() {
                     <th className="px-6 py-3 font-medium">{t("emailLabel2") || "Email"}</th>
                     <th className="px-6 py-3 font-medium">{t("phoneLabel") || "Phone"}</th>
                     <th className="px-6 py-3 font-medium">{t("regionLabel") || "Region"}</th>
+                    <th className="px-6 py-3 font-medium">Total Amount</th>
                     <th className="px-6 py-3 font-medium">{t("status") || "Status"}</th>
                     <th className="px-6 py-3 font-medium text-right">{t("actionsCol") || "Actions"}</th>
                   </tr>
@@ -300,6 +307,9 @@ export default function CustomersPage() {
                       <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{customer.email || "—"}</td>
                       <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{customer.phone || "—"}</td>
                       <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{getCustomerRegionLabel(customer) || "—"}</td>
+                      <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">
+                        {formatMoney(Number(customer.totalOrderAmount || 0))}
+                      </td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold ${customer.active ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}>
                           {customer.active ? (t("active") || "Active") : (t("inactive") || "Inactive")}
