@@ -12,6 +12,7 @@ import {
   ClipboardCheck,
   Loader2,
   Package,
+  Printer,
   Search,
   XCircle,
 } from "lucide-react";
@@ -37,6 +38,81 @@ function getErrorMessage(error: unknown, fallback: string) {
 
   if (error instanceof Error && error.message) return error.message;
   return fallback;
+}
+
+function openPreparationDocument(order: SalesOrder) {
+  const rows = order.lines
+    .map(
+      (line) => `
+        <tr>
+          <td style="border:1px solid #cbd5e1;padding:8px">${line.productId?.sku || "—"}</td>
+          <td style="border:1px solid #cbd5e1;padding:8px">${line.productId?.name || "—"}</td>
+          <td style="border:1px solid #cbd5e1;padding:8px;text-align:center">${line.quantity}</td>
+          <td style="border:1px solid #cbd5e1;padding:8px;text-align:center">___</td>
+        </tr>`
+    )
+    .join("");
+
+  const html = `<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Bon de préparation · ${order.orderNo}</title>
+  </head>
+  <body style="font-family:Arial,sans-serif;color:#0f172a;padding:28px">
+    <header style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f172a;padding-bottom:12px;margin-bottom:20px">
+      <div>
+        <div style="font-size:18px;font-weight:700">ERP · Depot</div>
+        <div style="font-size:11px;color:#64748b;margin-top:4px">Bon de préparation</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:18px;font-weight:700">${order.orderNo}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:4px">${new Date().toLocaleDateString("fr-TN")}</div>
+      </div>
+    </header>
+
+    <section style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:22px">
+      <div style="border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px">
+        <div style="font-size:10px;text-transform:uppercase;color:#94a3b8">Client</div>
+        <div style="font-size:14px;font-weight:600;margin-top:4px">${order.customerName}</div>
+      </div>
+      <div style="border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px">
+        <div style="font-size:10px;text-transform:uppercase;color:#94a3b8">Date promise</div>
+        <div style="font-size:14px;font-weight:600;margin-top:4px">${order.promisedDate ? new Date(order.promisedDate).toLocaleDateString("fr-TN") : "—"}</div>
+      </div>
+      <div style="border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px">
+        <div style="font-size:10px;text-transform:uppercase;color:#94a3b8">Statut</div>
+        <div style="font-size:14px;font-weight:600;margin-top:4px">${order.status}</div>
+      </div>
+    </section>
+
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr>
+          <th style="border:1px solid #cbd5e1;padding:8px;text-align:left;background:#f8fafc">SKU</th>
+          <th style="border:1px solid #cbd5e1;padding:8px;text-align:left;background:#f8fafc">Produit</th>
+          <th style="border:1px solid #cbd5e1;padding:8px;text-align:center;background:#f8fafc">Qté</th>
+          <th style="border:1px solid #cbd5e1;padding:8px;text-align:center;background:#f8fafc">Préparé</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+
+    <footer style="display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:32px">
+      <div style="border-top:1px solid #334155;padding-top:8px;color:#64748b;font-size:12px">Préparé par</div>
+      <div style="border-top:1px solid #334155;padding-top:8px;color:#64748b;font-size:12px">Validé par</div>
+    </footer>
+  </body>
+</html>`;
+
+  const win = window.open("", "_blank", "width=900,height=700");
+  if (win) {
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 300);
+  }
 }
 
 export default function DepotPreparationPage() {
@@ -75,7 +151,9 @@ export default function DepotPreparationPage() {
     try {
       setActionId(id);
       setError("");
-      await salesOrderService.prepare(id);
+      const preparedOrder = await salesOrderService.prepare(id);
+      await salesOrderService.markPickingSlipPrinted(id);
+      openPreparationDocument(preparedOrder);
       await fetchOrders();
     } catch (err: unknown) {
       setError(getErrorMessage(err, "Failed to mark order as prepared"));
@@ -92,6 +170,22 @@ export default function DepotPreparationPage() {
       await fetchOrders();
     } catch (err: unknown) {
       setError(getErrorMessage(err, "Failed to validate picking"));
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const handlePrintPreparation = async (order: SalesOrder) => {
+    try {
+      setActionId(order._id);
+      setError("");
+      if (!order.pickingSlipPrintedAt) {
+        await salesOrderService.markPickingSlipPrinted(order._id);
+      }
+      openPreparationDocument(order);
+      await fetchOrders();
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to print preparation document"));
     } finally {
       setActionId(null);
     }
@@ -277,24 +371,30 @@ export default function DepotPreparationPage() {
                             {busy ? <Loader2 size={11} className="animate-spin" /> : <Package size={11} />}
                             Mark prepared
                           </button>
-                        ) : canValidatePicking ? (
-                          <button
-                            onClick={() => handleValidatePicking(order._id)}
-                            disabled={busy}
-                            className="inline-flex items-center gap-1.5 rounded-2xl bg-amber-500 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-amber-600 disabled:opacity-50"
-                          >
-                            {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
-                            Validate picking
-                          </button>
-                        ) : order.status === "PREPARED" && !order.pickingSlipPrintedAt ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-2xl bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                            Waiting document
-                          </span>
                         ) : order.packingValidatedAt ? (
                           <span className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
                             <CheckCircle2 size={11} />
                             Picking validated
                           </span>
+                        ) : canValidatePicking ? (
+                          <>
+                            <button
+                              onClick={() => handlePrintPreparation(order)}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                              {busy ? <Loader2 size={11} className="animate-spin" /> : <Printer size={11} />}
+                              Print preparation
+                            </button>
+                            <button
+                              onClick={() => handleValidatePicking(order._id)}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1.5 rounded-2xl bg-amber-500 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-amber-600 disabled:opacity-50"
+                            >
+                              {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
+                              Validate picking
+                            </button>
+                          </>
                         ) : (
                           <span className="inline-flex items-center gap-1.5 rounded-2xl bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
                             <Package size={11} />

@@ -165,7 +165,7 @@ export default function FinancePayablesPage() {
                         <p>{text.due}: {item.dueDate ? new Date(item.dueDate).toLocaleDateString("fr-TN") : "-"}</p>
                       </div>
                       <div className="text-sm text-slate-500 dark:text-slate-400">
-                        <p>Paid: {item.amountPaid.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND</p>
+                        <p>Payé : {item.amountPaid.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND</p>
                         <p>{text.credit}: {item.creditNoteAmount.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND</p>
                       </div>
                       <div className="text-right text-sm">

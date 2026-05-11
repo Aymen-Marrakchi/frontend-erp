@@ -9,6 +9,7 @@ export interface CustomerInvoicePayment {
   reference?: string;
   dueDate?: string | null;
   installmentIndex?: number | null;
+  settlementSplitIndex?: number | null;
   notes?: string;
 }
 
@@ -28,9 +29,21 @@ export interface CustomerInvoiceInstallment {
   status: "PENDING" | "PARTIAL" | "PAID";
 }
 
+export interface CustomerInvoiceSettlementSplit {
+  _id: string;
+  method: "ESPECE" | "CHEQUE" | "VIREMENT" | "KUMBIL";
+  plannedAmount: number;
+  paidAmount: number;
+  dueDate?: string | null;
+  status: "PENDING" | "PARTIAL" | "PAID";
+  notes?: string;
+}
+
 export interface CustomerInvoice {
   _id: string;
   invoiceNo: string;
+  documentStage: "QUOTATION" | "INVOICE";
+  quotationStatus: "PENDING" | "SENT" | "ACCEPTED" | "REJECTED" | "CANCELLED";
   salesOrderId?: { _id: string; orderNo: string; status: string } | null;
   customerId?: { _id: string; name: string; email?: string } | null;
   customerName: string;
@@ -40,12 +53,15 @@ export interface CustomerInvoice {
   tvaRate: number;
   fodecRate: number;
   timbreFiscal: number;
-  paymentMethod: "UNSET" | "ESPECE" | "CHEQUE" | "VIREMENT" | "KUMBIL";
+  paymentMethod: "UNSET" | "ESPECE" | "CHEQUE" | "VIREMENT" | "KUMBIL" | "MIXED";
   legalizationStatus: "NON_LEGALISEE" | "LEGALISEE";
   paymentStatus: "NON_PAYEE" | "PARTIELLEMENT_PAYEE" | "PENDING_CHEQUE" | "PAYEE";
   issueDate?: string;
   dueDate?: string | null;
   sentAt?: string | null;
+  acceptedAt?: string | null;
+  rejectedAt?: string | null;
+  finalizedAt?: string | null;
   legalizedAt?: string | null;
   paidAt?: string | null;
   reminderCount?: number;
@@ -67,15 +83,26 @@ export interface CustomerInvoice {
     totalBeforeStamp: number;
     productId?: { _id: string; name: string; sku?: string } | null;
   }>;
+  settlementSplits: CustomerInvoiceSettlementSplit[];
   installments: CustomerInvoiceInstallment[];
   payments: CustomerInvoicePayment[];
   reminders: CustomerInvoiceReminder[];
+  invoiceType?: "CLIENT" | "SUPPLIER";
+  tejReference?: string;
+  tejStatus?: "NOT_SUBMITTED" | "PENDING" | "VALIDATED" | "REJECTED";
+  tejQrData?: string;
+  customerMf?: string;
+  customerAddress?: string;
 }
 
 export const customerInvoiceService = {
   getAll: async (): Promise<CustomerInvoice[]> => (await api.get("/commercial/invoices")).data,
   getById: async (id: string): Promise<CustomerInvoice> =>
     (await api.get(`/commercial/invoices/${id}`)).data,
+  deleteById: async (id: string): Promise<{ success: boolean }> =>
+    (await api.delete(`/commercial/invoices/${id}`)).data,
+  cancelQuotation: async (id: string, payload: Record<string, unknown> = {}): Promise<CustomerInvoice> =>
+    (await api.post(`/commercial/invoices/${id}/cancel`, payload)).data,
   getByOrderId: async (orderId: string): Promise<CustomerInvoice> =>
     (await api.get(`/commercial/invoices/by-order/${orderId}`)).data,
   createFromOrder: async (
@@ -86,6 +113,8 @@ export const customerInvoiceService = {
     id: string,
     payload: Record<string, unknown>
   ): Promise<CustomerInvoice> => (await api.patch(`/commercial/invoices/${id}/configure`, payload)).data,
+  finalize: async (id: string, payload: Record<string, unknown> = {}): Promise<CustomerInvoice> =>
+    (await api.post(`/commercial/invoices/${id}/finalize`, payload)).data,
   registerPayment: async (
     id: string,
     payload: Record<string, unknown>
@@ -96,4 +125,10 @@ export const customerInvoiceService = {
     (await api.post(`/commercial/invoices/${id}/remind`, payload)).data,
   clearCheque: async (id: string, paymentId: string): Promise<CustomerInvoice> =>
     (await api.post(`/commercial/invoices/${id}/clear-cheque`, { paymentId })).data,
+  markAsSent: async (id: string): Promise<CustomerInvoice> =>
+    (await api.post(`/commercial/invoices/${id}/mark-sent`, {})).data,
+  accept: async (id: string): Promise<CustomerInvoice> =>
+    (await api.post(`/commercial/invoices/${id}/accept`, {})).data,
+  reject: async (id: string, note?: string): Promise<CustomerInvoice> =>
+    (await api.post(`/commercial/invoices/${id}/reject`, note ? { note } : {})).data,
 };

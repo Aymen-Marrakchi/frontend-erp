@@ -20,8 +20,17 @@ function getErrorMessage(err: unknown) {
   ) {
     return err.response.data.message;
   }
-  return "Failed to load accounts";
+  return "Échec du chargement des comptes";
 }
+
+const entryTypeLabel: Record<string, string> = {
+  INVOICE_ISSUED: "Facture émise",
+  REGLEMENT_RECU: "Règlement reçu",
+  PAYABLE_RECORDED: "Dette fournisseur",
+  PAYABLE_PAYMENT: "Paiement fournisseur",
+  PAYABLE_CREDIT: "Avoir fournisseur",
+  MANUAL_ENTRY: "Écriture manuelle",
+};
 
 export default function FinanceAccountsPage() {
   const [accounts, setAccounts] = useState<AccountingAccount[]>([]);
@@ -55,16 +64,16 @@ export default function FinanceAccountsPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-              General Ledger
+              Grand livre
             </h1>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Account balances and movement history built from journal postings
+              Soldes des comptes et historique des mouvements issus des écritures du journal
             </p>
           </div>
         </div>
 
         {error ? (
-          <div className="rounded-3xl border border-rose-200 bg-rose-50 px-6 py-4 text-sm text-rose-600">
+          <div className="rounded-3xl border border-rose-200 bg-rose-50 px-6 py-4 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400">
             {error}
           </div>
         ) : null}
@@ -72,13 +81,18 @@ export default function FinanceAccountsPage() {
         {loading ? (
           <div className="flex items-center justify-center gap-2 rounded-3xl border border-slate-200 bg-white py-16 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
             <Loader2 size={16} className="animate-spin" />
-            Loading accounts
+            Chargement du grand livre...
+          </div>
+        ) : !accounts.length ? (
+          <div className="flex items-center justify-center rounded-3xl border border-slate-200 bg-white py-16 text-sm text-slate-400 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-500">
+            Aucun compte enregistré pour le moment
           </div>
         ) : (
           <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+            {/* Account list */}
             <div className="rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <div className="border-b border-slate-100 px-5 py-4 dark:border-slate-800">
-                <h2 className="font-semibold text-slate-950 dark:text-white">Accounts</h2>
+                <h2 className="font-semibold text-slate-950 dark:text-white">Comptes</h2>
               </div>
               <div className="divide-y divide-slate-100 dark:divide-slate-800">
                 {accounts.map((account) => (
@@ -97,11 +111,11 @@ export default function FinanceAccountsPage() {
                           {account.accountCode} · {account.accountName}
                         </p>
                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                          Debit {account.debit.toLocaleString("fr-TN", { minimumFractionDigits: 3 })} · Credit{" "}
-                          {account.credit.toLocaleString("fr-TN", { minimumFractionDigits: 3 })}
+                          Débit {account.debit.toLocaleString("fr-TN", { minimumFractionDigits: 3 })} ·
+                          Crédit {account.credit.toLocaleString("fr-TN", { minimumFractionDigits: 3 })}
                         </p>
                       </div>
-                      <div className="text-right text-sm font-semibold text-slate-900 dark:text-white">
+                      <div className="shrink-0 text-right text-sm font-semibold text-slate-900 dark:text-white">
                         {account.balance.toLocaleString("fr-TN", { minimumFractionDigits: 3 })} TND
                       </div>
                     </div>
@@ -110,28 +124,34 @@ export default function FinanceAccountsPage() {
               </div>
             </div>
 
+            {/* Ledger detail */}
             <div className="rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <div className="border-b border-slate-100 px-6 py-4 dark:border-slate-800">
                 <h2 className="font-semibold text-slate-950 dark:text-white">
-                  {selected ? `${selected.accountCode} · ${selected.accountName}` : "Ledger"}
+                  {selected
+                    ? `${selected.accountCode} · ${selected.accountName}`
+                    : "Sélectionner un compte"}
                 </h2>
                 {selected ? (
                   <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                    Balance {selected.balance.toLocaleString("fr-TN", { minimumFractionDigits: 3 })} TND
+                    Solde :{" "}
+                    <span className="font-medium text-slate-900 dark:text-white">
+                      {selected.balance.toLocaleString("fr-TN", { minimumFractionDigits: 3 })} TND
+                    </span>
                   </p>
                 ) : null}
               </div>
 
-              {!selected ? null : (
+              {selected && selected.entries.length > 0 ? (
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-slate-100 text-sm dark:divide-slate-800">
                     <thead className="bg-slate-50 dark:bg-slate-950/40">
                       <tr>
                         <th className="px-6 py-3 text-left font-medium text-slate-500">Date</th>
-                        <th className="px-6 py-3 text-left font-medium text-slate-500">Reference</th>
+                        <th className="px-6 py-3 text-left font-medium text-slate-500">Référence</th>
                         <th className="px-6 py-3 text-left font-medium text-slate-500">Type</th>
-                        <th className="px-6 py-3 text-right font-medium text-slate-500">Debit</th>
-                        <th className="px-6 py-3 text-right font-medium text-slate-500">Credit</th>
+                        <th className="px-6 py-3 text-right font-medium text-slate-500">Débit</th>
+                        <th className="px-6 py-3 text-right font-medium text-slate-500">Crédit</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -141,25 +161,31 @@ export default function FinanceAccountsPage() {
                             {new Date(entry.occurredAt).toLocaleDateString("fr-TN")}
                           </td>
                           <td className="px-6 py-3 font-medium text-slate-900 dark:text-white">
-                            {entry.reference || "-"}
+                            {entry.reference || "—"}
                           </td>
-                          <td className="px-6 py-3 text-slate-600 dark:text-slate-300">{entry.entryType}</td>
+                          <td className="px-6 py-3 text-slate-600 dark:text-slate-300">
+                            {entryTypeLabel[entry.entryType] || entry.entryType}
+                          </td>
                           <td className="px-6 py-3 text-right text-slate-900 dark:text-white">
                             {entry.side === "DEBIT"
                               ? `${entry.amount.toLocaleString("fr-TN", { minimumFractionDigits: 3 })} TND`
-                              : "-"}
+                              : "—"}
                           </td>
                           <td className="px-6 py-3 text-right text-slate-900 dark:text-white">
                             {entry.side === "CREDIT"
                               ? `${entry.amount.toLocaleString("fr-TN", { minimumFractionDigits: 3 })} TND`
-                              : "-"}
+                              : "—"}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-              )}
+              ) : selected ? (
+                <div className="flex items-center justify-center py-16 text-sm text-slate-400 dark:text-slate-500">
+                  Aucun mouvement pour ce compte
+                </div>
+              ) : null}
             </div>
           </div>
         )}

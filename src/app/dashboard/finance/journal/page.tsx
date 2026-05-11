@@ -20,8 +20,23 @@ function getErrorMessage(err: unknown) {
   ) {
     return err.response.data.message;
   }
-  return "Failed to load accounting journal";
+  return "Échec du chargement du journal";
 }
+
+const entryTypeLabel: Record<string, string> = {
+  INVOICE_ISSUED: "Facture émise",
+  REGLEMENT_RECU: "Règlement reçu",
+  PAYABLE_RECORDED: "Dette fournisseur enregistrée",
+  PAYABLE_PAYMENT: "Paiement fournisseur",
+  PAYABLE_CREDIT: "Avoir fournisseur",
+  MANUAL_ENTRY: "Écriture manuelle",
+};
+
+const moduleLabel: Record<string, string> = {
+  COMMERCIAL: "Commercial",
+  PURCHASE: "Achat",
+  FINANCE: "Finance",
+};
 
 export default function FinanceJournalPage() {
   const [entries, setEntries] = useState<AccountingJournalEntry[]>([]);
@@ -52,16 +67,16 @@ export default function FinanceJournalPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-              Accounting Journal
+              Journal comptable
             </h1>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Auto-generated debit and credit lines from ERP finance events
+              Écritures débit / crédit générées automatiquement depuis les événements financiers de l'ERP
             </p>
           </div>
         </div>
 
         {error ? (
-          <div className="rounded-3xl border border-rose-200 bg-rose-50 px-6 py-4 text-sm text-rose-600">
+          <div className="rounded-3xl border border-rose-200 bg-rose-50 px-6 py-4 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400">
             {error}
           </div>
         ) : null}
@@ -69,7 +84,11 @@ export default function FinanceJournalPage() {
         {loading ? (
           <div className="flex items-center justify-center gap-2 rounded-3xl border border-slate-200 bg-white py-16 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
             <Loader2 size={16} className="animate-spin" />
-            Loading journal
+            Chargement du journal...
+          </div>
+        ) : !entries.length ? (
+          <div className="flex items-center justify-center rounded-3xl border border-slate-200 bg-white py-16 text-sm text-slate-400 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-500">
+            Aucune écriture comptable pour le moment
           </div>
         ) : (
           <div className="space-y-4">
@@ -84,12 +103,14 @@ export default function FinanceJournalPage() {
                       {entry.reference || entry.sourceType}
                     </h2>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
-                      {entry.entryType} · {entry.counterpartyName || "Internal"} ·{" "}
-                      {new Date(entry.occurredAt).toLocaleString("fr-TN")}
+                      {entryTypeLabel[entry.entryType] || entry.entryType}
+                      {entry.counterpartyName ? ` · ${entry.counterpartyName}` : ""}
+                      {" · "}
+                      {new Date(entry.occurredAt).toLocaleDateString("fr-TN")}
                     </p>
                   </div>
                   <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                    {entry.sourceModule}
+                    {moduleLabel[entry.sourceModule] || entry.sourceModule}
                   </span>
                 </div>
 
@@ -97,10 +118,10 @@ export default function FinanceJournalPage() {
                   <table className="min-w-full divide-y divide-slate-100 text-sm dark:divide-slate-800">
                     <thead className="bg-slate-50 dark:bg-slate-950/40">
                       <tr>
-                        <th className="px-6 py-3 text-left font-medium text-slate-500">Account</th>
-                        <th className="px-6 py-3 text-left font-medium text-slate-500">Name</th>
-                        <th className="px-6 py-3 text-right font-medium text-slate-500">Debit</th>
-                        <th className="px-6 py-3 text-right font-medium text-slate-500">Credit</th>
+                        <th className="px-6 py-3 text-left font-medium text-slate-500">Compte</th>
+                        <th className="px-6 py-3 text-left font-medium text-slate-500">Libellé</th>
+                        <th className="px-6 py-3 text-right font-medium text-slate-500">Débit</th>
+                        <th className="px-6 py-3 text-right font-medium text-slate-500">Crédit</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -115,12 +136,12 @@ export default function FinanceJournalPage() {
                           <td className="px-6 py-3 text-right text-slate-900 dark:text-white">
                             {line.side === "DEBIT"
                               ? `${line.amount.toLocaleString("fr-TN", { minimumFractionDigits: 3 })} TND`
-                              : "-"}
+                              : "—"}
                           </td>
                           <td className="px-6 py-3 text-right text-slate-900 dark:text-white">
                             {line.side === "CREDIT"
                               ? `${line.amount.toLocaleString("fr-TN", { minimumFractionDigits: 3 })} TND`
-                              : "-"}
+                              : "—"}
                           </td>
                         </tr>
                       ))}

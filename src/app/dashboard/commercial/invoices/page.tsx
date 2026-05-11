@@ -1,15 +1,12 @@
 "use client";
 
 import ProtectedRoute from "@/components/ProtectedRoute";
-import { customerInvoiceService, CustomerInvoice } from "@/services/commercial/customerInvoiceService";
+import { customerInvoiceService, type CustomerInvoice } from "@/services/commercial/customerInvoiceService";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, Loader2 } from "lucide-react";
+import { FileText, Loader2, Search } from "lucide-react";
 
 const surface =
   "rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900";
-
-const inputClass =
-  "w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white";
 
 function getErrorMessage(err: unknown, fallback: string) {
   if (
@@ -32,16 +29,9 @@ function getErrorMessage(err: unknown, fallback: string) {
 export default function CommercialInvoicesPage() {
   const [invoices, setInvoices] = useState<CustomerInvoice[]>([]);
   const [selectedId, setSelectedId] = useState("");
-  const [pricingMode, setPricingMode] = useState<"HT_BASED" | "TTC_BASED">("HT_BASED");
-  const [applyTva, setApplyTva] = useState(true);
-  const [applyFodec, setApplyFodec] = useState(true);
-  const [paymentMethod, setPaymentMethod] = useState<"UNSET" | "ESPECE" | "CHEQUE" | "VIREMENT" | "KUMBIL">("UNSET");
-  const [installmentMode, setInstallmentMode] = useState("DAYS_30");
-  const [installmentsCount, setInstallmentsCount] = useState(3);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -63,99 +53,22 @@ export default function CommercialInvoicesPage() {
     load();
   }, [load]);
 
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return invoices
+      .filter((invoice) => invoice.documentStage === "INVOICE")
+      .filter((invoice) =>
+        [invoice.invoiceNo, invoice.customerName, invoice.salesOrderId?.orderNo || ""]
+          .join(" ")
+          .toLowerCase()
+          .includes(q)
+      );
+  }, [invoices, search]);
+
   const selectedInvoice = useMemo(
-    () => invoices.find((invoice) => invoice._id === selectedId) || null,
-    [invoices, selectedId]
+    () => filtered.find((invoice) => invoice._id === selectedId) || filtered[0] || null,
+    [filtered, selectedId]
   );
-
-  const previewTotals = useMemo(() => {
-    if (!selectedInvoice) return null;
-
-    const lineTotals = selectedInvoice.lines.map((line) => {
-      const quantity = Number(line.quantity || 0);
-      const inputUnitPrice = Number(line.inputUnitPrice || 0);
-      const tvaRate = applyTva ? Number(selectedInvoice.tvaRate || 0) : 0;
-      const fodecRate = applyFodec ? Number(selectedInvoice.fodecRate || 0) : 0;
-      const multiplier = 1 + tvaRate / 100 + fodecRate / 100;
-      const baseUnitHt =
-        pricingMode === "TTC_BASED"
-          ? (multiplier > 0 ? inputUnitPrice / multiplier : inputUnitPrice)
-          : inputUnitPrice;
-      const subtotalHt = baseUnitHt * quantity;
-      const totalVat = subtotalHt * (tvaRate / 100);
-      const totalFodec = subtotalHt * (fodecRate / 100);
-      const totalBeforeStamp =
-        pricingMode === "TTC_BASED"
-          ? inputUnitPrice * quantity
-          : subtotalHt + totalVat + totalFodec;
-      return { subtotalHt, totalVat, totalFodec, totalBeforeStamp };
-    });
-
-    const subtotalHt = lineTotals.reduce((sum, line) => sum + line.subtotalHt, 0);
-    const totalVat = lineTotals.reduce((sum, line) => sum + line.totalVat, 0);
-    const totalFodec = lineTotals.reduce((sum, line) => sum + line.totalFodec, 0);
-    const totalBeforeStamp = lineTotals.reduce((sum, line) => sum + line.totalBeforeStamp, 0);
-    const timbreFiscal = Number(selectedInvoice.timbreFiscal || 0);
-
-    return {
-      subtotalHt,
-      totalVat,
-      totalFodec,
-      timbreFiscal,
-      totalTtc: totalBeforeStamp + timbreFiscal,
-    };
-  }, [selectedInvoice, applyFodec, applyTva, pricingMode]);
-
-  useEffect(() => {
-    if (!selectedInvoice) return;
-    setPricingMode(selectedInvoice.pricingMode);
-    setApplyTva(selectedInvoice.applyTva);
-    setApplyFodec(selectedInvoice.applyFodec);
-    setPaymentMethod(selectedInvoice.paymentMethod);
-    setInstallmentsCount(selectedInvoice.installments.length || 3);
-  }, [selectedInvoice]);
-
-  const saveConfig = async () => {
-    if (!selectedInvoice) return;
-    try {
-      setSaving(true);
-      setError("");
-      await customerInvoiceService.configure(selectedInvoice._id, {
-        pricingMode,
-        applyTva,
-        applyFodec,
-        paymentMethod,
-        ...(paymentMethod === "KUMBIL"
-          ? {
-              installmentPlan: {
-                mode: installmentMode,
-                installmentsCount,
-                startDate: selectedInvoice.issueDate || new Date().toISOString(),
-              },
-            }
-          : {}),
-      });
-      await load();
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, "Failed to update invoice configuration"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const sendInvoice = async () => {
-    if (!selectedInvoice) return;
-    try {
-      setSending(true);
-      setError("");
-      await customerInvoiceService.sendInvoice(selectedInvoice._id);
-      await load();
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, "Failed to send invoice"));
-    } finally {
-      setSending(false);
-    }
-  };
 
   return (
     <ProtectedRoute allowedRoles={["ADMIN", "COMMERCIAL_MANAGER"]}>
@@ -165,7 +78,7 @@ export default function CommercialInvoicesPage() {
             Customer Invoices
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Configure Tunisian invoice logic before finance legalisation and payment
+            Read-only visibility of invoices created automatically from commercial orders.
           </p>
         </div>
 
@@ -175,39 +88,46 @@ export default function CommercialInvoicesPage() {
           </div>
         ) : null}
 
+        <div className={`${surface} flex items-center gap-3 px-5 py-3.5`}>
+          <Search size={15} className="shrink-0 text-slate-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by invoice, customer or order..."
+            className="flex-1 bg-transparent text-sm text-slate-900 placeholder-slate-400 outline-none dark:text-white"
+          />
+        </div>
+
         {loading ? (
           <div className={`${surface} flex items-center justify-center gap-2 py-16 text-sm text-slate-500 dark:text-slate-400`}>
             <Loader2 size={16} className="animate-spin" />
             Loading invoices
           </div>
         ) : (
-          <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+          <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
             <div className={`${surface} overflow-hidden`}>
               <div className="border-b border-slate-100 px-6 py-4 dark:border-slate-800">
                 <h2 className="font-semibold text-slate-950 dark:text-white">Invoices</h2>
               </div>
-              {!invoices.length ? (
+              {!filtered.length ? (
                 <div className="flex flex-col items-center justify-center py-16">
                   <FileText size={32} className="mb-3 text-slate-300 dark:text-slate-700" />
                   <p className="text-sm text-slate-400 dark:text-slate-500">No customer invoices yet</p>
                 </div>
               ) : (
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {invoices.map((invoice) => (
+                  {filtered.map((invoice) => (
                     <button
                       key={invoice._id}
                       onClick={() => setSelectedId(invoice._id)}
-                      className={`grid w-full gap-3 px-6 py-4 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/40 md:grid-cols-[1.2fr_1fr_0.8fr] ${selectedId === invoice._id ? "bg-slate-50 dark:bg-slate-800/40" : ""}`}
+                      className={`grid w-full gap-3 px-6 py-4 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/40 md:grid-cols-[1.2fr_1fr_0.8fr] ${
+                        selectedInvoice?._id === invoice._id ? "bg-slate-50 dark:bg-slate-800/40" : ""
+                      }`}
                     >
                       <div>
                         <p className="font-medium text-slate-900 dark:text-white">{invoice.invoiceNo}</p>
                         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
                           {invoice.customerName} · {invoice.salesOrderId?.orderNo || "-"}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-400">
-                          {invoice.sentAt
-                            ? `Sent ${new Date(invoice.sentAt).toLocaleDateString("fr-TN")}`
-                            : "Not sent yet"}
                         </p>
                       </div>
                       <div className="text-sm text-slate-500 dark:text-slate-400">
@@ -227,99 +147,67 @@ export default function CommercialInvoicesPage() {
             </div>
 
             <div className={`${surface} p-6`}>
-              <h2 className="font-semibold text-slate-950 dark:text-white">Invoice Logic</h2>
+              <h2 className="font-semibold text-slate-950 dark:text-white">Invoice Details</h2>
               {!selectedInvoice ? (
                 <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">Select an invoice first</p>
               ) : (
-                <div className="mt-4 space-y-4">
-                  <div className="rounded-2xl border border-slate-100 p-4 text-sm dark:border-slate-800">
-                    <p className="text-slate-500 dark:text-slate-400">Settings defaults</p>
-                    <p className="mt-2">TVA Rate: <span className="font-medium text-slate-900 dark:text-white">{selectedInvoice.tvaRate.toFixed(3)}%</span></p>
-                    <p>FODEC Rate: <span className="font-medium text-slate-900 dark:text-white">{selectedInvoice.fodecRate.toFixed(3)}%</span></p>
-                    <p>Timbre Fiscal: <span className="font-medium text-slate-900 dark:text-white">{selectedInvoice.timbreFiscal.toFixed(3)} TND</span></p>
+                <div className="mt-4 space-y-4 text-sm">
+                  <div className="rounded-2xl border border-slate-100 p-4 dark:border-slate-800">
+                    <p className="font-medium text-slate-900 dark:text-white">{selectedInvoice.invoiceNo}</p>
+                    <p className="mt-1 text-slate-500 dark:text-slate-400">
+                      {selectedInvoice.customerName} · {selectedInvoice.salesOrderId?.orderNo || "-"}
+                    </p>
+                    <p className="mt-2 text-slate-500 dark:text-slate-400">
+                      Issue date:{" "}
+                      <span className="font-medium text-slate-900 dark:text-white">
+                        {selectedInvoice.issueDate
+                          ? new Date(selectedInvoice.issueDate).toLocaleDateString("fr-TN")
+                          : "-"}
+                      </span>
+                    </p>
+                    <p className="text-slate-500 dark:text-slate-400">
+                      Pricing mode:{" "}
+                      <span className="font-medium text-slate-900 dark:text-white">
+                        {selectedInvoice.pricingMode}
+                      </span>
+                    </p>
+                    <p className="text-slate-500 dark:text-slate-400">
+                      Payment method:{" "}
+                      <span className="font-medium text-slate-900 dark:text-white">
+                        {selectedInvoice.paymentMethod}
+                      </span>
+                    </p>
                   </div>
 
-                  <label className="block text-sm">
-                    <span className="mb-1.5 block text-slate-600 dark:text-slate-300">Pricing Mode</span>
-                    <select className={inputClass} value={pricingMode} onChange={(e) => setPricingMode(e.target.value as "HT_BASED" | "TTC_BASED")}>
-                      <option value="HT_BASED">HT Based</option>
-                      <option value="TTC_BASED">TTC Based</option>
-                    </select>
-                  </label>
-
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-                      <input type="checkbox" checked={applyTva} onChange={(e) => setApplyTva(e.target.checked)} />
-                      Apply TVA
-                    </label>
-                    <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-                      <input type="checkbox" checked={applyFodec} onChange={(e) => setApplyFodec(e.target.checked)} />
-                      Apply FODEC
-                    </label>
+                  <div className="rounded-2xl border border-slate-100 p-4 dark:border-slate-800">
+                    <p>HT: <span className="font-medium text-slate-900 dark:text-white">{selectedInvoice.subtotalHt.toFixed(3)} TND</span></p>
+                    <p>TVA: <span className="font-medium text-slate-900 dark:text-white">{selectedInvoice.totalVat.toFixed(3)} TND</span></p>
+                    <p>FODEC: <span className="font-medium text-slate-900 dark:text-white">{selectedInvoice.totalFodec.toFixed(3)} TND</span></p>
+                    <p>Timbre: <span className="font-medium text-slate-900 dark:text-white">{selectedInvoice.timbreFiscal.toFixed(3)} TND</span></p>
+                    <p className="mt-2 border-t border-slate-100 pt-2 dark:border-slate-800">
+                      TTC: <span className="font-semibold text-slate-900 dark:text-white">{selectedInvoice.totalTtc.toFixed(3)} TND</span>
+                    </p>
                   </div>
 
-                  <label className="block text-sm">
-                    <span className="mb-1.5 block text-slate-600 dark:text-slate-300">Payment Method</span>
-                    <select
-                      className={inputClass}
-                      value={paymentMethod}
-                      onChange={(e) =>
-                        setPaymentMethod(
-                          e.target.value as "UNSET" | "ESPECE" | "CHEQUE" | "VIREMENT" | "KUMBIL"
-                        )
-                      }
-                    >
-                      <option value="UNSET">Unset</option>
-                      <option value="ESPECE">Espece</option>
-                      <option value="CHEQUE">Cheque</option>
-                      <option value="VIREMENT">Virement</option>
-                      <option value="KUMBIL">Kumbil</option>
-                    </select>
-                  </label>
-
-                  {paymentMethod === "KUMBIL" ? (
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <label className="block text-sm">
-                        <span className="mb-1.5 block text-slate-600 dark:text-slate-300">Installment Mode</span>
-                        <select className={inputClass} value={installmentMode} onChange={(e) => setInstallmentMode(e.target.value)}>
-                          <option value="DAYS_30">Every 30 days</option>
-                          <option value="DAYS_60">Every 60 days</option>
-                          <option value="DAYS_90">Every 90 days</option>
-                        </select>
-                      </label>
-                      <label className="block text-sm">
-                        <span className="mb-1.5 block text-slate-600 dark:text-slate-300">Installments</span>
-                        <input type="number" min={1} className={inputClass} value={installmentsCount} onChange={(e) => setInstallmentsCount(Number(e.target.value || 1))} />
-                      </label>
+                  <div className="rounded-2xl border border-slate-100 p-4 dark:border-slate-800">
+                    <p className="mb-2 font-medium text-slate-900 dark:text-white">Lines</p>
+                    <div className="space-y-2">
+                      {selectedInvoice.lines.map((line) => (
+                        <div key={line._id} className="flex items-center justify-between rounded-2xl border border-slate-100 px-3 py-2 dark:border-slate-800">
+                          <div>
+                            <p className="font-medium text-slate-900 dark:text-white">
+                              {line.productId?.name || "Unknown product"}
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                              {line.productId?.sku || "—"} · Qty {line.quantity}
+                            </p>
+                          </div>
+                          <span className="font-medium text-slate-900 dark:text-white">
+                            {line.subtotalHt.toFixed(3)} TND
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  ) : null}
-
-                  <div className="rounded-2xl border border-slate-100 p-4 text-sm dark:border-slate-800">
-                    <p className="text-slate-500 dark:text-slate-400">Automatic preview</p>
-                    <p className="mt-2">HT: <span className="font-medium text-slate-900 dark:text-white">{(previewTotals?.subtotalHt ?? selectedInvoice.subtotalHt).toFixed(3)} TND</span></p>
-                    <p>TVA: <span className="font-medium text-slate-900 dark:text-white">{(previewTotals?.totalVat ?? selectedInvoice.totalVat).toFixed(3)} TND</span></p>
-                    <p>FODEC: <span className="font-medium text-slate-900 dark:text-white">{(previewTotals?.totalFodec ?? selectedInvoice.totalFodec).toFixed(3)} TND</span></p>
-                    <p>Timbre: <span className="font-medium text-slate-900 dark:text-white">{(previewTotals?.timbreFiscal ?? selectedInvoice.timbreFiscal).toFixed(3)} TND</span></p>
-                    <p>TTC: <span className="font-medium text-slate-900 dark:text-white">{(previewTotals?.totalTtc ?? selectedInvoice.totalTtc).toFixed(3)} TND</span></p>
-                    <p>Sent: <span className="font-medium text-slate-900 dark:text-white">{selectedInvoice.sentAt ? new Date(selectedInvoice.sentAt).toLocaleString("fr-TN") : "No"}</span></p>
-                    <p>Reminders: <span className="font-medium text-slate-900 dark:text-white">{selectedInvoice.reminderCount || 0}</span></p>
-                  </div>
-
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      onClick={saveConfig}
-                      disabled={saving}
-                      className="inline-flex items-center rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60 dark:bg-white dark:text-slate-950"
-                    >
-                      {saving ? "Saving..." : "Save Invoice Logic"}
-                    </button>
-                    <button
-                      onClick={sendInvoice}
-                      disabled={sending}
-                      className="inline-flex items-center rounded-2xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                    >
-                      {sending ? "Sending..." : selectedInvoice.sentAt ? "Resend Invoice" : "Send Invoice"}
-                    </button>
                   </div>
                 </div>
               )}

@@ -37,6 +37,7 @@ type CustomerForm = {
   continent: string;
   country: string;
   state: string;
+  mf: string;
   notes: string;
 };
 
@@ -50,6 +51,7 @@ const emptyForm: CustomerForm = {
   continent: "Africa",
   country: "Tunisia",
   state: "",
+  mf: "",
   notes: "",
 };
 
@@ -84,6 +86,7 @@ function toForm(customer: Customer): CustomerForm {
     continent: customer.continent || "Africa",
     country: customer.country || "Tunisia",
     state: customer.state || "",
+    mf: customer.mf || "",
     notes: customer.notes || "",
   };
 }
@@ -388,6 +391,11 @@ export default function CustomersPage() {
                 <div>
                   <label className={labelClass}>{t("emailLabel2") || "Email"}</label>
                   <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={inputClass} placeholder="contact@example.com" />
+                </div>
+
+                <div>
+                  <label className={labelClass}>Matricule Fiscal (MF)</label>
+                  <input value={form.mf} onChange={(e) => setForm({ ...form, mf: e.target.value })} className={inputClass} placeholder="0000000A/B/M/000" />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

@@ -2,26 +2,13 @@
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useLanguage } from "@/context/LanguageContext";
+import { customerInvoiceService, type CustomerInvoice } from "@/services/commercial/customerInvoiceService";
 import { salesOrderService, type SalesOrder } from "@/services/commercial/salesOrderService";
 import { useEffect, useMemo, useState } from "react";
-import {
-  CheckCircle2,
-  ChevronDown,
-  Loader2,
-  Package,
-  Printer,
-  Search,
-  ShoppingCart,
-} from "lucide-react";
+import { ChevronDown, Loader2, Package, Printer, Search, ShoppingCart } from "lucide-react";
 
 const surface =
   "rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900";
-
-function lineAmount(line: { quantity: number; unitPrice: number; discount?: number }) {
-  const subtotal = line.quantity * line.unitPrice;
-  const discountPct = Math.min(100, Math.max(0, line.discount || 0));
-  return subtotal * (1 - discountPct / 100);
-}
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (
@@ -74,7 +61,9 @@ function groupByDepot(order: SalesOrder) {
       existing.lines.push(line);
       existing.prepared = existing.prepared && Boolean(line.depotPreparedAt);
       if (!existing.preparedAt && line.depotPreparedAt) existing.preparedAt = line.depotPreparedAt;
-      if (!existing.preparedBy && line.depotPreparedBy?.name) existing.preparedBy = line.depotPreparedBy.name;
+      if (!existing.preparedBy && line.depotPreparedBy?.name) {
+        existing.preparedBy = line.depotPreparedBy.name;
+      }
       return;
     }
 
@@ -88,6 +77,92 @@ function groupByDepot(order: SalesOrder) {
   });
 
   return Array.from(groups.values());
+}
+
+function openInvoiceDocument(order: SalesOrder, invoice: CustomerInvoice) {
+  const rows = invoice.lines
+    .map(
+      (line) => `
+        <tr>
+          <td style="border:1px solid #cbd5e1;padding:8px">${line.productId?.sku || "—"}</td>
+          <td style="border:1px solid #cbd5e1;padding:8px">${line.productId?.name || "—"}</td>
+          <td style="border:1px solid #cbd5e1;padding:8px;text-align:center">${line.quantity}</td>
+          <td style="border:1px solid #cbd5e1;padding:8px;text-align:right">${line.baseUnitHt.toFixed(3)}</td>
+          <td style="border:1px solid #cbd5e1;padding:8px;text-align:right">${line.subtotalHt.toFixed(3)}</td>
+        </tr>`
+    )
+    .join("");
+
+  const html = `<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Devis / Facture · ${invoice.invoiceNo}</title>
+  </head>
+  <body style="font-family:Arial,sans-serif;color:#0f172a;padding:28px">
+    <header style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f172a;padding-bottom:12px;margin-bottom:20px">
+      <div>
+        <div style="font-size:18px;font-weight:700">ERP · Commercial</div>
+        <div style="font-size:11px;color:#64748b;margin-top:4px">Devis / Facture client</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:18px;font-weight:700">${invoice.invoiceNo}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:4px">${new Date(
+          invoice.issueDate || Date.now()
+        ).toLocaleDateString("fr-TN")}</div>
+      </div>
+    </header>
+
+    <section style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px">
+      <div style="border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px">
+        <div style="font-size:10px;text-transform:uppercase;color:#94a3b8">Client</div>
+        <div style="font-size:14px;font-weight:600;margin-top:4px">${invoice.customerName}</div>
+      </div>
+      <div style="border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px">
+        <div style="font-size:10px;text-transform:uppercase;color:#94a3b8">Commande</div>
+        <div style="font-size:14px;font-weight:600;margin-top:4px">${order.orderNo}</div>
+      </div>
+      <div style="border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px">
+        <div style="font-size:10px;text-transform:uppercase;color:#94a3b8">Mode prix</div>
+        <div style="font-size:14px;font-weight:600;margin-top:4px">${invoice.pricingMode}</div>
+      </div>
+      <div style="border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px">
+        <div style="font-size:10px;text-transform:uppercase;color:#94a3b8">Paiement</div>
+        <div style="font-size:14px;font-weight:600;margin-top:4px">${invoice.paymentMethod}</div>
+      </div>
+    </section>
+
+    <table style="width:100%;border-collapse:collapse;margin-bottom:18px">
+      <thead>
+        <tr>
+          <th style="border:1px solid #cbd5e1;padding:8px;text-align:left;background:#f8fafc">SKU</th>
+          <th style="border:1px solid #cbd5e1;padding:8px;text-align:left;background:#f8fafc">Produit</th>
+          <th style="border:1px solid #cbd5e1;padding:8px;text-align:center;background:#f8fafc">Qté</th>
+          <th style="border:1px solid #cbd5e1;padding:8px;text-align:right;background:#f8fafc">HT U.</th>
+          <th style="border:1px solid #cbd5e1;padding:8px;text-align:right;background:#f8fafc">HT Ligne</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+
+    <section style="margin-left:auto;width:320px;font-size:13px">
+      <div style="display:flex;justify-content:space-between;padding:4px 0"><span>HT</span><strong>${invoice.subtotalHt.toFixed(3)} TND</strong></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0"><span>TVA</span><strong>${invoice.totalVat.toFixed(3)} TND</strong></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0"><span>FODEC</span><strong>${invoice.totalFodec.toFixed(3)} TND</strong></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0"><span>Timbre</span><strong>${invoice.timbreFiscal.toFixed(3)} TND</strong></div>
+      <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid #334155;margin-top:6px;font-size:15px"><span>TTC</span><strong>${invoice.totalTtc.toFixed(3)} TND</strong></div>
+    </section>
+  </body>
+</html>`;
+
+  const win = window.open("", "_blank", "width=900,height=700");
+  if (win) {
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 300);
+  }
 }
 
 export default function CommercialPreparationPage() {
@@ -116,116 +191,27 @@ export default function CommercialPreparationPage() {
     fetchOrders();
   }, []);
 
-  const openPickingSlip = (order: SalesOrder) => {
-    const depotSections = groupByDepot(order)
-      .map((group) => {
-        const rows = group.lines
-          .map(
-            (line) => `
-              <tr>
-                <td>${line.productId?.sku || "—"}</td>
-                <td>${line.productId?.name || "—"}</td>
-                <td style="text-align:center">${line.quantity}</td>
-                <td style="text-align:center">___</td>
-              </tr>`
-          )
-          .join("");
-
-        return `
-          <section style="margin-bottom:20px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-              <h3 style="font-size:13px;margin:0">${group.depotName}</h3>
-              <span style="font-size:11px;color:#64748b">${group.lines.reduce((sum, line) => sum + line.quantity, 0)} units</span>
-            </div>
-            <table style="width:100%;border-collapse:collapse">
-              <thead>
-                <tr>
-                  <th style="border:1px solid #cbd5e1;padding:8px;text-align:left;background:#f8fafc">SKU</th>
-                  <th style="border:1px solid #cbd5e1;padding:8px;text-align:left;background:#f8fafc">Produit</th>
-                  <th style="border:1px solid #cbd5e1;padding:8px;text-align:center;background:#f8fafc">Qté</th>
-                  <th style="border:1px solid #cbd5e1;padding:8px;text-align:center;background:#f8fafc">Préparé</th>
-                </tr>
-              </thead>
-              <tbody>${rows}</tbody>
-            </table>
-          </section>`;
-      })
-      .join("");
-
-    const html = `<!DOCTYPE html>
-<html lang="fr">
-  <head>
-    <meta charset="utf-8" />
-    <title>Bon de préparation · ${order.orderNo}</title>
-  </head>
-  <body style="font-family:Arial,sans-serif;color:#0f172a;padding:28px">
-    <header style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f172a;padding-bottom:12px;margin-bottom:20px">
-      <div>
-        <div style="font-size:18px;font-weight:700">ERP · Commercial</div>
-        <div style="font-size:11px;color:#64748b;margin-top:4px">Bon de préparation</div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:18px;font-weight:700">${order.orderNo}</div>
-        <div style="font-size:11px;color:#64748b;margin-top:4px">${new Date().toLocaleDateString("fr-TN")}</div>
-      </div>
-    </header>
-
-    <section style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:22px">
-      <div style="border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px">
-        <div style="font-size:10px;text-transform:uppercase;color:#94a3b8">Client</div>
-        <div style="font-size:14px;font-weight:600;margin-top:4px">${order.customerName}</div>
-      </div>
-      <div style="border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px">
-        <div style="font-size:10px;text-transform:uppercase;color:#94a3b8">Date promise</div>
-        <div style="font-size:14px;font-weight:600;margin-top:4px">${order.promisedDate ? new Date(order.promisedDate).toLocaleDateString("fr-TN") : "—"}</div>
-      </div>
-      <div style="border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px">
-        <div style="font-size:10px;text-transform:uppercase;color:#94a3b8">Statut</div>
-        <div style="font-size:14px;font-weight:600;margin-top:4px">${order.status}</div>
-      </div>
-    </section>
-
-    ${depotSections}
-
-    <footer style="display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:32px">
-      <div style="border-top:1px solid #334155;padding-top:8px;color:#64748b;font-size:12px">Préparé par</div>
-      <div style="border-top:1px solid #334155;padding-top:8px;color:#64748b;font-size:12px">Validé par</div>
-    </footer>
-  </body>
-</html>`;
-
-    const win = window.open("", "_blank", "width=900,height=700");
-    if (win) {
-      win.document.open();
-      win.document.write(html);
-      win.document.close();
-      win.focus();
-      setTimeout(() => win.print(), 300);
-    }
-  };
-
-  const handlePrintPickingSlip = async (order: SalesOrder) => {
-    try {
-      setActionId(order._id);
-      setError("");
-      await salesOrderService.markPickingSlipPrinted(order._id);
-      openPickingSlip(order);
-      await fetchOrders();
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, "Failed to print picking slip"));
-    } finally {
-      setActionId(null);
-    }
-  };
-
-  const handleValidatePacking = async (id: string) => {
+  const handleValidatePicking = async (id: string) => {
     try {
       setActionId(id);
       setError("");
       await salesOrderService.validatePacking(id);
       await fetchOrders();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Failed to validate packing"));
+      setError(getErrorMessage(err, "Failed to validate picking"));
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const handlePrintInvoice = async (order: SalesOrder) => {
+    try {
+      setActionId(order._id);
+      setError("");
+      const invoice = await customerInvoiceService.getByOrderId(order._id);
+      openInvoiceDocument(order, invoice);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to print invoice"));
     } finally {
       setActionId(null);
     }
@@ -271,7 +257,7 @@ export default function CommercialPreparationPage() {
                   {t("prepared") || "Preparation"}
                 </h1>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Follow depot preparation by depot and validate picking only once every depot is done.
+                  Wait for depot preparation, then validate picking when depot work is done.
                 </p>
               </div>
             </div>
@@ -293,7 +279,8 @@ export default function CommercialPreparationPage() {
             },
             {
               label: t("preparedPendingPackingLabel"),
-              value: orders.filter((order) => order.status === "PREPARED" && !order.packingValidatedAt).length,
+              value: orders.filter((order) => order.status === "PREPARED" && !order.packingValidatedAt)
+                .length,
               color: "text-amber-700 dark:text-amber-400",
             },
             {
@@ -303,7 +290,8 @@ export default function CommercialPreparationPage() {
             },
             {
               label: t("readyForShipping"),
-              value: orders.filter((order) => order.status === "PREPARED" && !!order.packingValidatedAt).length,
+              value: orders.filter((order) => order.status === "PREPARED" && !!order.packingValidatedAt)
+                .length,
               color: "text-emerald-700 dark:text-emerald-400",
             },
           ].map((kpi) => (
@@ -348,9 +336,11 @@ export default function CommercialPreparationPage() {
               {filtered.map((order) => {
                 const isExpanded = expandedId === order._id;
                 const busy = actionId === order._id;
-                const total = order.lines.reduce((sum, line) => sum + lineAmount(line), 0);
                 const depotGroups = groupByDepot(order);
                 const allDepotsPrepared = depotGroups.every((group) => group.prepared);
+                const canValidatePicking =
+                  (order.status === "PREPARED" || allDepotsPrepared) &&
+                  !order.packingValidatedAt;
 
                 return (
                   <div key={order._id}>
@@ -359,157 +349,127 @@ export default function CommercialPreparationPage() {
                         onClick={() => setExpandedId(isExpanded ? null : order._id)}
                         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
                       >
-                        <ChevronDown size={14} className={`transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                        <ChevronDown
+                          size={16}
+                          className={`transition ${isExpanded ? "rotate-180" : ""}`}
+                        />
                       </button>
 
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold text-slate-900 dark:text-white">{order.orderNo}</span>
-                          <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${statusBadge(order.status)}`}>
+                          <p className="font-semibold text-slate-900 dark:text-white">{order.orderNo}</p>
+                          <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${statusBadge(order.status)}`}>
                             {order.status}
                           </span>
                         </div>
-                        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                           {order.customerName}
                         </p>
                       </div>
 
-                      <div className="text-right">
-                        <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                          {total.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
-                        </p>
-                        <p className="text-[11px] text-slate-400">
-                          {order.lines.reduce((sum, line) => sum + line.quantity, 0)} units
-                        </p>
+                      <div className="text-sm text-slate-500 dark:text-slate-400">
+                        <p>{order.lines.reduce((sum, line) => sum + line.quantity, 0)} units</p>
+                        <p>{depotGroups.length} depot(s)</p>
                       </div>
 
-                      <div className="flex shrink-0 items-center gap-2">
-                        <button
-                          onClick={() => handlePrintPickingSlip(order)}
-                          disabled={busy}
-                          title={t("printPickingSlip")}
-                          className="flex h-8 w-8 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
-                        >
-                          <Printer size={13} />
-                        </button>
-
-                        {order.status === "ORDONNANCED" ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-2xl bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
-                            <Package size={11} />
-                            Waiting depot
-                          </span>
-                        ) : order.packingValidatedAt ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
-                            <CheckCircle2 size={11} />
-                            {t("readyForShipping")}
-                          </span>
-                        ) : !allDepotsPrepared ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-2xl bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
-                            <Package size={11} />
-                            Waiting depot
-                          </span>
-                        ) : !order.pickingSlipPrintedAt ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-2xl bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                            <Printer size={11} />
-                            Print picking first
-                          </span>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {order.packingValidatedAt ? (
+                          <>
+                            <button
+                              onClick={() => handlePrintInvoice(order)}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                              {busy ? <Loader2 size={12} className="animate-spin" /> : <Printer size={12} />}
+                              Print invoice
+                            </button>
+                            <span className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                              <Package size={12} />
+                              Picking validated
+                            </span>
+                          </>
+                        ) : canValidatePicking ? (
+                          <>
+                            <button
+                              onClick={() => handlePrintInvoice(order)}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                              {busy ? <Loader2 size={12} className="animate-spin" /> : <Printer size={12} />}
+                              Print invoice
+                            </button>
+                            <button
+                              onClick={() => handleValidatePicking(order._id)}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1.5 rounded-2xl bg-slate-950 px-3 py-2 text-xs font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+                            >
+                              {busy ? <Loader2 size={12} className="animate-spin" /> : <Package size={12} />}
+                              Validate Picking
+                            </button>
+                          </>
                         ) : (
-                          <button
-                            onClick={() => handleValidatePacking(order._id)}
-                            disabled={busy || order.status !== "PREPARED"}
-                            className="inline-flex items-center gap-1.5 rounded-2xl bg-amber-500 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-amber-600 disabled:opacity-50"
-                          >
-                            {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
-                            {t("validatePacking")}
-                          </button>
+                          <span className="inline-flex items-center gap-1.5 rounded-2xl bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
+                            <Package size={12} />
+                            Waiting depot
+                          </span>
                         )}
                       </div>
                     </div>
 
                     {isExpanded ? (
-                      <div className="border-t border-slate-100 bg-slate-50 px-6 py-4 dark:border-slate-800 dark:bg-slate-950/50">
-                        <div className="mb-3 flex flex-wrap gap-4 text-[11px] text-slate-500 dark:text-slate-400">
-                          {order.createdAt ? (
-                            <span>Created: {new Date(order.createdAt).toLocaleDateString("fr-TN")}</span>
-                          ) : null}
-                          {order.preparedAt ? (
-                            <span>All depots prepared: {new Date(order.preparedAt).toLocaleDateString("fr-TN")}</span>
-                          ) : null}
-                          {order.packingValidatedAt ? (
-                            <span>Packed: {new Date(order.packingValidatedAt).toLocaleDateString("fr-TN")}</span>
-                          ) : null}
-                        </div>
-
-                        <div className="space-y-4">
-                          {groupByDepot(order).map((group) => (
-                            <div
-                              key={`${order._id}-${group.depotName}`}
-                              className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
-                            >
-                              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                                <div>
-                                  <p className="font-semibold text-slate-900 dark:text-white">{group.depotName}</p>
-                                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                                    {group.lines.reduce((sum, line) => sum + line.quantity, 0)} units
-                                  </p>
-                                </div>
-                                <div className="text-right">
-                                  <span
-                                    className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-                                      group.prepared
-                                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
-                                        : "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
-                                    }`}
-                                  >
-                                    {group.prepared ? "Depot prepared" : "Waiting depot"}
-                                  </span>
-                                  {group.preparedAt ? (
-                                    <p className="mt-1 text-[11px] text-slate-400">
-                                      {new Date(group.preparedAt).toLocaleDateString("fr-TN")}
-                                      {group.preparedBy ? ` · ${group.preparedBy}` : ""}
-                                    </p>
-                                  ) : null}
-                                </div>
+                      <div className="grid gap-4 bg-slate-50 px-6 pb-6 pt-2 dark:bg-slate-950/40 md:grid-cols-2">
+                        {depotGroups.map((group) => (
+                          <div
+                            key={`${order._id}-${group.depotName}`}
+                            className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
+                          >
+                            <div className="mb-3 flex items-center justify-between">
+                              <div>
+                                <p className="font-medium text-slate-900 dark:text-white">{group.depotName}</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                  {group.lines.reduce((sum, line) => sum + line.quantity, 0)} units
+                                </p>
                               </div>
-
-                              <table className="w-full text-sm">
-                                <thead>
-                                  <tr className="border-b border-slate-200 dark:border-slate-800">
-                                    {["Product", t("quantity"), t("unitPrice"), "Remise", t("amount")].map((header) => (
-                                      <th
-                                        key={header}
-                                        className="pb-2 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400"
-                                      >
-                                        {header}
-                                      </th>
-                                    ))}
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                  {group.lines.map((line, index) => (
-                                    <tr key={index}>
-                                      <td className="py-2.5 font-medium text-slate-900 dark:text-white">
-                                        {line.productId?.name || "—"}
-                                      </td>
-                                      <td className="py-2.5 text-slate-600 dark:text-slate-300">
-                                        {line.quantity}
-                                      </td>
-                                      <td className="py-2.5 text-slate-600 dark:text-slate-300">
-                                        {line.unitPrice.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
-                                      </td>
-                                      <td className="py-2.5 text-slate-600 dark:text-slate-300">
-                                        {line.discount || 0}%
-                                      </td>
-                                      <td className="py-2.5 font-medium text-slate-900 dark:text-white">
-                                        {lineAmount(line).toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
+                              <span
+                                className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                                  group.prepared
+                                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                    : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                                }`}
+                              >
+                                {group.prepared ? "Prepared" : "Waiting depot"}
+                              </span>
                             </div>
-                          ))}
-                        </div>
+
+                            <div className="space-y-2">
+                              {group.lines.map((line, index) => (
+                                <div
+                                  key={`${group.depotName}-${index}`}
+                                  className="flex items-center justify-between rounded-2xl border border-slate-100 px-3 py-2 text-sm dark:border-slate-800"
+                                >
+                                  <div>
+                                    <p className="font-medium text-slate-900 dark:text-white">
+                                      {line.productId?.name || "Unknown product"}
+                                    </p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                      {line.productId?.sku || "—"}
+                                    </p>
+                                  </div>
+                                  <span className="font-semibold text-slate-900 dark:text-white">
+                                    {line.quantity}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+
+                            {group.preparedAt ? (
+                              <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                                Prepared {new Date(group.preparedAt).toLocaleString("fr-TN")}
+                                {group.preparedBy ? ` by ${group.preparedBy}` : ""}
+                              </p>
+                            ) : null}
+                          </div>
+                        ))}
                       </div>
                     ) : null}
                   </div>

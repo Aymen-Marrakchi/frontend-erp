@@ -11,6 +11,7 @@ export interface Customer {
   continent?: string;
   country?: string;
   state?: string;
+  mf?: string;
   notes?: string;
   totalOrderAmount?: number;
   active: boolean;

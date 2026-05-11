@@ -4,16 +4,15 @@ export type FinanceEntryType =
   | "PAYABLE_RECORDED"
   | "PAYABLE_PAYMENT"
   | "PAYABLE_CREDIT"
-  | "RECEIVABLE_RECORDED"
-  | "RECEIVABLE_PAYMENT"
-  | "REVENUE_RECOGNIZED"
-  | "INVOICE_LEGALIZED";
+  | "INVOICE_ISSUED"
+  | "REGLEMENT_RECU"
+  | "MANUAL_ENTRY";
 
 export interface FinanceEntry {
   _id: string;
   entryType: FinanceEntryType;
   direction: "INFLOW" | "OUTFLOW" | "NONE";
-  sourceModule: "PURCHASE" | "COMMERCIAL";
+  sourceModule: "PURCHASE" | "COMMERCIAL" | "FINANCE";
   sourceType: string;
   sourceId: string;
   reference: string;
@@ -47,7 +46,9 @@ export interface FinanceReceivable {
   status: "SHIPPED" | "DELIVERED" | "CLOSED";
   amount: number;
   invoiceNo?: string;
-  legalizationStatus?: "NON_LEGALISEE" | "LEGALISEE";
+  totalTtc?: number;
+  amountPaid?: number;
+  finalizedAt?: string | null;
   paymentStatus?: "NON_PAYEE" | "PARTIELLEMENT_PAYEE" | "PENDING_CHEQUE" | "PAYEE";
   paymentMethod?: "UNSET" | "ESPECE" | "CHEQUE" | "VIREMENT" | "KUMBIL";
   promisedDate: string | null;
@@ -110,7 +111,7 @@ export interface AccountingJournalEntry {
   sourceId: string;
   reference: string;
   entryType: FinanceEntryType;
-  sourceModule: "PURCHASE" | "COMMERCIAL";
+  sourceModule: "PURCHASE" | "COMMERCIAL" | "FINANCE";
   counterpartyName: string;
   occurredAt: string;
   notes: string;
@@ -137,6 +138,81 @@ export interface AccountingAccount {
   entries: AccountLedgerMovement[];
 }
 
+export interface ManualJournalEntryLine {
+  accountCode: string;
+  accountName: string;
+  side: "DEBIT" | "CREDIT";
+  amount: number;
+}
+
+export interface ManualJournalEntry {
+  _id: string;
+  reference: string;
+  description: string;
+  occurredAt: string;
+  lines: ManualJournalEntryLine[];
+  createdAt: string;
+}
+
+export interface TvaDeclarationResponse {
+  period: { year: number; month: number };
+  tvaCollectee: number;
+  tvaDeductible: number;
+  tvaNet: number;
+  fodecCollecte: number;
+  timbreADecaisser: number;
+  rsADecaisser: number;
+  salesRevenue: number;
+  purchasesHt: number;
+}
+
+export interface RsPayment {
+  _id: string;
+  paymentNo: string;
+  supplierName: string;
+  supplierNo: string;
+  invoiceNo: string;
+  amount: number;
+  rsRate: number;
+  rsAmount: number;
+  rsType: string;
+  method: string;
+  paymentDate: string | null;
+}
+
+export interface RsPaymentsResponse {
+  payments: RsPayment[];
+  totalRs: number;
+}
+
+export interface CalendarDay {
+  inflows: number;
+  outflows: number;
+  net: number;
+  inflowCount: number;
+  outflowCount: number;
+}
+
+export interface CalendarResponse {
+  year: number;
+  month: number;
+  days: Record<string, CalendarDay>;
+}
+
+export interface CompanySettings {
+  _id?: string;
+  companyName: string;
+  mf: string;
+  rne: string;
+  address: string;
+  phone: string;
+  email: string;
+  rib: string;
+  iban: string;
+  bank: string;
+  agence: string;
+}
+
 export interface FinanceReportsResponse {
   balanceSheet: {
     assets: {
@@ -147,7 +223,10 @@ export interface FinanceReportsResponse {
     };
     liabilities: {
       supplierPayables: number;
-      pendingLegalization: number;
+      tvaCollectee: number;
+      fodecCollecte: number;
+      timbreADecaisser: number;
+      rsADecaisser: number;
       total: number;
     };
   };
@@ -159,7 +238,17 @@ export interface FinanceReportsResponse {
     };
     expenses: {
       purchasesExpense: number;
+      fodecAchats: number;
+      timbreFiscal: number;
       total: number;
+    };
+    tax: {
+      tvaCollectee: number;
+      tvaDeductible: number;
+      tvaNet: number;
+      fodecCollecte: number;
+      timbreADecaisser: number;
+      rsADecaisser: number;
     };
     netResult: number;
   };
@@ -201,6 +290,41 @@ export const financeService = {
   },
   async getReports() {
     const { data } = await api.get<FinanceReportsResponse>("/finance/reports");
+    return data;
+  },
+  async updateInvoiceTej(id: string, payload: { tejReference?: string; tejStatus?: string; tejQrData?: string }) {
+    const { data } = await api.patch(`/finance/invoices/${id}/tej`, payload);
+    return data;
+  },
+  async getManualEntries() {
+    const { data } = await api.get<ManualJournalEntry[]>("/finance/manual-entries");
+    return data;
+  },
+  async createManualEntry(payload: { reference: string; description?: string; occurredAt?: string; lines: ManualJournalEntryLine[] }) {
+    const { data } = await api.post<ManualJournalEntry>("/finance/manual-entries", payload);
+    return data;
+  },
+  async deleteManualEntry(id: string) {
+    await api.delete(`/finance/manual-entries/${id}`);
+  },
+  async getTvaDeclaration(year: number, month: number) {
+    const { data } = await api.get<TvaDeclarationResponse>(`/finance/tva-declaration?year=${year}&month=${month}`);
+    return data;
+  },
+  async getRsPayments() {
+    const { data } = await api.get<RsPaymentsResponse>("/finance/rs");
+    return data;
+  },
+  async getCalendar(year: number, month: number) {
+    const { data } = await api.get<CalendarResponse>(`/finance/calendar?year=${year}&month=${month}`);
+    return data;
+  },
+  async getSettings() {
+    const { data } = await api.get<CompanySettings>("/finance/settings");
+    return data;
+  },
+  async updateSettings(payload: Partial<CompanySettings>) {
+    const { data } = await api.put<CompanySettings>("/finance/settings", payload);
     return data;
   },
 };
