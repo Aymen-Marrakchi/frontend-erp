@@ -61,6 +61,10 @@ function paymentStatusClass(status: CustomerInvoice["paymentStatus"]) {
   }
 }
 
+function roundAmount(value: number) {
+  return Math.round((value + Number.EPSILON) * 1000) / 1000;
+}
+
 export default function FinancePaymentsPage() {
   const [invoices, setInvoices] = useState<CustomerInvoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -70,16 +74,16 @@ export default function FinancePaymentsPage() {
   const [search, setSearch] = useState("");
 
   const [payOpen, setPayOpen] = useState(false);
-  const [kambyalOpen, setKambyalOpen] = useState(false);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState("");
 
   const [payAmount, setPayAmount] = useState("");
-  const [payMethod, setPayMethod] = useState<"ESPECE" | "CHEQUE" | "VIREMENT">("ESPECE");
+  const [payMethod, setPayMethod] = useState<"ESPECE" | "CHEQUE" | "VIREMENT" | "KUMBIL">("ESPECE");
   const [payReference, setPayReference] = useState("");
 
   const [kambyalCount, setKambyalCount] = useState("3");
-  const [kambyalMode, setKambyalMode] = useState("DAYS_30");
-  const [kambyalStartDate, setKambyalStartDate] = useState("");
+  const [kambyalDates, setKambyalDates] = useState<string[]>([]);
+
+  const today = new Date().toISOString().slice(0, 10);
 
   const load = useCallback(async () => {
     try {
@@ -88,7 +92,6 @@ export default function FinancePaymentsPage() {
       const data = await customerInvoiceService.getAll();
       const pending = data.filter(
         (invoice) =>
-          invoice.documentStage === "INVOICE" &&
           ["NON_PAYEE", "PARTIELLEMENT_PAYEE", "PENDING_CHEQUE"].includes(invoice.paymentStatus)
       );
       setInvoices(pending);
@@ -146,15 +149,24 @@ export default function FinancePaymentsPage() {
     setPayAmount(String(remainingAmount(invoice)));
     setPayMethod("ESPECE");
     setPayReference("");
+    setKambyalCount("3");
+    setKambyalDates([today, today, today]);
     setPayOpen(true);
   };
 
-  const openKambyal = (invoice: CustomerInvoice) => {
-    setSelectedInvoiceId(invoice._id);
-    setKambyalCount("3");
-    setKambyalMode("DAYS_30");
-    setKambyalStartDate(new Date().toISOString().slice(0, 10));
-    setKambyalOpen(true);
+  const handleKambyalCountChange = (val: string) => {
+    setKambyalCount(val);
+    const n = Math.max(1, Number(val || 1));
+    setKambyalDates((prev) => {
+      if (n > prev.length) {
+        return [...prev, ...Array(n - prev.length).fill(today)];
+      }
+      return prev.slice(0, n);
+    });
+  };
+
+  const updateKambyalDate = (index: number, val: string) => {
+    setKambyalDates((prev) => prev.map((d, i) => (i === index ? val : d)));
   };
 
   const savePay = async () => {
@@ -162,41 +174,38 @@ export default function FinancePaymentsPage() {
     try {
       setSaving(true);
       setError("");
-      const payload: Record<string, unknown> = {
-        method: payMethod,
-        amount: Number(payAmount),
-      };
-      if (payMethod !== "CHEQUE" && payReference.trim()) {
-        payload.reference = payReference.trim();
+
+      if (payMethod === "KUMBIL") {
+        const n = Math.max(1, Number(kambyalCount || 1));
+        const remaining = remainingAmount(selectedInvoice);
+        const base = roundAmount(remaining / n);
+        const amounts = Array.from({ length: n }, (_, i) =>
+          i === n - 1 ? roundAmount(remaining - base * (n - 1)) : base
+        );
+        await customerInvoiceService.configure(selectedInvoice._id, {
+          paymentMethod: "KUMBIL",
+          installmentPlan: {
+            mode: "CUSTOM",
+            dates: kambyalDates.slice(0, n),
+            amounts,
+            remainingOnly: true,
+          },
+        });
+      } else {
+        const payload: Record<string, unknown> = {
+          method: payMethod,
+          amount: Number(payAmount),
+        };
+        if (payMethod !== "CHEQUE" && payReference.trim()) {
+          payload.reference = payReference.trim();
+        }
+        await customerInvoiceService.registerPayment(selectedInvoice._id, payload);
       }
-      await customerInvoiceService.registerPayment(selectedInvoice._id, payload);
+
       setPayOpen(false);
       await load();
     } catch (err: unknown) {
       setError(getErrorMessage(err, "Failed to save règlement"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const saveKambyal = async () => {
-    if (!selectedInvoice) return;
-    try {
-      setSaving(true);
-      setError("");
-      await customerInvoiceService.configure(selectedInvoice._id, {
-        paymentMethod: "KUMBIL",
-        installmentPlan: {
-          mode: kambyalMode,
-          installmentsCount: Math.max(1, Number(kambyalCount || 1)),
-          startDate: new Date(kambyalStartDate || new Date()).toISOString(),
-          remainingOnly: true,
-        },
-      });
-      setKambyalOpen(false);
-      await load();
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, "Failed to create Kambyal plan"));
     } finally {
       setSaving(false);
     }
@@ -316,20 +325,13 @@ export default function FinancePaymentsPage() {
                         </span>
                       </div>
 
-                      <div className="flex flex-wrap items-center justify-end gap-2">
+                      <div className="flex items-center justify-end">
                         <button
                           onClick={() => openPay(invoice)}
                           className="inline-flex items-center gap-2 rounded-2xl bg-black px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-900"
                         >
                           <Wallet size={14} />
                           Régler
-                        </button>
-                        <button
-                          onClick={() => openKambyal(invoice)}
-                          className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                        >
-                          <CreditCard size={14} />
-                          Kambyal
                         </button>
                       </div>
                     </div>
@@ -425,7 +427,7 @@ export default function FinancePaymentsPage() {
 
         {payOpen && selectedInvoice ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-            <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+            <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900 max-h-[90vh] overflow-y-auto">
               <div className="mb-4 flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-semibold text-slate-950 dark:text-white">
@@ -464,42 +466,77 @@ export default function FinancePaymentsPage() {
                     className={inputClass}
                     value={payMethod}
                     onChange={(e) =>
-                      setPayMethod(e.target.value as "ESPECE" | "CHEQUE" | "VIREMENT")
+                      setPayMethod(e.target.value as "ESPECE" | "CHEQUE" | "VIREMENT" | "KUMBIL")
                     }
                   >
                     <option value="ESPECE">Espèces</option>
                     <option value="CHEQUE">Chèque</option>
                     <option value="VIREMENT">Virement bancaire</option>
+                    <option value="KUMBIL">Kumbil (traites)</option>
                   </select>
                 </label>
 
-                <label className="block text-sm">
-                  <span className="mb-1.5 block text-slate-600 dark:text-slate-300">Montant</span>
-                  <input
-                    className={inputClass}
-                    type="number"
-                    min="0"
-                    step="0.001"
-                    value={payAmount}
-                    onChange={(e) => setPayAmount(e.target.value)}
-                  />
-                </label>
+                {payMethod === "KUMBIL" ? (
+                  <>
+                    <label className="block text-sm">
+                      <span className="mb-1.5 block text-slate-600 dark:text-slate-300">
+                        Nombre de traites
+                      </span>
+                      <input
+                        className={inputClass}
+                        type="number"
+                        min="1"
+                        max="24"
+                        value={kambyalCount}
+                        onChange={(e) => handleKambyalCountChange(e.target.value)}
+                      />
+                    </label>
 
-                {payMethod === "CHEQUE" ? (
-                  <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
-                    La référence chèque sera générée automatiquement <strong>CHQ-XXXX</strong>. Le chèque sera encaissable après 8 jours.
-                  </div>
+                    {kambyalDates.slice(0, Math.max(1, Number(kambyalCount || 1))).map((date, i) => (
+                      <label key={i} className="block text-sm">
+                        <span className="mb-1.5 block text-slate-600 dark:text-slate-300">
+                          Date de départ {i + 1}
+                        </span>
+                        <input
+                          className={inputClass}
+                          type="date"
+                          value={date}
+                          onChange={(e) => updateKambyalDate(i, e.target.value)}
+                        />
+                      </label>
+                    ))}
+                  </>
                 ) : (
-                  <label className="block text-sm">
-                    <span className="mb-1.5 block text-slate-600 dark:text-slate-300">
-                      Référence
-                    </span>
-                    <input
-                      className={inputClass}
-                      value={payReference}
-                      onChange={(e) => setPayReference(e.target.value)}
-                    />
-                  </label>
+                  <>
+                    <label className="block text-sm">
+                      <span className="mb-1.5 block text-slate-600 dark:text-slate-300">Montant</span>
+                      <input
+                        className={inputClass}
+                        type="number"
+                        min="0"
+                        step="0.001"
+                        value={payAmount}
+                        onChange={(e) => setPayAmount(e.target.value)}
+                      />
+                    </label>
+
+                    {payMethod === "CHEQUE" ? (
+                      <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                        La référence chèque sera générée automatiquement <strong>CHQ-XXXX</strong>. Le chèque sera encaissable après 8 jours.
+                      </div>
+                    ) : (
+                      <label className="block text-sm">
+                        <span className="mb-1.5 block text-slate-600 dark:text-slate-300">
+                          Référence
+                        </span>
+                        <input
+                          className={inputClass}
+                          value={payReference}
+                          onChange={(e) => setPayReference(e.target.value)}
+                        />
+                      </label>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -512,91 +549,10 @@ export default function FinancePaymentsPage() {
                 </button>
                 <button
                   onClick={savePay}
-                  disabled={saving || !payAmount}
+                  disabled={saving || (payMethod !== "KUMBIL" && !payAmount)}
                   className="rounded-2xl bg-black px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
                 >
                   {saving ? "Enregistrement..." : "Enregistrer"}
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {kambyalOpen && selectedInvoice ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-            <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-950 dark:text-white">
-                    Plan Kambyal
-                  </h3>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">
-                    {selectedInvoice.invoiceNo} · {selectedInvoice.customerName}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setKambyalOpen(false)}
-                  className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <label className="block text-sm">
-                  <span className="mb-1.5 block text-slate-600 dark:text-slate-300">
-                    Nombre de traites
-                  </span>
-                  <input
-                    className={inputClass}
-                    type="number"
-                    min="1"
-                    value={kambyalCount}
-                    onChange={(e) => setKambyalCount(e.target.value)}
-                  />
-                </label>
-
-                <label className="block text-sm">
-                  <span className="mb-1.5 block text-slate-600 dark:text-slate-300">
-                    Périodicité
-                  </span>
-                  <select
-                    className={inputClass}
-                    value={kambyalMode}
-                    onChange={(e) => setKambyalMode(e.target.value)}
-                  >
-                    <option value="DAYS_30">30 jours</option>
-                    <option value="DAYS_60">60 jours</option>
-                    <option value="DAYS_90">90 jours</option>
-                  </select>
-                </label>
-
-                <label className="block text-sm">
-                  <span className="mb-1.5 block text-slate-600 dark:text-slate-300">
-                    Date de départ
-                  </span>
-                  <input
-                    className={inputClass}
-                    type="date"
-                    value={kambyalStartDate}
-                    onChange={(e) => setKambyalStartDate(e.target.value)}
-                  />
-                </label>
-              </div>
-
-              <div className="mt-6 flex justify-end gap-3">
-                <button
-                  onClick={() => setKambyalOpen(false)}
-                  className="rounded-2xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 dark:border-slate-700 dark:text-slate-200"
-                >
-                  Annuler
-                </button>
-                <button
-                  onClick={saveKambyal}
-                  disabled={saving}
-                  className="rounded-2xl bg-black px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
-                >
-                  {saving ? "Enregistrement..." : "Créer"}
                 </button>
               </div>
             </div>

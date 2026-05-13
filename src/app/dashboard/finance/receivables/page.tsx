@@ -4,7 +4,8 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import { customerInvoiceService, type CustomerInvoice } from "@/services/commercial/customerInvoiceService";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { financeService, type CompanySettings } from "@/services/finance/financeService";
-import { FileText, Loader2, Printer, Search, X, BadgeCheck, Clock, AlertCircle, CircleDashed } from "lucide-react";
+import { FileText, Loader2, Plus, Printer, Search, X, BadgeCheck, Clock, AlertCircle, CircleDashed } from "lucide-react";
+import { devisService, type Devis } from "@/services/commercial/devisService";
 
 const surface =
   "rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900";
@@ -32,61 +33,6 @@ function getErrorMessage(err: unknown, fallback: string) {
 
 function roundAmount(value: number) {
   return Math.round((Number(value || 0) + Number.EPSILON) * 1000) / 1000;
-}
-
-function buildInvoicePreview(
-  quotation: CustomerInvoice | null,
-  pricingMode: "HT_BASED" | "TTC_BASED"
-) {
-  if (!quotation) {
-    return {
-      subtotalHt: 0,
-      totalVat: 0,
-      totalFodec: 0,
-      totalBeforeStamp: 0,
-      timbreFiscal: 1,
-      totalTtc: 1,
-    };
-  }
-
-  const applyTva = quotation.applyTva ?? true;
-  const applyFodec = quotation.applyFodec ?? true;
-  const tvaRate = applyTva ? Number(quotation.tvaRate || 19) : 0;
-  const fodecRate = applyFodec ? Number(quotation.fodecRate || 1) : 0;
-  const timbreFiscal = roundAmount(Number(quotation.timbreFiscal || 1));
-  const multiplier = 1 + tvaRate / 100 + fodecRate / 100;
-
-  const totals = quotation.lines.reduce(
-    (acc, line) => {
-      const quantity = Number(line.quantity || 0);
-      const inputUnitPrice = roundAmount(Number(line.inputUnitPrice || 0));
-      const baseUnitHt =
-        pricingMode === "TTC_BASED"
-          ? roundAmount(multiplier > 0 ? inputUnitPrice / multiplier : inputUnitPrice)
-          : inputUnitPrice;
-      const subtotalHt = roundAmount(baseUnitHt * quantity);
-      const totalVat = roundAmount(subtotalHt * (tvaRate / 100));
-      const totalFodec = roundAmount(subtotalHt * (fodecRate / 100));
-      const totalBeforeStamp =
-        pricingMode === "TTC_BASED"
-          ? roundAmount(inputUnitPrice * quantity)
-          : roundAmount(subtotalHt + totalVat + totalFodec);
-
-      return {
-        subtotalHt: roundAmount(acc.subtotalHt + subtotalHt),
-        totalVat: roundAmount(acc.totalVat + totalVat),
-        totalFodec: roundAmount(acc.totalFodec + totalFodec),
-        totalBeforeStamp: roundAmount(acc.totalBeforeStamp + totalBeforeStamp),
-      };
-    },
-    { subtotalHt: 0, totalVat: 0, totalFodec: 0, totalBeforeStamp: 0 }
-  );
-
-  return {
-    ...totals,
-    timbreFiscal,
-    totalTtc: roundAmount(totals.totalBeforeStamp + timbreFiscal),
-  };
 }
 
 // ─── Montant en lettres (French, TND) ────────────────────────────────────────
@@ -352,20 +298,17 @@ function openInvoiceDocument(invoice: CustomerInvoice, settings: CompanySettings
 
 export default function FinanceReceivablesPage() {
   const [invoices, setInvoices] = useState<CustomerInvoice[]>([]);
-  const [quotations, setQuotations] = useState<CustomerInvoice[]>([]);
-  const [selectedId, setSelectedId] = useState("");
-  const [createSelectedId, setCreateSelectedId] = useState("");
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+
   const [createOpen, setCreateOpen] = useState(false);
+  const [acceptedDevis, setAcceptedDevis] = useState<Devis[]>([]);
+  const [selectedDevisId, setSelectedDevisId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const settingsRef = useRef<CompanySettings | null>(null);
 
   const [typeFilter, setTypeFilter] = useState<"CLIENT" | "SUPPLIER">("CLIENT");
-  const [invoiceType, setInvoiceType] = useState<"CLIENT" | "SUPPLIER">("CLIENT");
-  const [pricingMode, setPricingMode] = useState<"HT_BASED" | "TTC_BASED">("HT_BASED");
-  const [dueDate, setDueDate] = useState("");
 
   const [tejOpen, setTejOpen] = useState(false);
   const [tejInvoice, setTejInvoice] = useState<CustomerInvoice | null>(null);
@@ -381,20 +324,7 @@ export default function FinanceReceivablesPage() {
         financeService.getSettings().then((s) => { settingsRef.current = s; }).catch(() => {});
       }
       const data = await customerInvoiceService.getAll();
-      const invoiceData = data.filter((doc) => doc.documentStage === "INVOICE");
-      const quotationData = data.filter(
-        (doc) =>
-          doc.documentStage === "QUOTATION" &&
-          doc.quotationStatus === "ACCEPTED"
-      );
-      setInvoices(invoiceData);
-      setQuotations(quotationData);
-      setSelectedId((current) =>
-        invoiceData.some((doc) => doc._id === current) ? current : invoiceData[0]?._id || ""
-      );
-      setCreateSelectedId((current) =>
-        quotationData.some((doc) => doc._id === current) ? current : quotationData[0]?._id || ""
-      );
+      setInvoices(data);
     } catch (err: unknown) {
       setError(getErrorMessage(err, "Failed to load receivables"));
     } finally {
@@ -406,6 +336,7 @@ export default function FinanceReceivablesPage() {
     load();
   }, [load]);
 
+
   const filteredInvoices = useMemo(() => {
     const query = search.toLowerCase();
     return invoices.filter((doc) =>
@@ -416,53 +347,7 @@ export default function FinanceReceivablesPage() {
     );
   }, [invoices, search]);
 
-  const selectedInvoice = useMemo(
-    () => filteredInvoices.find((doc) => doc._id === selectedId) || filteredInvoices[0] || null,
-    [filteredInvoices, selectedId]
-  );
 
-  const createSelectedQuotation = useMemo(
-    () => quotations.find((doc) => doc._id === createSelectedId) || quotations[0] || null,
-    [quotations, createSelectedId]
-  );
-
-  const invoicePreview = useMemo(
-    () => buildInvoicePreview(createSelectedQuotation, pricingMode),
-    [createSelectedQuotation, pricingMode]
-  );
-
-  useEffect(() => {
-    if (!createSelectedQuotation) return;
-    setDueDate(
-      createSelectedQuotation.dueDate
-        ? new Date(createSelectedQuotation.dueDate).toISOString().slice(0, 10)
-        : new Date().toISOString().slice(0, 10)
-    );
-  }, [createSelectedQuotation]);
-
-  const openCreate = () => {
-    setCreateSelectedId(quotations[0]?._id || "");
-    setCreateOpen(true);
-  };
-
-  const createInvoice = async () => {
-    if (!createSelectedQuotation) return;
-    try {
-      setSaving(true);
-      setError("");
-      await customerInvoiceService.finalize(createSelectedQuotation._id, {
-        invoiceType,
-        pricingMode,
-        dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
-      });
-      setCreateOpen(false);
-      await load();
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, "Failed to create invoice"));
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const openTej = (invoice: CustomerInvoice) => {
     setTejInvoice(invoice);
@@ -488,6 +373,44 @@ export default function FinanceReceivablesPage() {
     }
   };
 
+  const openCreateModal = async () => {
+    try {
+      setError("");
+      const [allDevis, existingInvoices] = await Promise.all([
+        devisService.getAll(),
+        customerInvoiceService.getAll(),
+      ]);
+      const invoicedOrderIds = new Set(
+        existingInvoices.map((inv) => inv.salesOrderId?._id || (inv.salesOrderId as unknown as string))
+      );
+      const available = allDevis.filter(
+        (d) =>
+          d.status === "ACCEPTED" &&
+          !invoicedOrderIds.has(d.salesOrderId?._id || (d.salesOrderId as unknown as string))
+      );
+      setAcceptedDevis(available);
+      setSelectedDevisId(null);
+      setCreateOpen(true);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Échec du chargement des devis acceptés"));
+    }
+  };
+
+  const handleCreateInvoice = async () => {
+    if (!selectedDevisId) return;
+    try {
+      setCreating(true);
+      setError("");
+      await devisService.createInvoice(selectedDevisId);
+      setCreateOpen(false);
+      await load();
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Échec de la création de la facture"));
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const tejBadge = (inv: CustomerInvoice) => {
     const s = inv.tejStatus || "NOT_SUBMITTED";
     if (s === "VALIDATED") return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400"><BadgeCheck size={10} />TEJ ✓</span>;
@@ -499,22 +422,21 @@ export default function FinanceReceivablesPage() {
   return (
     <ProtectedRoute allowedRoles={["ADMIN", "FINANCE_MANAGER"]}>
       <div className="space-y-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
               Créances clients
             </h1>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Consultez les factures émises et créez-en de nouvelles depuis les devis acceptés livrés.
+              Factures émises à partir des devis acceptés.
             </p>
           </div>
-
           <button
-            onClick={openCreate}
-            disabled={saving}
-            className="inline-flex items-center justify-center rounded-2xl border border-black bg-black px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-900 disabled:opacity-60"
+            onClick={openCreateModal}
+            className="inline-flex shrink-0 items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"
           >
-            Émettre une facture
+            <Plus size={15} />
+            Créer la facture
           </button>
         </div>
 
@@ -575,14 +497,10 @@ export default function FinanceReceivablesPage() {
             ) : (
               <div className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filteredInvoices.filter((inv) => (inv.invoiceType || "CLIENT") === typeFilter).map((invoice) => {
-                  const selected = selectedInvoice?._id === invoice._id;
                   return (
                     <div
                       key={invoice._id}
-                      onClick={() => setSelectedId(invoice._id)}
-                      className={`grid gap-3 px-6 py-4 transition hover:bg-slate-50 dark:hover:bg-slate-800/40 md:grid-cols-[1.2fr_1fr_0.8fr_auto] ${
-                        selected ? "bg-slate-50 dark:bg-slate-800/40" : ""
-                      } cursor-pointer`}
+                      className="grid gap-3 px-6 py-4 md:grid-cols-[1.2fr_1fr_0.8fr_auto]"
                     >
                       <div>
                         <p className="font-medium text-slate-900 dark:text-white">
@@ -607,24 +525,10 @@ export default function FinanceReceivablesPage() {
                           <div className="mt-1 flex justify-end">{tejBadge(invoice)}</div>
                         )}
                       </div>
-                      <div className="flex items-center justify-end gap-2">
-                        {invoice.invoiceType === "SUPPLIER" && (
-                          <button
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              openTej(invoice);
-                            }}
-                            className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                          >
-                            TEJ
-                          </button>
-                        )}
+                      <div className="flex items-center justify-end">
                         <button
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openInvoiceDocument(invoice, settingsRef.current);
-                          }}
-                          className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                          onClick={(e) => { e.stopPropagation(); openInvoiceDocument(invoice, settingsRef.current); }}
+                          className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                         >
                           <Printer size={14} />
                           Imprimer
@@ -637,207 +541,6 @@ export default function FinanceReceivablesPage() {
             )}
           </div>
         )}
-
-        {createOpen ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-            <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-950 dark:text-white">
-                    Émettre une facture
-                  </h3>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">
-                    Sélectionnez le devis accepté et la base de tarification.
-                  </p>
-                </div>
-                <button
-                  onClick={() => setCreateOpen(false)}
-                  className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <label className="block text-sm">
-                  <span className="mb-1.5 block text-slate-600 dark:text-slate-300">
-                    Type de facture
-                  </span>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(["CLIENT", "SUPPLIER"] as const).map((t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        onClick={() => setInvoiceType(t)}
-                        className={`rounded-2xl border px-4 py-2.5 text-sm font-medium transition ${
-                          invoiceType === t
-                            ? "border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-950"
-                            : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                        }`}
-                      >
-                        {t === "CLIENT" ? "Facture Client" : "Facture Fournisseur"}
-                      </button>
-                    ))}
-                  </div>
-                  {invoiceType === "SUPPLIER" && (
-                    <p className="mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">
-                      ⚡ TEJ e-facturation activé pour cette facture
-                    </p>
-                  )}
-                </label>
-
-                <label className="block text-sm">
-                  <span className="mb-1.5 block text-slate-600 dark:text-slate-300">
-                    Devis
-                  </span>
-                  <select
-                    className={inputClass}
-                    value={createSelectedQuotation?._id || ""}
-                    onChange={(e) => setCreateSelectedId(e.target.value)}
-                  >
-                    {quotations.map((quotation) => (
-                      <option key={quotation._id} value={quotation._id}>
-                        {quotation.invoiceNo} - {quotation.salesOrderId?.orderNo || "-"} -{" "}
-                        {quotation.customerName}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                {createSelectedQuotation ? (
-                  <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm dark:border-slate-800 dark:bg-slate-950">
-                    <p className="font-medium text-slate-900 dark:text-white">
-                      {createSelectedQuotation.customerName}
-                    </p>
-                    <p className="text-slate-500 dark:text-slate-400">
-                      Commande : {createSelectedQuotation.salesOrderId?.orderNo || "-"}
-                    </p>
-                    <p className="text-slate-500 dark:text-slate-400">
-                      Statut commande : {createSelectedQuotation.salesOrderId?.status || "-"}
-                    </p>
-                    <p className="mt-2 text-slate-500 dark:text-slate-400">
-                      Montant :{" "}
-                      {createSelectedQuotation.totalTtc.toLocaleString("fr-TN", {
-                        minimumFractionDigits: 3,
-                      })}{" "}
-                      TND
-                    </p>
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-5 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                    Aucun devis accepté et livré disponible.
-                  </div>
-                )}
-
-                <label className="block text-sm">
-                  <span className="mb-1.5 block text-slate-600 dark:text-slate-300">
-                    Base de tarification
-                  </span>
-                  <select
-                    className={inputClass}
-                    value={pricingMode}
-                    onChange={(e) => setPricingMode(e.target.value as "HT_BASED" | "TTC_BASED")}
-                  >
-                    <option value="HT_BASED">HT — prix hors taxes</option>
-                    <option value="TTC_BASED">TTC — prix avant timbre</option>
-                  </select>
-                </label>
-
-                <label className="block text-sm">
-                  <span className="mb-1.5 block text-slate-600 dark:text-slate-300">Date d'échéance</span>
-                  <input
-                    className={inputClass}
-                    type="date"
-                    value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
-                  />
-                </label>
-
-                <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
-                  <p>TVA: 19%</p>
-                  <p>FODEC: 1%</p>
-                  <p>Timbre Fiscal: 1 TND</p>
-                </div>
-
-                <div className="rounded-2xl border border-slate-100 bg-white px-4 py-4 text-sm dark:border-slate-800 dark:bg-slate-950">
-                  <p className="mb-3 font-medium text-slate-900 dark:text-white">Aperçu de la facture</p>
-                  <div className="space-y-2 text-slate-600 dark:text-slate-300">
-                    <div className="flex items-center justify-between">
-                      <span>Sous-total HT</span>
-                      <span className="font-medium text-slate-900 dark:text-white">
-                        {invoicePreview.subtotalHt.toLocaleString("fr-TN", {
-                          minimumFractionDigits: 3,
-                        })}{" "}
-                        TND
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span>TVA</span>
-                      <span className="font-medium text-slate-900 dark:text-white">
-                        {invoicePreview.totalVat.toLocaleString("fr-TN", {
-                          minimumFractionDigits: 3,
-                        })}{" "}
-                        TND
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span>FODEC</span>
-                      <span className="font-medium text-slate-900 dark:text-white">
-                        {invoicePreview.totalFodec.toLocaleString("fr-TN", {
-                          minimumFractionDigits: 3,
-                        })}{" "}
-                        TND
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span>Avant timbre</span>
-                      <span className="font-medium text-slate-900 dark:text-white">
-                        {invoicePreview.totalBeforeStamp.toLocaleString("fr-TN", {
-                          minimumFractionDigits: 3,
-                        })}{" "}
-                        TND
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span>Timbre fiscal</span>
-                      <span className="font-medium text-slate-900 dark:text-white">
-                        {invoicePreview.timbreFiscal.toLocaleString("fr-TN", {
-                          minimumFractionDigits: 3,
-                        })}{" "}
-                        TND
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-base dark:border-slate-800">
-                      <span className="font-semibold text-slate-900 dark:text-white">Total TTC</span>
-                      <span className="font-semibold text-slate-900 dark:text-white">
-                        {invoicePreview.totalTtc.toLocaleString("fr-TN", {
-                          minimumFractionDigits: 3,
-                        })}{" "}
-                        TND
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-6 flex justify-end gap-3">
-                <button
-                  onClick={() => setCreateOpen(false)}
-                  className="rounded-2xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 dark:border-slate-700 dark:text-slate-200"
-                >
-                  Annuler
-                </button>
-                <button
-                  onClick={createInvoice}
-                  disabled={saving || !createSelectedQuotation}
-                  className="rounded-2xl border border-black bg-black px-4 py-2.5 text-sm font-medium text-white shadow-sm disabled:opacity-60"
-                >
-                  {saving ? "Enregistrement..." : "Émettre"}
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
 
         {tejOpen ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
@@ -892,6 +595,74 @@ export default function FinanceReceivablesPage() {
             </div>
           </div>
         ) : null}
+
+        {createOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+            <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold text-slate-950 dark:text-white">Créer une facture</h3>
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    Sélectionnez un devis accepté à convertir en facture.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setCreateOpen(false)}
+                  className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {acceptedDevis.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10">
+                  <FileText size={28} className="mb-2 text-slate-300 dark:text-slate-700" />
+                  <p className="text-sm text-slate-400 dark:text-slate-500">
+                    Aucun devis accepté disponible
+                  </p>
+                </div>
+              ) : (
+                <div className="max-h-72 space-y-2 overflow-y-auto">
+                  {acceptedDevis.map((d) => (
+                    <button
+                      key={d._id}
+                      onClick={() => setSelectedDevisId(d._id)}
+                      className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                        selectedDevisId === d._id
+                          ? "border-slate-950 bg-slate-950 text-white dark:border-white dark:bg-white dark:text-slate-950"
+                          : "border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+                      }`}
+                    >
+                      <p className={`text-sm font-semibold ${selectedDevisId === d._id ? "text-white dark:text-slate-950" : "text-slate-900 dark:text-white"}`}>
+                        {d.devisNo}
+                      </p>
+                      <p className={`mt-0.5 text-xs ${selectedDevisId === d._id ? "text-slate-300 dark:text-slate-600" : "text-slate-500 dark:text-slate-400"}`}>
+                        {d.salesOrderId?.orderNo || "—"} · {d.customerName} · {d.totalTtc.toLocaleString("fr-TN", { minimumFractionDigits: 3 })} TND
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-5 flex justify-end gap-3">
+                <button
+                  onClick={() => setCreateOpen(false)}
+                  className="rounded-2xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 dark:border-slate-700 dark:text-slate-200"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={handleCreateInvoice}
+                  disabled={!selectedDevisId || creating}
+                  className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-slate-950"
+                >
+                  {creating && <Loader2 size={13} className="animate-spin" />}
+                  Créer la facture
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </ProtectedRoute>
   );

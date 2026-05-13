@@ -79,6 +79,7 @@ export interface CreateSalesOrderPayload {
   customerName?: string;
   notes?: string;
   promisedDate?: string;
+  pricingMode?: "HT_BASED" | "TTC_BASED";
   lines: SalesOrderLinePayload[];
 }
 

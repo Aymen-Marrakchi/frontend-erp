@@ -56,7 +56,6 @@ export default function CommercialInvoicesPage() {
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return invoices
-      .filter((invoice) => invoice.documentStage === "INVOICE")
       .filter((invoice) =>
         [invoice.invoiceNo, invoice.customerName, invoice.salesOrderId?.orderNo || ""]
           .join(" ")

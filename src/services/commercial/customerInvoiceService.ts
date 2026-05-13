@@ -42,8 +42,6 @@ export interface CustomerInvoiceSettlementSplit {
 export interface CustomerInvoice {
   _id: string;
   invoiceNo: string;
-  documentStage: "QUOTATION" | "INVOICE";
-  quotationStatus: "PENDING" | "SENT" | "ACCEPTED" | "REJECTED" | "CANCELLED";
   salesOrderId?: { _id: string; orderNo: string; status: string } | null;
   customerId?: { _id: string; name: string; email?: string } | null;
   customerName: string;
@@ -99,16 +97,8 @@ export const customerInvoiceService = {
   getAll: async (): Promise<CustomerInvoice[]> => (await api.get("/commercial/invoices")).data,
   getById: async (id: string): Promise<CustomerInvoice> =>
     (await api.get(`/commercial/invoices/${id}`)).data,
-  deleteById: async (id: string): Promise<{ success: boolean }> =>
-    (await api.delete(`/commercial/invoices/${id}`)).data,
-  cancelQuotation: async (id: string, payload: Record<string, unknown> = {}): Promise<CustomerInvoice> =>
-    (await api.post(`/commercial/invoices/${id}/cancel`, payload)).data,
   getByOrderId: async (orderId: string): Promise<CustomerInvoice> =>
     (await api.get(`/commercial/invoices/by-order/${orderId}`)).data,
-  createFromOrder: async (
-    orderId: string,
-    payload: Record<string, unknown>
-  ): Promise<CustomerInvoice> => (await api.post(`/commercial/invoices/from-order/${orderId}`, payload)).data,
   configure: async (
     id: string,
     payload: Record<string, unknown>
@@ -125,10 +115,4 @@ export const customerInvoiceService = {
     (await api.post(`/commercial/invoices/${id}/remind`, payload)).data,
   clearCheque: async (id: string, paymentId: string): Promise<CustomerInvoice> =>
     (await api.post(`/commercial/invoices/${id}/clear-cheque`, { paymentId })).data,
-  markAsSent: async (id: string): Promise<CustomerInvoice> =>
-    (await api.post(`/commercial/invoices/${id}/mark-sent`, {})).data,
-  accept: async (id: string): Promise<CustomerInvoice> =>
-    (await api.post(`/commercial/invoices/${id}/accept`, {})).data,
-  reject: async (id: string, note?: string): Promise<CustomerInvoice> =>
-    (await api.post(`/commercial/invoices/${id}/reject`, note ? { note } : {})).data,
 };
