@@ -2,6 +2,7 @@
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { customerInvoiceService, type CustomerInvoice, type CustomerInvoicePayment } from "@/services/commercial/customerInvoiceService";
+import { useLanguage } from "@/context/LanguageContext";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCheck, CreditCard, Loader2, Search, Wallet, X } from "lucide-react";
 
@@ -33,21 +34,6 @@ function remainingAmount(invoice: CustomerInvoice) {
   return Math.max(0, Number(invoice.totalTtc || 0) - Number(invoice.amountPaid || 0));
 }
 
-function paymentStatusLabel(status: CustomerInvoice["paymentStatus"]) {
-  switch (status) {
-    case "NON_PAYEE":
-      return "Non payée";
-    case "PARTIELLEMENT_PAYEE":
-      return "Partiellement payée";
-    case "PENDING_CHEQUE":
-      return "Chèque en attente";
-    case "PAYEE":
-      return "Payée";
-    default:
-      return status;
-  }
-}
-
 function paymentStatusClass(status: CustomerInvoice["paymentStatus"]) {
   switch (status) {
     case "NON_PAYEE":
@@ -66,6 +52,18 @@ function roundAmount(value: number) {
 }
 
 export default function FinancePaymentsPage() {
+  const { t } = useLanguage();
+
+  function paymentStatusLabel(status: CustomerInvoice["paymentStatus"]) {
+    switch (status) {
+      case "NON_PAYEE": return t("fin_notPaid");
+      case "PARTIELLEMENT_PAYEE": return t("fin_partialPaid");
+      case "PENDING_CHEQUE": return t("fin_chequeSubmitted");
+      case "PAYEE": return t("fin_paid");
+      default: return status;
+    }
+  }
+
   const [invoices, setInvoices] = useState<CustomerInvoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -81,9 +79,20 @@ export default function FinancePaymentsPage() {
   const [payReference, setPayReference] = useState("");
 
   const [kambyalCount, setKambyalCount] = useState("3");
+  const [kambyalInterval, setKambyalInterval] = useState("0");
   const [kambyalDates, setKambyalDates] = useState<string[]>([]);
+  const [kambyalDepart, setKambyalDepart] = useState("");
 
   const today = new Date().toISOString().slice(0, 10);
+
+  const addDaysToDate = (dateStr: string, days: number): string => {
+    const d = new Date(dateStr + "T12:00:00");
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const buildEcheancesFromDepart = (depart: string, n: number, intervalDays: number): string[] =>
+    Array.from({ length: n }, (_, i) => addDaysToDate(depart, intervalDays * (i + 1)));
 
   const load = useCallback(async () => {
     try {
@@ -92,15 +101,16 @@ export default function FinancePaymentsPage() {
       const data = await customerInvoiceService.getAll();
       const pending = data.filter(
         (invoice) =>
-          ["NON_PAYEE", "PARTIELLEMENT_PAYEE", "PENDING_CHEQUE"].includes(invoice.paymentStatus)
+          ["NON_PAYEE", "PARTIELLEMENT_PAYEE", "PENDING_CHEQUE"].includes(invoice.paymentStatus) &&
+          invoice.paymentMethod !== "KUMBIL"
       );
       setInvoices(pending);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Failed to load règlements"));
+      setError(getErrorMessage(err, t("fin_failed")));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -150,6 +160,8 @@ export default function FinancePaymentsPage() {
     setPayMethod("ESPECE");
     setPayReference("");
     setKambyalCount("3");
+    setKambyalInterval("0");
+    setKambyalDepart(today);
     setKambyalDates([today, today, today]);
     setPayOpen(true);
   };
@@ -157,12 +169,33 @@ export default function FinancePaymentsPage() {
   const handleKambyalCountChange = (val: string) => {
     setKambyalCount(val);
     const n = Math.max(1, Number(val || 1));
-    setKambyalDates((prev) => {
-      if (n > prev.length) {
-        return [...prev, ...Array(n - prev.length).fill(today)];
-      }
-      return prev.slice(0, n);
-    });
+    const interval = Number(kambyalInterval) || 0;
+    if (interval > 0) {
+      setKambyalDates(buildEcheancesFromDepart(kambyalDepart || today, n, interval));
+    } else {
+      setKambyalDates((prev) => {
+        if (n > prev.length) return [...prev, ...Array(n - prev.length).fill(today)];
+        return prev.slice(0, n);
+      });
+    }
+  };
+
+  const handleKambyalIntervalChange = (val: string) => {
+    setKambyalInterval(val);
+    const interval = Number(val) || 0;
+    const n = Math.max(1, Number(kambyalCount || 1));
+    if (interval > 0) {
+      setKambyalDates(buildEcheancesFromDepart(kambyalDepart || today, n, interval));
+    }
+  };
+
+  const handleKambyalDepartChange = (val: string) => {
+    setKambyalDepart(val);
+    const interval = Number(kambyalInterval) || 0;
+    const n = Math.max(1, Number(kambyalCount || 1));
+    if (interval > 0) {
+      setKambyalDates(buildEcheancesFromDepart(val, n, interval));
+    }
   };
 
   const updateKambyalDate = (index: number, val: string) => {
@@ -186,7 +219,7 @@ export default function FinancePaymentsPage() {
           paymentMethod: "KUMBIL",
           installmentPlan: {
             mode: "CUSTOM",
-            dates: kambyalDates.slice(0, n),
+            dates: kambyalDates.slice(0, n).map((d) => new Date(d + "T12:00:00").toISOString()),
             amounts,
             remainingOnly: true,
           },
@@ -205,7 +238,7 @@ export default function FinancePaymentsPage() {
       setPayOpen(false);
       await load();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Failed to save règlement"));
+      setError(getErrorMessage(err, t("fin_failed")));
     } finally {
       setSaving(false);
     }
@@ -219,7 +252,7 @@ export default function FinancePaymentsPage() {
       await customerInvoiceService.clearCheque(invoice._id, payment._id);
       await load();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Failed to clear cheque"));
+      setError(getErrorMessage(err, t("fin_failed")));
     } finally {
       setClearingId(null);
     }
@@ -230,10 +263,10 @@ export default function FinancePaymentsPage() {
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-            Règlements
+            {t("fin_paymentsTitle")}
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Enregistrez les règlements clients et encaissez les chèques après le délai de 8 jours.
+            {t("fin_paymentsSubtitle")}
           </p>
         </div>
 
@@ -248,7 +281,7 @@ export default function FinancePaymentsPage() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Rechercher par facture, commande ou client..."
+            placeholder={t("fin_kumbilSearch")}
             className="flex-1 bg-transparent text-sm text-slate-900 placeholder-slate-400 outline-none dark:text-white"
           />
         </div>
@@ -256,7 +289,7 @@ export default function FinancePaymentsPage() {
         {loading ? (
           <div className={`${surface} flex items-center justify-center gap-2 py-16 text-sm text-slate-500 dark:text-slate-400`}>
             <Loader2 size={16} className="animate-spin" />
-            Chargement...
+            {t("fin_loading")}
           </div>
         ) : (
           <>
@@ -264,10 +297,10 @@ export default function FinancePaymentsPage() {
             <div className={`${surface} overflow-hidden`}>
               <div className="border-b border-slate-200 px-6 py-5 dark:border-slate-800">
                 <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
-                  Factures à régler
+                  {t("fin_invoicesToSettle")}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  Factures non payées ou partiellement payées.
+                  {t("fin_unpaidInvoicesDesc")}
                 </p>
               </div>
 
@@ -275,7 +308,7 @@ export default function FinancePaymentsPage() {
                 <div className="flex flex-col items-center justify-center py-16">
                   <CreditCard size={32} className="mb-3 text-slate-300 dark:text-slate-700" />
                   <p className="text-sm text-slate-400 dark:text-slate-500">
-                    Aucune facture impayée
+                    {t("fin_noUnpaid")}
                   </p>
                 </div>
               ) : (
@@ -296,21 +329,21 @@ export default function FinancePaymentsPage() {
 
                       <div className="text-sm text-slate-500 dark:text-slate-400">
                         <p>
-                          Total:{" "}
+                          {t("fin_totalLabel")}{" "}
                           <span className="font-medium text-slate-900 dark:text-white">
                             {invoice.totalTtc.toLocaleString("fr-TN", {
                               minimumFractionDigits: 3,
                             })}{" "}
-                            TND
+                            {t("fin_tnd")}
                           </span>
                         </p>
                         <p>
-                          Restant:{" "}
+                          {t("fin_remainingLabel")}{" "}
                           <span className="font-medium text-slate-900 dark:text-white">
                             {remainingAmount(invoice).toLocaleString("fr-TN", {
                               minimumFractionDigits: 3,
                             })}{" "}
-                            TND
+                            {t("fin_tnd")}
                           </span>
                         </p>
                       </div>
@@ -331,7 +364,7 @@ export default function FinancePaymentsPage() {
                           className="inline-flex items-center gap-2 rounded-2xl bg-black px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-900"
                         >
                           <Wallet size={14} />
-                          Régler
+                          {t("fin_settle")}
                         </button>
                       </div>
                     </div>
@@ -344,10 +377,10 @@ export default function FinancePaymentsPage() {
             <div className={`${surface} overflow-hidden`}>
               <div className="border-b border-slate-200 px-6 py-5 dark:border-slate-800">
                 <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
-                  Chèques en attente d'encaissement
+                  {t("fin_pendingCheques")}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  Chèques reçus, encaissables après le délai de compensation de 8 jours.
+                  {t("fin_pendingChequesDesc")}
                 </p>
               </div>
 
@@ -355,7 +388,7 @@ export default function FinancePaymentsPage() {
                 <div className="flex flex-col items-center justify-center py-16">
                   <CheckCheck size={32} className="mb-3 text-slate-300 dark:text-slate-700" />
                   <p className="text-sm text-slate-400 dark:text-slate-500">
-                    Aucun chèque en attente
+                    {t("fin_noPendingCheques")}
                   </p>
                 </div>
               ) : (
@@ -390,15 +423,15 @@ export default function FinancePaymentsPage() {
                                     {Number(payment.amount).toLocaleString("fr-TN", {
                                       minimumFractionDigits: 3,
                                     })}{" "}
-                                    TND
+                                    {t("fin_tnd")}
                                   </p>
                                   {dueDate ? (
                                     <p className="mt-0.5 text-slate-500 dark:text-slate-400">
-                                      Encaissable le{" "}
+                                      {t("fin_encashableDate")}{" "}
                                       {dueDate.toLocaleDateString("fr-TN")}
                                       {!isCleared ? (
                                         <span className="ml-2 text-xs text-amber-600 dark:text-amber-400">
-                                          (délai non échu)
+                                          {t("fin_notDue")}
                                         </span>
                                       ) : null}
                                     </p>
@@ -410,7 +443,7 @@ export default function FinancePaymentsPage() {
                                   className="inline-flex items-center gap-2 rounded-2xl bg-sky-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
                                 >
                                   <CheckCheck size={14} />
-                                  {clearingId === key ? "..." : "Encaisser"}
+                                  {clearingId === key ? "..." : t("fin_encash")}
                                 </button>
                               </div>
                             );
@@ -431,7 +464,7 @@ export default function FinancePaymentsPage() {
               <div className="mb-4 flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-semibold text-slate-950 dark:text-white">
-                    Enregistrer un règlement
+                    {t("fin_recordClientPayment")}
                   </h3>
                   <p className="text-sm text-slate-500 dark:text-slate-400">
                     {selectedInvoice.invoiceNo} · {selectedInvoice.customerName}
@@ -448,19 +481,19 @@ export default function FinancePaymentsPage() {
               <div className="space-y-4">
                 <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
                   <p>
-                    Montant restant :{" "}
+                    {t("fin_remainingAmount")}{" "}
                     <strong className="text-slate-900 dark:text-white">
                       {remainingAmount(selectedInvoice).toLocaleString("fr-TN", {
                         minimumFractionDigits: 3,
                       })}{" "}
-                      TND
+                      {t("fin_tnd")}
                     </strong>
                   </p>
                 </div>
 
                 <label className="block text-sm">
                   <span className="mb-1.5 block text-slate-600 dark:text-slate-300">
-                    Mode de règlement
+                    {t("fin_mode")}
                   </span>
                   <select
                     className={inputClass}
@@ -469,10 +502,10 @@ export default function FinancePaymentsPage() {
                       setPayMethod(e.target.value as "ESPECE" | "CHEQUE" | "VIREMENT" | "KUMBIL")
                     }
                   >
-                    <option value="ESPECE">Espèces</option>
-                    <option value="CHEQUE">Chèque</option>
-                    <option value="VIREMENT">Virement bancaire</option>
-                    <option value="KUMBIL">Kumbil (traites)</option>
+                    <option value="ESPECE">{t("fin_cash")}</option>
+                    <option value="CHEQUE">{t("fin_cheque")}</option>
+                    <option value="VIREMENT">{t("fin_bankTransfer")}</option>
+                    <option value="KUMBIL">Kumbil ({t("fin_kumbilDrafts")})</option>
                   </select>
                 </label>
 
@@ -480,7 +513,7 @@ export default function FinancePaymentsPage() {
                   <>
                     <label className="block text-sm">
                       <span className="mb-1.5 block text-slate-600 dark:text-slate-300">
-                        Nombre de traites
+                        {t("fin_draftCount")}
                       </span>
                       <input
                         className={inputClass}
@@ -492,24 +525,74 @@ export default function FinancePaymentsPage() {
                       />
                     </label>
 
-                    {kambyalDates.slice(0, Math.max(1, Number(kambyalCount || 1))).map((date, i) => (
-                      <label key={i} className="block text-sm">
-                        <span className="mb-1.5 block text-slate-600 dark:text-slate-300">
-                          Date de départ {i + 1}
-                        </span>
-                        <input
-                          className={inputClass}
-                          type="date"
-                          value={date}
-                          onChange={(e) => updateKambyalDate(i, e.target.value)}
-                        />
-                      </label>
-                    ))}
+                    <label className="block text-sm">
+                      <span className="mb-1.5 block text-slate-600 dark:text-slate-300">
+                        {t("fin_periodicity")}
+                      </span>
+                      <select
+                        className={inputClass}
+                        value={kambyalInterval}
+                        onChange={(e) => handleKambyalIntervalChange(e.target.value)}
+                      >
+                        <option value="0">{t("fin_custom")}</option>
+                        <option value="30">{t("fin_30days")}</option>
+                        <option value="60">{t("fin_60days")}</option>
+                        <option value="90">{t("fin_90days")}</option>
+                        <option value="180">{t("fin_180days")}</option>
+                        <option value="360">{t("fin_360days")}</option>
+                      </select>
+                    </label>
+
+                    {Number(kambyalInterval) > 0 ? (
+                      <>
+                        <label className="block text-sm">
+                          <span className="mb-1.5 block text-slate-600 dark:text-slate-300">
+                            {t("fin_firstDraftDate")}
+                          </span>
+                          <input
+                            className={inputClass}
+                            type="date"
+                            value={kambyalDepart}
+                            onChange={(e) => handleKambyalDepartChange(e.target.value)}
+                          />
+                        </label>
+                        <div className="space-y-1.5">
+                          {kambyalDates.slice(0, Math.max(1, Number(kambyalCount || 1))).map((echeance, i) => (
+                            <div key={i} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-2.5 dark:border-slate-800 dark:bg-slate-950">
+                              <span className="text-sm text-slate-500 dark:text-slate-400">
+                                {t("fin_dueDate")} {i + 1}
+                              </span>
+                              <span className="text-sm font-medium text-violet-700 dark:text-violet-300">
+                                {echeance
+                                  ? new Date(echeance + "T12:00:00").toLocaleDateString("fr-TN", {
+                                      day: "2-digit", month: "long", year: "numeric",
+                                    })
+                                  : "—"}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      kambyalDates.slice(0, Math.max(1, Number(kambyalCount || 1))).map((date, i) => (
+                        <label key={i} className="block text-sm">
+                          <span className="mb-1.5 block text-slate-600 dark:text-slate-300">
+                            {t("fin_dueDate")} {i + 1}
+                          </span>
+                          <input
+                            className={inputClass}
+                            type="date"
+                            value={date}
+                            onChange={(e) => updateKambyalDate(i, e.target.value)}
+                          />
+                        </label>
+                      ))
+                    )}
                   </>
                 ) : (
                   <>
                     <label className="block text-sm">
-                      <span className="mb-1.5 block text-slate-600 dark:text-slate-300">Montant</span>
+                      <span className="mb-1.5 block text-slate-600 dark:text-slate-300">{t("fin_amount")}</span>
                       <input
                         className={inputClass}
                         type="number"
@@ -522,12 +605,12 @@ export default function FinancePaymentsPage() {
 
                     {payMethod === "CHEQUE" ? (
                       <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
-                        La référence chèque sera générée automatiquement <strong>CHQ-XXXX</strong>. Le chèque sera encaissable après 8 jours.
+                        {t("fin_chequeNote")}
                       </div>
                     ) : (
                       <label className="block text-sm">
                         <span className="mb-1.5 block text-slate-600 dark:text-slate-300">
-                          Référence
+                          {t("fin_reference")}
                         </span>
                         <input
                           className={inputClass}
@@ -545,14 +628,14 @@ export default function FinancePaymentsPage() {
                   onClick={() => setPayOpen(false)}
                   className="rounded-2xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 dark:border-slate-700 dark:text-slate-200"
                 >
-                  Annuler
+                  {t("fin_cancel")}
                 </button>
                 <button
                   onClick={savePay}
                   disabled={saving || (payMethod !== "KUMBIL" && !payAmount)}
                   className="rounded-2xl bg-black px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
                 >
-                  {saving ? "Enregistrement..." : "Enregistrer"}
+                  {saving ? t("fin_saving") : t("fin_save")}
                 </button>
               </div>
             </div>

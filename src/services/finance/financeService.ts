@@ -31,6 +31,7 @@ export interface FinanceDashboardResponse {
     totalPayablesOutstanding: number;
     totalPaidOut: number;
     totalReceivables: number;
+    totalCollected: number;
     recognizedRevenue: number;
     netExpectedCash: number;
     overduePayables: number;
@@ -191,6 +192,8 @@ export interface CalendarDay {
   net: number;
   inflowCount: number;
   outflowCount: number;
+  kumbilExpected?: number;
+  kumbilCount?: number;
 }
 
 export interface CalendarResponse {
@@ -211,6 +214,49 @@ export interface CompanySettings {
   iban: string;
   bank: string;
   agence: string;
+}
+
+export interface SalesReportMonth {
+  month: string;
+  count: number;
+  totalHt: number;
+  totalTtc: number;
+}
+
+export interface SalesReportCustomer {
+  customerName: string;
+  count: number;
+  totalTtc: number;
+}
+
+export interface SalesReportResponse {
+  period: { from: string; to: string };
+  summary: {
+    totalCount: number;
+    totalHt: number;
+    totalTtc: number;
+    totalPaid: number;
+    totalUnpaid: number;
+    paidCount: number;
+    unpaidCount: number;
+  };
+  byMonth: SalesReportMonth[];
+  topCustomers: SalesReportCustomer[];
+}
+
+export interface DepartmentExpenseRow {
+  department: string;
+  employeeCount: number;
+  activeCount: number;
+  onLeaveCount: number;
+  totalSalary: number;
+  avgSalary: number;
+}
+
+export interface DepartmentExpensesResponse {
+  departments: DepartmentExpenseRow[];
+  totalSalary: number;
+  totalEmployees: number;
 }
 
 export interface FinanceReportsResponse {
@@ -325,6 +371,22 @@ export const financeService = {
   },
   async updateSettings(payload: Partial<CompanySettings>) {
     const { data } = await api.put<CompanySettings>("/finance/settings", payload);
+    return data;
+  },
+  async getDepartmentExpenses() {
+    const { data } = await api.get<DepartmentExpensesResponse>("/finance/reports/department-expenses");
+    return data;
+  },
+  async getSalesReport(from: string, to: string) {
+    const { data } = await api.get<SalesReportResponse>(`/finance/reports/sales?from=${from}&to=${to}`);
+    return data;
+  },
+  async payPayable(invoiceId: string, payload: { method: string; amount: number; paymentDate: string; notes?: string }) {
+    const { data } = await api.post(`/finance/payables/${invoiceId}/pay`, payload);
+    return data;
+  },
+  async resyncFinanceEntries(): Promise<{ totalClientInvoices: number; totalPurchaseInvoices: number }> {
+    const { data } = await api.post("/finance/resync");
     return data;
   },
 };

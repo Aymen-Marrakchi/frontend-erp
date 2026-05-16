@@ -67,8 +67,17 @@ export const purchaseInvoiceService = {
     dueDate: string;
     applyTva?: boolean;
     applyFodec?: boolean;
+    subtotalHt?: number;
+    attachmentUrl?: string;
     notes?: string;
   }): Promise<PurchaseInvoice> => (await api.post("/purchase/invoices", payload)).data,
+
+  scan: async (file: File): Promise<{ fileUrl: string; extracted: { supplierInvoiceRef?: string; invoiceDate?: string; totalTtc?: number; subtotalHt?: number; supplierMf?: string } }> => {
+    const form = new FormData();
+    form.append("file", file);
+    const { data } = await api.post("/purchase/scan", form, { headers: { "Content-Type": "multipart/form-data" } });
+    return data;
+  },
 
   updateStatus: async (
     id: string,

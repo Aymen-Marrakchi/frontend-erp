@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import {
-  type CommercialNotification,
-  notificationService,
-} from "@/services/commercial/notificationService";
+  type AppNotification,
+  appNotificationService,
+} from "@/services/notificationService";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -21,7 +21,53 @@ import {
   Bell,
   Truck,
   CheckCircle2,
+  CreditCard,
+  ShoppingCart,
+  Package,
+  AlertTriangle,
 } from "lucide-react";
+
+const MODULE_ROLES: Record<string, string[]> = {
+  COMMERCIAL: ["ADMIN", "COMMERCIAL_MANAGER"],
+  FINANCE: ["ADMIN", "FINANCE_MANAGER"],
+  STOCK: ["ADMIN", "STOCK_MANAGER", "DEPOT_MANAGER"],
+  PURCHASE: ["ADMIN", "PURCHASE_MANAGER"],
+};
+
+const MODULE_LABEL: Record<string, string> = {
+  COMMERCIAL: "Commercial",
+  FINANCE: "Finance",
+  STOCK: "Stock",
+  PURCHASE: "Achats",
+};
+
+const MODULE_BADGE: Record<string, string> = {
+  COMMERCIAL: "bg-amber-100 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/20",
+  FINANCE: "bg-blue-100 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-500/15 dark:text-blue-300 dark:ring-blue-500/20",
+  STOCK: "bg-orange-100 text-orange-700 ring-1 ring-orange-200 dark:bg-orange-500/15 dark:text-orange-300 dark:ring-orange-500/20",
+  PURCHASE: "bg-violet-100 text-violet-700 ring-1 ring-violet-200 dark:bg-violet-500/15 dark:text-violet-300 dark:ring-violet-500/20",
+};
+
+function NotificationIcon({ notification }: { notification: AppNotification }) {
+  const { module, eventType } = notification;
+  if (module === "COMMERCIAL") {
+    return eventType === "ORDER_DELIVERED" ? (
+      <CheckCircle2 size={13} className="text-emerald-600 dark:text-emerald-300" />
+    ) : (
+      <Truck size={13} className="text-amber-600 dark:text-amber-300" />
+    );
+  }
+  if (module === "FINANCE") return <CreditCard size={13} className="text-blue-600 dark:text-blue-300" />;
+  if (module === "PURCHASE") return <ShoppingCart size={13} className="text-violet-600 dark:text-violet-300" />;
+  if (module === "STOCK") {
+    return eventType === "OUT_OF_STOCK" ? (
+      <AlertTriangle size={13} className="text-red-600 dark:text-red-300" />
+    ) : (
+      <Package size={13} className="text-orange-600 dark:text-orange-300" />
+    );
+  }
+  return <Bell size={13} className="text-slate-500 dark:text-slate-300" />;
+}
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -32,13 +78,14 @@ export default function Navbar() {
   const [isDark, setIsDark] = useState(true);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
-  const [notifications, setNotifications] = useState<CommercialNotification[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const notificationsRef = useRef<HTMLDivElement>(null);
 
-  const canViewNotifications =
-    user?.role === "ADMIN" || user?.role === "COMMERCIAL_MANAGER";
+  const canViewNotifications = user?.role
+    ? Object.values(MODULE_ROLES).some((roles) => roles.includes(user.role))
+    : false;
 
   useEffect(() => {
     const saved = localStorage.getItem("theme");
@@ -80,10 +127,10 @@ export default function Navbar() {
 
       try {
         setNotificationsLoading(true);
-        const notifications = await notificationService.getAll();
+        const data = await appNotificationService.getAll();
         if (!cancelled) {
-          setNotifications(notifications);
-          setUnreadCount(notifications.filter((item) => !item.isRead).length);
+          setNotifications(data);
+          setUnreadCount(data.filter((n) => !n.isRead).length);
         }
       } catch {
         if (!cancelled) {
@@ -98,7 +145,6 @@ export default function Navbar() {
     }
 
     loadNotifications();
-
     return () => {
       cancelled = true;
     };
@@ -127,24 +173,23 @@ export default function Navbar() {
 
   const handleOpenNotifications = () => {
     if (!canViewNotifications) return;
-    setNotificationsOpen((current) => !current);
+    setNotificationsOpen((v) => !v);
     setOpen(false);
   };
 
-  const handleNotificationClick = async (notification: CommercialNotification) => {
+  const handleNotificationClick = async (notification: AppNotification) => {
     if (!notification.isRead) {
       try {
-        await notificationService.markRead(notification._id);
-        const nextNotifications = notifications.map((item) =>
-          item._id === notification._id ? { ...item, isRead: true } : item
+        await appNotificationService.markRead(notification._id);
+        const next = notifications.map((n) =>
+          n._id === notification._id ? { ...n, isRead: true } : n
         );
-        setNotifications(nextNotifications);
-        setUnreadCount(nextNotifications.filter((item) => !item.isRead).length);
+        setNotifications(next);
+        setUnreadCount(next.filter((n) => !n.isRead).length);
       } catch {
         // noop
       }
     }
-
     setNotificationsOpen(false);
   };
 
@@ -165,11 +210,6 @@ export default function Navbar() {
       .replace(/\b\w/g, (c) => c.toUpperCase()) ?? "";
 
   const notificationCountLabel = `${unreadCount}/${notifications.length}`;
-
-  const notificationBadgeClass = (eventType: CommercialNotification["eventType"]) =>
-    eventType === "ORDER_DELIVERED"
-      ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/20"
-      : "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/20";
 
   return (
     <div className="sticky top-4 z-30">
@@ -213,86 +253,85 @@ export default function Navbar() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 8, scale: 0.98 }}
                   transition={{ duration: 0.16 }}
-                  className="absolute right-0 mt-3 w-[320px] overflow-hidden rounded-3xl border border-slate-700 bg-[#0c1327] shadow-2xl"
+                  className="absolute right-0 mt-3 w-[340px] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900"
                 >
-                  <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                  <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
                     <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
                         Notifications
                       </p>
-                      <p className="mt-1 text-xs text-slate-500">
+                      <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
                         {notificationCountLabel}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => setNotificationsOpen(false)}
-                      className="text-[11px] font-medium text-slate-300 transition hover:text-white"
+                      className="text-[11px] font-medium text-slate-500 transition hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
                     >
-                      Close
+                      Fermer
                     </button>
                   </div>
 
-                  <div className="max-h-[360px] overflow-y-auto px-2 py-2">
+                  <div className="max-h-[380px] overflow-y-auto px-2 py-2">
                     {notificationsLoading ? (
-                      <div className="flex items-center justify-center gap-2 py-8 text-sm text-slate-400">
+                      <div className="flex items-center justify-center gap-2 py-8 text-sm text-slate-500 dark:text-slate-400">
                         <motion.div
                           animate={{ rotate: 360 }}
                           transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
                         >
                           <Bell size={14} />
                         </motion.div>
-                        Loading notifications...
+                        Chargement...
                       </div>
                     ) : notifications.length === 0 ? (
-                      <div className="py-8 text-center text-sm text-slate-500">
-                        No notifications yet
+                      <div className="py-8 text-center text-sm text-slate-400 dark:text-slate-500">
+                        Aucune notification
                       </div>
                     ) : (
-                      <div className="space-y-2">
-                        {notifications.slice(0, 6).map((notification) => (
+                      <div className="space-y-1.5">
+                        {notifications.slice(0, 8).map((notification) => (
                           <button
                             key={notification._id}
                             type="button"
                             onClick={() => handleNotificationClick(notification)}
                             className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
                               notification.isRead
-                                ? "border-white/8 bg-white/[0.03] hover:bg-white/[0.05]"
-                                : "border-white/12 bg-white/[0.06] hover:bg-white/[0.09]"
+                                ? "border-slate-100 bg-white hover:bg-slate-50 dark:border-slate-800 dark:bg-transparent dark:hover:bg-slate-800/40"
+                                : "border-slate-200 bg-slate-50 hover:bg-slate-100 dark:border-slate-700/50 dark:bg-slate-800/50 dark:hover:bg-slate-800"
                             }`}
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2">
-                                  <span className="truncate text-sm font-semibold text-white">
+                                  <span className="truncate text-sm font-semibold text-slate-950 dark:text-white">
                                     {notification.title}
                                   </span>
                                   {!notification.isRead ? (
-                                    <span className="h-2 w-2 rounded-full bg-sky-400" />
+                                    <span className="h-2 w-2 shrink-0 rounded-full bg-sky-500 dark:bg-sky-400" />
                                   ) : null}
                                 </div>
-                                <p className="mt-1 line-clamp-2 text-xs text-slate-400">
+                                <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
                                   {notification.message}
                                 </p>
-                                <p className="mt-2 text-[11px] text-slate-500">
-                                  {notification.relatedOrderId?.orderNo ||
-                                    notification.customerName ||
-                                    "Internal alert"}
+                                <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+                                  {notification.createdAt
+                                    ? new Date(notification.createdAt).toLocaleString("fr-FR", {
+                                        day: "2-digit",
+                                        month: "short",
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })
+                                    : ""}
                                 </p>
                               </div>
                               <span
-                                className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-semibold ${notificationBadgeClass(
-                                  notification.eventType
-                                )}`}
+                                className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-semibold ${
+                                  MODULE_BADGE[notification.module] ?? "bg-slate-100 text-slate-600 ring-1 ring-slate-200 dark:bg-slate-500/15 dark:text-slate-300 dark:ring-slate-500/20"
+                                }`}
                               >
-                                {notification.eventType === "ORDER_DELIVERED" ? (
-                                  <CheckCircle2 size={13} className="text-emerald-300" />
-                                ) : (
-                                  <Truck size={13} className="text-amber-300" />
-                                )}
-                                {notification.eventType === "ORDER_DELIVERED"
-                                  ? "DELIVERED"
-                                  : "SHIPPED"}
+                                <NotificationIcon notification={notification} />
+                                {MODULE_LABEL[notification.module] ?? notification.module}
                               </span>
                             </div>
                           </button>

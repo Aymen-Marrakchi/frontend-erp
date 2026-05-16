@@ -36,7 +36,8 @@ import {
   Sparkles,
   BookOpen,
   BookMarked,
-  PercentCircle,
+  ShoppingBag,
+  Tag,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -136,24 +137,25 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/stock/alerts", label: t("stockAlertsMenu"), icon: TriangleAlert },
     { href: "/dashboard/stock/inventories", label: t("inventories"), icon: ClipboardList },
     { href: "/dashboard/stock/depots", label: t("depots"), icon: Warehouse },
+    { href: "/dashboard/stock/achat", label: "Demandes achat", icon: ShoppingBag },
     { href: "/dashboard/stock/settings", label: t("settings"), icon: FileText },
   ];
 
   const financeItems: NavItem[] = [
-  { href: "/dashboard/finance", label: "Tableau de bord", icon: LayoutDashboard },
-  { href: "/dashboard/finance/calendar", label: "Calendrier", icon: CalendarDays },
-  { href: "/dashboard/finance/quotations", label: "Devis", icon: FileText },
-  { href: "/dashboard/finance/receivables", label: "Créances", icon: Receipt },
-  { href: "/dashboard/finance/payments", label: "Paiements", icon: CreditCard },
-  { href: "/dashboard/finance/payables", label: "Dettes", icon: DollarSign },
-  { href: "/dashboard/finance/treasury", label: "Trésorerie", icon: Wallet },
-  { href: "/dashboard/finance/journal", label: "Journal", icon: BookOpen },
-  { href: "/dashboard/finance/accounts", label: "Grand livre", icon: Landmark },
-  { href: "/dashboard/finance/ecritures", label: "Écritures", icon: BookMarked },
-  { href: "/dashboard/finance/tva", label: "Décl. TVA", icon: PercentCircle },
-  { href: "/dashboard/finance/rs", label: "Ret. à la source", icon: ClipboardList },
-  { href: "/dashboard/finance/reports", label: "Rapports", icon: BarChart3 },
-  { href: "/dashboard/finance/settings", label: "Paramètres société", icon: Settings },
+  { href: "/dashboard/finance", label: t("fin_navDashboard"), icon: LayoutDashboard },
+  { href: "/dashboard/finance/calendar", label: t("fin_navCalendar"), icon: CalendarDays },
+  { href: "/dashboard/finance/quotations", label: t("fin_navQuotations"), icon: FileText },
+  { href: "/dashboard/finance/receivables", label: t("fin_navReceivables"), icon: Receipt },
+  { href: "/dashboard/finance/payments", label: t("fin_navPayments"), icon: CreditCard },
+  { href: "/dashboard/finance/kumbil", label: t("fin_navKumbil"), icon: CalendarDays },
+  { href: "/dashboard/finance/payables", label: t("fin_navPayables"), icon: DollarSign },
+  { href: "/dashboard/finance/treasury", label: t("fin_navTreasury"), icon: Wallet },
+  { href: "/dashboard/finance/journal", label: t("fin_navJournal"), icon: BookOpen },
+  { href: "/dashboard/finance/accounts", label: t("fin_navAccounts"), icon: Landmark },
+  { href: "/dashboard/finance/ecritures", label: t("fin_navEcritures"), icon: BookMarked },
+  { href: "/dashboard/finance/rs", label: t("fin_navRs"), icon: ClipboardList },
+  { href: "/dashboard/finance/reports", label: t("fin_navReports"), icon: BarChart3 },
+  { href: "/dashboard/finance/settings", label: t("fin_navSettings"), icon: Settings },
 ];
 
   const depotItems: NavItem[] = [
@@ -171,8 +173,8 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/achat/orders", label: "Purchase Orders", icon: FileText },
     { href: "/dashboard/achat/receipts", label: "Receipts", icon: ClipboardCheck },
     { href: "/dashboard/achat/invoices", label: "Invoices", icon: Receipt },
-    { href: "/dashboard/achat/payments", label: "Payments", icon: CreditCard },
     { href: "/dashboard/achat/returns", label: "Returns", icon: RotateCcw },
+    { href: "/dashboard/achat/categories", label: "Catégories", icon: Tag },
     { href: "/dashboard/achat/reports", label: "Reports", icon: BarChart3 },
     { href: "/dashboard/achat/settings", label: "Settings", icon: Settings },
   ];

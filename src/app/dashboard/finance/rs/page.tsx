@@ -2,6 +2,7 @@
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { financeService, RsPayment } from "@/services/finance/financeService";
+import { useLanguage } from "@/context/LanguageContext";
 import { useEffect, useState } from "react";
 import { Loader2, Receipt } from "lucide-react";
 
@@ -28,6 +29,7 @@ const METHOD_LABELS: Record<string, string> = {
 };
 
 export default function RsPage() {
+  const { t } = useLanguage();
   const [payments, setPayments] = useState<RsPayment[]>([]);
   const [totalRs, setTotalRs] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -59,10 +61,10 @@ export default function RsPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-              Retenue à la Source
+              {t("fin_rsTitle")}
             </h1>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Suivi des retenues à la source pratiquées sur les paiements fournisseurs (compte 4028)
+              {t("fin_rsSubtitle")}
             </p>
           </div>
         </div>
@@ -74,7 +76,7 @@ export default function RsPage() {
         ) : null}
 
         <div className={`${surface} p-5`}>
-          <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Total RS à décaisser (4028)</p>
+          <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">{t("fin_rsTotalLabel")}</p>
           <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950 dark:text-white">
             {tnd(totalRs)}
           </p>
@@ -83,33 +85,33 @@ export default function RsPage() {
         {loading ? (
           <div className={`${surface} flex items-center justify-center gap-2 py-16 text-sm text-slate-500 dark:text-slate-400`}>
             <Loader2 size={16} className="animate-spin" />
-            Chargement...
+            {t("fin_loading")}
           </div>
         ) : !payments.length ? (
           <div className={`${surface} flex flex-col items-center justify-center py-16`}>
             <Receipt size={32} className="mb-3 text-slate-300 dark:text-slate-700" />
-            <p className="text-sm text-slate-400 dark:text-slate-500">Aucune retenue à la source enregistrée</p>
+            <p className="text-sm text-slate-400 dark:text-slate-500">{t("fin_noRs")}</p>
             <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-              Les RS sont saisies lors des paiements fournisseurs dans le module Achat.
+              {t("fin_rsNote")}
             </p>
           </div>
         ) : (
           <div className={`${surface} overflow-hidden`}>
             <div className="border-b border-slate-100 px-6 py-4 dark:border-slate-800">
-              <h2 className="font-semibold text-slate-950 dark:text-white">Détail des retenues</h2>
+              <h2 className="font-semibold text-slate-950 dark:text-white">{t("fin_rsDetail")}</h2>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-100 text-sm dark:divide-slate-800">
                 <thead className="bg-slate-50 dark:bg-slate-950/40">
                   <tr>
-                    <th className="px-6 py-3 text-left font-medium text-slate-500">N° paiement</th>
-                    <th className="px-6 py-3 text-left font-medium text-slate-500">Fournisseur</th>
-                    <th className="px-6 py-3 text-left font-medium text-slate-500">Facture</th>
-                    <th className="px-6 py-3 text-left font-medium text-slate-500">Mode</th>
-                    <th className="px-6 py-3 text-left font-medium text-slate-500">Date</th>
-                    <th className="px-6 py-3 text-right font-medium text-slate-500">Montant brut</th>
-                    <th className="px-6 py-3 text-right font-medium text-slate-500">Taux RS</th>
-                    <th className="px-6 py-3 text-right font-medium text-slate-500">RS retenue</th>
+                    <th className="px-6 py-3 text-left font-medium text-slate-500">{t("fin_paymentNo")}</th>
+                    <th className="px-6 py-3 text-left font-medium text-slate-500">{t("fin_supplier")}</th>
+                    <th className="px-6 py-3 text-left font-medium text-slate-500">{t("fin_invoice")}</th>
+                    <th className="px-6 py-3 text-left font-medium text-slate-500">{t("fin_mode")}</th>
+                    <th className="px-6 py-3 text-left font-medium text-slate-500">{t("fin_date")}</th>
+                    <th className="px-6 py-3 text-right font-medium text-slate-500">{t("fin_grossAmount")}</th>
+                    <th className="px-6 py-3 text-right font-medium text-slate-500">{t("fin_rsRate")}</th>
+                    <th className="px-6 py-3 text-right font-medium text-slate-500">{t("fin_rsRetained")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -136,7 +138,7 @@ export default function RsPage() {
                 </tbody>
                 <tfoot className="bg-slate-50 dark:bg-slate-950/40">
                   <tr>
-                    <td colSpan={7} className="px-6 py-3 font-semibold text-slate-900 dark:text-white text-right">Total RS</td>
+                    <td colSpan={7} className="px-6 py-3 font-semibold text-slate-900 dark:text-white text-right">{t("fin_rsTotal")}</td>
                     <td className="px-6 py-3 text-right font-bold text-slate-900 dark:text-white">{tnd(totalRs)}</td>
                   </tr>
                 </tfoot>
@@ -146,10 +148,9 @@ export default function RsPage() {
         )}
 
         <div className="rounded-3xl border border-amber-200 bg-amber-50 px-6 py-4 text-sm text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-400">
-          <p className="font-medium">Rappel légal</p>
+          <p className="font-medium">{t("fin_rsLegal")}</p>
           <p className="mt-1 text-xs">
-            La RS doit être déclarée et versée à la DGI avant le 28 du mois suivant le paiement.
-            Taux courants : 1,5% (marchandises), 5% (services), 10% (services professionnels).
+            {t("fin_rsLegalText")}
           </p>
         </div>
       </div>

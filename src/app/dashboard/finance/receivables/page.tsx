@@ -4,6 +4,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import { customerInvoiceService, type CustomerInvoice } from "@/services/commercial/customerInvoiceService";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { financeService, type CompanySettings } from "@/services/finance/financeService";
+import { useLanguage } from "@/context/LanguageContext";
 import { FileText, Loader2, Plus, Printer, Search, X, BadgeCheck, Clock, AlertCircle, CircleDashed } from "lucide-react";
 import { devisService, type Devis } from "@/services/commercial/devisService";
 
@@ -128,7 +129,7 @@ function openInvoiceDocument(invoice: CustomerInvoice, settings: CompanySettings
     body { font-family: Arial, sans-serif; font-size: 13px; color: #0f172a; background: #fff; }
     @page { size: A4; margin: 18mm 15mm; }
     @media print { body { padding: 0; } }
-    .page { max-width: 794px; margin: 0 auto; padding: 24px 28px; }
+    .page { max-width: 794px; margin: 0 auto; padding: 24px 28px; display:flex; flex-direction:column; min-height:261mm; }
     table { border-collapse: collapse; width: 100%; }
     th { font-weight: 600; }
   </style>
@@ -227,8 +228,11 @@ function openInvoiceDocument(invoice: CustomerInvoice, settings: CompanySettings
     <tbody>${rows}</tbody>
   </table>
 
+  <!-- ═══ BOTTOM ANCHOR ═══ -->
+  <div style="margin-top:auto">
+
   <!-- ═══ TAX SUMMARY ═══ -->
-  <div style="display:flex;justify-content:flex-end;margin-top:0;margin-bottom:16px">
+  <div style="display:flex;justify-content:flex-end;margin-top:16px;margin-bottom:16px">
     <table style="width:280px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 6px 6px;overflow:hidden">
       <tr style="background:#f8fafc">
         <td style="padding:6px 12px;font-size:12px;color:#64748b">Total brut HT</td>
@@ -282,6 +286,8 @@ function openInvoiceDocument(invoice: CustomerInvoice, settings: CompanySettings
     ${companyName}${companyMf ? " · MF : " + companyMf : ""}${companyRne ? " · RNE : " + companyRne : ""} · ${companyAddress} · ${companyPhone} · ${companyEmail}
   </div>
 
+  </div><!-- end bottom anchor -->
+
 </div>
 </body>
 </html>`;
@@ -297,6 +303,7 @@ function openInvoiceDocument(invoice: CustomerInvoice, settings: CompanySettings
 }
 
 export default function FinanceReceivablesPage() {
+  const { t } = useLanguage();
   const [invoices, setInvoices] = useState<CustomerInvoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -413,10 +420,10 @@ export default function FinanceReceivablesPage() {
 
   const tejBadge = (inv: CustomerInvoice) => {
     const s = inv.tejStatus || "NOT_SUBMITTED";
-    if (s === "VALIDATED") return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400"><BadgeCheck size={10} />TEJ ✓</span>;
-    if (s === "PENDING") return <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-400"><Clock size={10} />TEJ en attente</span>;
-    if (s === "REJECTED") return <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-950/30 dark:text-rose-400"><AlertCircle size={10} />TEJ rejeté</span>;
-    return <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400"><CircleDashed size={10} />Non soumis</span>;
+    if (s === "VALIDATED") return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400"><BadgeCheck size={10} />{t("fin_tej_ok")}</span>;
+    if (s === "PENDING") return <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-400"><Clock size={10} />{t("fin_tej_pending")}</span>;
+    if (s === "REJECTED") return <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-950/30 dark:text-rose-400"><AlertCircle size={10} />{t("fin_tej_rejected")}</span>;
+    return <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400"><CircleDashed size={10} />{t("fin_tej_notSubmitted")}</span>;
   };
 
   return (
@@ -425,10 +432,10 @@ export default function FinanceReceivablesPage() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-              Créances clients
+              {t("fin_recTitle")}
             </h1>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Factures émises à partir des devis acceptés.
+              {t("fin_recSubtitle")}
             </p>
           </div>
           <button
@@ -436,7 +443,7 @@ export default function FinanceReceivablesPage() {
             className="inline-flex shrink-0 items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"
           >
             <Plus size={15} />
-            Créer la facture
+            {t("fin_createInvoice")}
           </button>
         </div>
 
@@ -451,7 +458,7 @@ export default function FinanceReceivablesPage() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Rechercher par facture, commande ou client..."
+            placeholder={t("fin_searchReceivables")}
             className="flex-1 bg-transparent text-sm text-slate-900 placeholder-slate-400 outline-none dark:text-white"
           />
         </div>
@@ -461,25 +468,25 @@ export default function FinanceReceivablesPage() {
             className={`${surface} flex items-center justify-center gap-2 py-16 text-sm text-slate-500 dark:text-slate-400`}
           >
             <Loader2 size={16} className="animate-spin" />
-            Chargement des créances...
+            {t("fin_loadingReceivables")}
           </div>
         ) : (
           <div className={`${surface} overflow-hidden`}>
             <div className="flex items-center gap-1 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-              {(["CLIENT", "SUPPLIER"] as const).map((t) => {
-                const count = filteredInvoices.filter((inv) => (inv.invoiceType || "CLIENT") === t).length;
+              {(["CLIENT", "SUPPLIER"] as const).map((tp) => {
+                const count = filteredInvoices.filter((inv) => (inv.invoiceType || "CLIENT") === tp).length;
                 return (
                   <button
-                    key={t}
-                    onClick={() => setTypeFilter(t)}
+                    key={tp}
+                    onClick={() => setTypeFilter(tp)}
                     className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-medium transition ${
-                      typeFilter === t
+                      typeFilter === tp
                         ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950"
                         : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
                     }`}
                   >
-                    {t === "CLIENT" ? "Client" : "Fournisseur"}
-                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${typeFilter === t ? "bg-white/20 text-white dark:bg-slate-900/20 dark:text-slate-950" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}>
+                    {tp === "CLIENT" ? t("fin_client") : t("fin_supplier")}
+                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${typeFilter === tp ? "bg-white/20 text-white dark:bg-slate-900/20 dark:text-slate-950" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}>
                       {count}
                     </span>
                   </button>
@@ -491,7 +498,7 @@ export default function FinanceReceivablesPage() {
               <div className="flex flex-col items-center justify-center py-16">
                 <FileText size={32} className="mb-3 text-slate-300 dark:text-slate-700" />
                 <p className="text-sm text-slate-400 dark:text-slate-500">
-                  Aucune facture émise pour le moment
+                  {t("fin_noInvoices")}
                 </p>
               </div>
             ) : (
@@ -519,7 +526,7 @@ export default function FinanceReceivablesPage() {
                           {invoice.totalTtc.toLocaleString("fr-TN", {
                             minimumFractionDigits: 3,
                           })}{" "}
-                          TND
+                          {t("fin_tnd")}
                         </p>
                         {invoice.invoiceType === "SUPPLIER" && (
                           <div className="mt-1 flex justify-end">{tejBadge(invoice)}</div>
@@ -531,7 +538,7 @@ export default function FinanceReceivablesPage() {
                           className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                         >
                           <Printer size={14} />
-                          Imprimer
+                          {t("fin_print")}
                         </button>
                       </div>
                     </div>
@@ -547,7 +554,7 @@ export default function FinanceReceivablesPage() {
             <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
               <div className="mb-5 flex items-center justify-between">
                 <div>
-                  <h3 className="font-semibold text-slate-950 dark:text-white">Référence TEJ</h3>
+                  <h3 className="font-semibold text-slate-950 dark:text-white">{t("fin_tejRef")}</h3>
                   <p className="text-sm text-slate-500 dark:text-slate-400">{tejInvoice?.invoiceNo}</p>
                 </div>
                 <button onClick={() => setTejOpen(false)} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
@@ -557,39 +564,39 @@ export default function FinanceReceivablesPage() {
 
               <div className="space-y-4">
                 <label className="block text-sm">
-                  <span className="mb-1.5 block text-slate-600 dark:text-slate-300">Identifiant fiscal TEJ (DGI)</span>
+                  <span className="mb-1.5 block text-slate-600 dark:text-slate-300">{t("fin_tejFiscalId")}</span>
                   <input
                     className={inputClass}
-                    placeholder="Ex: TEJ-2024-000123"
+                    placeholder={t("fin_tejRefPlaceholder")}
                     value={tejRef}
                     onChange={(e) => setTejRef(e.target.value)}
                   />
                 </label>
                 <label className="block text-sm">
-                  <span className="mb-1.5 block text-slate-600 dark:text-slate-300">Statut</span>
+                  <span className="mb-1.5 block text-slate-600 dark:text-slate-300">{t("fin_status")}</span>
                   <select
                     className={inputClass}
                     value={tejStatus}
                     onChange={(e) => setTejStatus(e.target.value as typeof tejStatus)}
                   >
-                    <option value="NOT_SUBMITTED">Non soumis</option>
-                    <option value="PENDING">En attente de validation</option>
-                    <option value="VALIDATED">Validé par DGI</option>
-                    <option value="REJECTED">Rejeté par DGI</option>
+                    <option value="NOT_SUBMITTED">{t("fin_notSubmittedLabel")}</option>
+                    <option value="PENDING">{t("fin_pendingValidation")}</option>
+                    <option value="VALIDATED">{t("fin_validatedDGI")}</option>
+                    <option value="REJECTED">{t("fin_rejectedDGI")}</option>
                   </select>
                 </label>
               </div>
 
               <div className="mt-6 flex justify-end gap-3">
                 <button onClick={() => setTejOpen(false)} className="rounded-2xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 dark:border-slate-700 dark:text-slate-200">
-                  Annuler
+                  {t("fin_cancel")}
                 </button>
                 <button
                   onClick={saveTej}
                   disabled={tejSaving}
                   className="rounded-2xl border border-black bg-black px-4 py-2.5 text-sm font-medium text-white shadow-sm disabled:opacity-60"
                 >
-                  {tejSaving ? "Enregistrement..." : "Enregistrer"}
+                  {tejSaving ? t("fin_saving") : t("fin_save")}
                 </button>
               </div>
             </div>
@@ -601,9 +608,9 @@ export default function FinanceReceivablesPage() {
             <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
               <div className="mb-5 flex items-center justify-between">
                 <div>
-                  <h3 className="font-semibold text-slate-950 dark:text-white">Créer une facture</h3>
+                  <h3 className="font-semibold text-slate-950 dark:text-white">{t("fin_createInvoiceTitle")}</h3>
                   <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                    Sélectionnez un devis accepté à convertir en facture.
+                    {t("fin_selectQuote")}
                   </p>
                 </div>
                 <button
@@ -618,7 +625,7 @@ export default function FinanceReceivablesPage() {
                 <div className="flex flex-col items-center justify-center py-10">
                   <FileText size={28} className="mb-2 text-slate-300 dark:text-slate-700" />
                   <p className="text-sm text-slate-400 dark:text-slate-500">
-                    Aucun devis accepté disponible
+                    {t("fin_noAcceptedQuotes")}
                   </p>
                 </div>
               ) : (
@@ -637,7 +644,7 @@ export default function FinanceReceivablesPage() {
                         {d.devisNo}
                       </p>
                       <p className={`mt-0.5 text-xs ${selectedDevisId === d._id ? "text-slate-300 dark:text-slate-600" : "text-slate-500 dark:text-slate-400"}`}>
-                        {d.salesOrderId?.orderNo || "—"} · {d.customerName} · {d.totalTtc.toLocaleString("fr-TN", { minimumFractionDigits: 3 })} TND
+                        {d.salesOrderId?.orderNo || "—"} · {d.customerName} · {d.totalTtc.toLocaleString("fr-TN", { minimumFractionDigits: 3 })} {t("fin_tnd")}
                       </p>
                     </button>
                   ))}
@@ -649,7 +656,7 @@ export default function FinanceReceivablesPage() {
                   onClick={() => setCreateOpen(false)}
                   className="rounded-2xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 dark:border-slate-700 dark:text-slate-200"
                 >
-                  Annuler
+                  {t("fin_cancel")}
                 </button>
                 <button
                   onClick={handleCreateInvoice}
@@ -657,7 +664,7 @@ export default function FinanceReceivablesPage() {
                   className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-slate-950"
                 >
                   {creating && <Loader2 size={13} className="animate-spin" />}
-                  Créer la facture
+                  {t("fin_createInvoice")}
                 </button>
               </div>
             </div>

@@ -2,6 +2,7 @@
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { financeService, type CalendarDay } from "@/services/finance/financeService";
+import { useLanguage } from "@/context/LanguageContext";
 import { useEffect, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Loader2, TrendingDown, TrendingUp } from "lucide-react";
 
@@ -9,7 +10,6 @@ const MONTHS_FR = [
   "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
 ];
-const DAYS_FR = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
 function tnd(v: number) {
   return Math.abs(v).toLocaleString("fr-TN", { minimumFractionDigits: 3 });
@@ -21,21 +21,32 @@ function netLabel(net: number) {
 }
 
 export default function FinanceCalendarPage() {
+  const { t } = useLanguage();
+  const DAYS = t("fin_calDays").split(",");
+
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [days, setDays] = useState<Record<string, CalendarDay>>({});
   const [loading, setLoading] = useState(false);
+  const [apiError, setApiError] = useState("");
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setApiError("");
     financeService.getCalendar(year, month).then((res) => {
       if (!cancelled) { setDays(res.days); setLoading(false); }
-    }).catch(() => { if (!cancelled) setLoading(false); });
+    }).catch((err) => {
+      if (!cancelled) {
+        setLoading(false);
+        const msg = err?.response?.data?.message || err?.message || t("fin_calError");
+        setApiError(msg);
+      }
+    });
     return () => { cancelled = true; };
-  }, [year, month]);
+  }, [year, month, t]);
 
   const prevMonth = () => {
     if (month === 1) { setYear((y) => y - 1); setMonth(12); }
@@ -66,45 +77,50 @@ export default function FinanceCalendarPage() {
     <ProtectedRoute allowedRoles={["ADMIN", "FINANCE_MANAGER"]}>
       <div className="space-y-6">
 
-        {/* Page header */}
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800">
             <CalendarDays size={18} className="text-slate-600 dark:text-slate-300" />
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-              Calendrier de trésorerie
+              {t("fin_calTitle")}
             </h1>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Flux encaissements / décaissements par jour
+              {t("fin_calSubtitle")}
             </p>
           </div>
         </div>
+
+        {apiError && (
+          <div className="rounded-3xl border border-rose-200 bg-rose-50 px-6 py-4 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400">
+            {apiError}
+          </div>
+        )}
 
         {/* Monthly summary cards */}
         <div className="grid grid-cols-3 gap-4">
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center justify-between">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Encaissements</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{t("fin_calInflows")}</p>
               <TrendingUp size={15} className="text-emerald-500" />
             </div>
             <p className="mt-2 text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-              +{tnd(totalInflows)} <span className="text-base font-medium">TND</span>
+              +{tnd(totalInflows)} <span className="text-base font-medium">{t("fin_tnd")}</span>
             </p>
           </div>
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center justify-between">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Décaissements</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{t("fin_calOutflows")}</p>
               <TrendingDown size={15} className="text-rose-500" />
             </div>
             <p className="mt-2 text-2xl font-bold text-rose-600 dark:text-rose-400">
-              −{tnd(totalOutflows)} <span className="text-base font-medium">TND</span>
+              −{tnd(totalOutflows)} <span className="text-base font-medium">{t("fin_tnd")}</span>
             </p>
           </div>
           <div className={`rounded-3xl border p-5 shadow-sm ${totalNet >= 0 ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/20" : "border-rose-200 bg-rose-50 dark:border-rose-900/40 dark:bg-rose-950/20"}`}>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Net du mois</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{t("fin_calNet")}</p>
             <p className={`mt-2 text-2xl font-bold ${totalNet >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-              {netLabel(totalNet)} <span className="text-base font-medium">TND</span>
+              {netLabel(totalNet)} <span className="text-base font-medium">{t("fin_tnd")}</span>
             </p>
           </div>
         </div>
@@ -136,7 +152,7 @@ export default function FinanceCalendarPage() {
 
           {/* Day-of-week header */}
           <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/40">
-            {DAYS_FR.map((d) => (
+            {DAYS.map((d) => (
               <div key={d} className="py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                 {d}
               </div>
@@ -169,7 +185,6 @@ export default function FinanceCalendarPage() {
                   onClick={() => setSelectedDay(isSelected ? null : dateKey)}
                   className={`min-h-[100px] cursor-pointer p-2 transition ${bg} ${isSelected ? "ring-2 ring-inset ring-slate-900 dark:ring-white" : "hover:brightness-95"}`}
                 >
-                  {/* Day number */}
                   <div className={`mb-1.5 flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${isToday ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950" : "text-slate-500 dark:text-slate-400"}`}>
                     {day}
                   </div>
@@ -189,7 +204,7 @@ export default function FinanceCalendarPage() {
                         </div>
                       )}
                       <div className={`text-[11px] font-bold ${netColor}`}>
-                        {netLabel(d.net)} TND
+                        {netLabel(d.net)} {t("fin_tnd")}
                       </div>
                     </div>
                   ) : null}
@@ -207,29 +222,29 @@ export default function FinanceCalendarPage() {
                 weekday: "long", day: "numeric", month: "long", year: "numeric",
               })}
             </h3>
-            <div className="grid grid-cols-3 gap-6">
+            <div className="grid grid-cols-3 gap-4">
               <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 dark:border-emerald-900/30 dark:bg-emerald-950/20">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Encaissements</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">{t("fin_calInflows")}</p>
                 <p className="mt-1 text-xl font-bold text-emerald-700 dark:text-emerald-400">
-                  +{tnd(selectedData.inflows)} TND
+                  +{tnd(selectedData.inflows)} {t("fin_tnd")}
                 </p>
                 <p className="mt-0.5 text-xs text-emerald-600/70 dark:text-emerald-500">
-                  {selectedData.inflowCount} règlement{selectedData.inflowCount !== 1 ? "s" : ""} reçu{selectedData.inflowCount !== 1 ? "s" : ""}
+                  {selectedData.inflowCount} {selectedData.inflowCount !== 1 ? t("fin_calPayments") : t("fin_calPayment")} {t("fin_calReceived")}
                 </p>
               </div>
               <div className="rounded-2xl border border-rose-100 bg-rose-50 p-4 dark:border-rose-900/30 dark:bg-rose-950/20">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-rose-600 dark:text-rose-400">Décaissements</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-rose-600 dark:text-rose-400">{t("fin_calOutflows")}</p>
                 <p className="mt-1 text-xl font-bold text-rose-700 dark:text-rose-400">
-                  −{tnd(selectedData.outflows)} TND
+                  −{tnd(selectedData.outflows)} {t("fin_tnd")}
                 </p>
                 <p className="mt-0.5 text-xs text-rose-600/70 dark:text-rose-500">
-                  {selectedData.outflowCount} paiement{selectedData.outflowCount !== 1 ? "s" : ""} effectué{selectedData.outflowCount !== 1 ? "s" : ""}
+                  {selectedData.outflowCount} {selectedData.outflowCount !== 1 ? t("fin_calPayments") : t("fin_calPayment")}
                 </p>
               </div>
               <div className={`rounded-2xl border p-4 ${selectedData.net >= 0 ? "border-emerald-100 bg-emerald-50 dark:border-emerald-900/30 dark:bg-emerald-950/20" : "border-rose-100 bg-rose-50 dark:border-rose-900/30 dark:bg-rose-950/20"}`}>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Solde net du jour</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t("fin_calNetDay")}</p>
                 <p className={`mt-1 text-xl font-bold ${selectedData.net >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}>
-                  {netLabel(selectedData.net)} TND
+                  {netLabel(selectedData.net)} {t("fin_tnd")}
                 </p>
               </div>
             </div>
@@ -240,15 +255,15 @@ export default function FinanceCalendarPage() {
         <div className="flex flex-wrap items-center gap-5 text-xs text-slate-500 dark:text-slate-400">
           <div className="flex items-center gap-1.5">
             <div className="h-3 w-3 rounded-sm bg-emerald-100 dark:bg-emerald-950/50" />
-            Solde positif (encaissements &gt; décaissements)
+            {t("fin_calPositiveTip")}
           </div>
           <div className="flex items-center gap-1.5">
             <div className="h-3 w-3 rounded-sm bg-rose-100 dark:bg-rose-950/50" />
-            Solde négatif (décaissements &gt; encaissements)
+            {t("fin_calNegativeTip")}
           </div>
           <div className="flex items-center gap-1.5">
             <div className="h-3 w-3 rounded-sm bg-amber-100 dark:bg-amber-950/50" />
-            Équilibré
+            {t("fin_calBalanced")}
           </div>
         </div>
       </div>

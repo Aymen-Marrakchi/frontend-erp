@@ -28,37 +28,7 @@ const surface =
   "rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900";
 
 export default function FinanceTreasuryPage() {
-  const { language } = useLanguage();
-  const text =
-    language === "fr"
-      ? {
-          title: "Trésorerie",
-          subtitle: "Vision de trésorerie basée sur les paiements fournisseurs et les encaissements clients attendus",
-          loading: "Chargement de la trésorerie",
-          actualOutflows: "Décaissements réels",
-          expectedInflows: "Encaissements attendus",
-          openPayables: "Dettes ouvertes",
-          openReceivables: "Créances ouvertes",
-          next30Due: "Échéances à 30 jours",
-          cashMovements: "Mouvements de trésorerie",
-          noMovements: "Aucun mouvement de trésorerie pour le moment",
-          recentEntries: "Écritures financières récentes",
-          noEntries: "Aucune écriture financière pour le moment",
-        }
-      : {
-          title: "Treasury",
-          subtitle: "Cash visibility based on purchase payments and expected customer inflows",
-          loading: "Loading treasury",
-          actualOutflows: "Actual Outflows",
-          expectedInflows: "Expected Inflows",
-          openPayables: "Open Payables",
-          openReceivables: "Open Receivables",
-          next30Due: "Next 30 Days Due",
-          cashMovements: "Cash Movements",
-          noMovements: "No treasury movements yet",
-          recentEntries: "Recent Finance Entries",
-          noEntries: "No finance entries yet",
-        };
+  const { t } = useLanguage();
   const [data, setData] = useState<TreasuryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -85,9 +55,9 @@ export default function FinanceTreasuryPage() {
     <ProtectedRoute allowedRoles={["ADMIN", "FINANCE_MANAGER"]}>
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">{text.title}</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">{t("fin_treasTitle")}</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            {text.subtitle}
+            {t("fin_treasSubtitle")}
           </p>
         </div>
 
@@ -100,22 +70,22 @@ export default function FinanceTreasuryPage() {
         {loading ? (
           <div className={`${surface} flex items-center justify-center gap-2 py-16 text-sm text-slate-500 dark:text-slate-400`}>
             <Loader2 size={16} className="animate-spin" />
-            {text.loading}
+            {t("fin_loadingTreasury")}
           </div>
         ) : (
           <>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
               {[
-                { label: text.actualOutflows, value: summary?.actualOutflows || 0 },
-                { label: text.expectedInflows, value: summary?.expectedInflows || 0 },
-                { label: text.openPayables, value: summary?.openPayables || 0 },
-                { label: text.openReceivables, value: summary?.openReceivables || 0 },
-                { label: text.next30Due, value: summary?.next30DaysSupplierDue || 0 },
+                { label: t("fin_actualDisbursements"), value: summary?.actualOutflows || 0 },
+                { label: t("fin_expectedInflowsLabel"), value: summary?.expectedInflows || 0 },
+                { label: t("fin_openPayables"), value: summary?.openPayables || 0 },
+                { label: t("fin_openReceivables"), value: summary?.openReceivables || 0 },
+                { label: t("fin_next30Days"), value: summary?.next30DaysSupplierDue || 0 },
               ].map((item) => (
                 <div key={item.label} className={`${surface} p-5`}>
                   <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">{item.label}</p>
                   <p className="mt-2 text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-                    {item.value.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
+                    {item.value.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} {t("fin_tnd")}
                   </p>
                 </div>
               ))}
@@ -124,7 +94,7 @@ export default function FinanceTreasuryPage() {
             <div className="grid gap-6 xl:grid-cols-2">
               <div className={`${surface} overflow-hidden`}>
                 <div className="border-b border-slate-100 px-6 py-4 dark:border-slate-800">
-                  <h2 className="font-semibold text-slate-950 dark:text-white">{text.cashMovements}</h2>
+                  <h2 className="font-semibold text-slate-950 dark:text-white">{t("fin_cashMovements")}</h2>
                 </div>
 
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -146,7 +116,7 @@ export default function FinanceTreasuryPage() {
                         </div>
                         <div className="text-right">
                           <p className="font-semibold text-slate-900 dark:text-white">
-                            {movement.amount.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
+                            {movement.amount.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} {t("fin_tnd")}
                           </p>
                           <p className="mt-0.5 text-xs text-slate-400">
                             {movement.method} · {movement.date ? new Date(movement.date).toLocaleDateString("fr-TN") : "-"}
@@ -157,7 +127,7 @@ export default function FinanceTreasuryPage() {
                   ) : (
                     <div className="flex flex-col items-center justify-center py-16 text-sm text-slate-400 dark:text-slate-500">
                       <Wallet size={28} className="mb-3 text-slate-300 dark:text-slate-700" />
-                      {text.noMovements}
+                      {t("fin_noCashMovements")}
                     </div>
                   )}
                 </div>
@@ -165,7 +135,7 @@ export default function FinanceTreasuryPage() {
 
               <div className={`${surface} overflow-hidden`}>
                 <div className="border-b border-slate-100 px-6 py-4 dark:border-slate-800">
-                  <h2 className="font-semibold text-slate-950 dark:text-white">{text.recentEntries}</h2>
+                  <h2 className="font-semibold text-slate-950 dark:text-white">{t("fin_recentEntries")}</h2>
                 </div>
 
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -180,7 +150,7 @@ export default function FinanceTreasuryPage() {
                         </div>
                         <div className="text-right">
                           <p className="font-semibold text-slate-900 dark:text-white">
-                            {entry.amount.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
+                            {entry.amount.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} {t("fin_tnd")}
                           </p>
                           <p className="mt-0.5 text-xs text-slate-400">{entry.entryType}</p>
                         </div>
@@ -188,7 +158,7 @@ export default function FinanceTreasuryPage() {
                     ))
                   ) : (
                     <div className="flex flex-col items-center justify-center py-16 text-sm text-slate-400 dark:text-slate-500">
-                      {text.noEntries}
+                      {t("fin_noEntries")}
                     </div>
                   )}
                 </div>

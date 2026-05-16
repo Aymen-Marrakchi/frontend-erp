@@ -2,6 +2,7 @@
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { financeService, type CompanySettings } from "@/services/finance/financeService";
+import { useLanguage } from "@/context/LanguageContext";
 import { useEffect, useState } from "react";
 import { Loader2, Settings } from "lucide-react";
 
@@ -14,6 +15,7 @@ const empty: CompanySettings = {
 };
 
 export default function FinanceSettingsPage() {
+  const { t } = useLanguage();
   const [form, setForm] = useState<CompanySettings>(empty);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -32,7 +34,7 @@ export default function FinanceSettingsPage() {
       await financeService.updateSettings(form);
       setSuccess(true);
     } catch {
-      setError("Échec de la sauvegarde");
+      setError(t("fin_failed"));
     } finally {
       setSaving(false);
     }
@@ -58,48 +60,48 @@ export default function FinanceSettingsPage() {
             <Settings size={18} className="text-slate-600 dark:text-slate-300" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">Paramètres société</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">{t("fin_settingsTitle")}</h1>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Ces informations apparaissent sur les factures imprimées.
+              {t("fin_settingsSubtitle")}
             </p>
           </div>
         </div>
 
         {loading ? (
           <div className={`${surface} flex items-center justify-center gap-2 py-16 text-sm text-slate-500`}>
-            <Loader2 size={16} className="animate-spin" /> Chargement...
+            <Loader2 size={16} className="animate-spin" /> {t("fin_loading")}
           </div>
         ) : (
           <>
             <div className={`${surface} p-6 space-y-5`}>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Informations générales</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{t("fin_generalInfo")}</p>
               <div className="grid grid-cols-2 gap-4">
-                {field("companyName", "Raison sociale", "EMM TN")}
+                {field("companyName", t("fin_companyName"), "EMM TN")}
                 {field("email", "Email", "info@emmtn.com")}
               </div>
               <div className="grid grid-cols-2 gap-4">
-                {field("phone", "Téléphone", "+(216) 98 241 790")}
-                {field("address", "Adresse", "Route de Gabès Km 6, Sfax, Tunisie")}
+                {field("phone", t("fin_phone"), "+(216) 98 241 790")}
+                {field("address", t("fin_address"), "Route de Gabès Km 6, Sfax, Tunisie")}
               </div>
             </div>
 
             <div className={`${surface} p-6 space-y-5`}>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Identifiants fiscaux</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{t("fin_fiscalIds")}</p>
               <div className="grid grid-cols-2 gap-4">
-                {field("mf", "Matricule Fiscal (MF)", "0000000A/B/M/000")}
-                {field("rne", "Registre national des entreprises (RNE)", "00000000")}
+                {field("mf", t("fin_mf"), "0000000A/B/M/000")}
+                {field("rne", t("fin_rne"), "00000000")}
               </div>
             </div>
 
             <div className={`${surface} p-6 space-y-5`}>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Coordonnées bancaires</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{t("fin_bankDetails")}</p>
               <div className="grid grid-cols-2 gap-4">
-                {field("rib", "RIB", "00 000 0000000000000 00")}
-                {field("iban", "IBAN", "TN59 0000 0000000000000 000")}
+                {field("rib", t("fin_rib"), "00 000 0000000000000 00")}
+                {field("iban", t("fin_iban"), "TN59 0000 0000000000000 000")}
               </div>
               <div className="grid grid-cols-2 gap-4">
-                {field("bank", "Banque", "—")}
-                {field("agence", "Agence", "—")}
+                {field("bank", t("fin_bank"), "—")}
+                {field("agence", t("fin_branch"), "—")}
               </div>
             </div>
 
@@ -110,7 +112,7 @@ export default function FinanceSettingsPage() {
             )}
             {success && (
               <div className="rounded-3xl border border-emerald-200 bg-emerald-50 px-6 py-4 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-400">
-                Paramètres sauvegardés avec succès.
+                {t("fin_saveSuccess")}
               </div>
             )}
 
@@ -121,7 +123,7 @@ export default function FinanceSettingsPage() {
                 className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
               >
                 {saving && <Loader2 size={14} className="animate-spin" />}
-                Enregistrer
+                {saving ? t("fin_saving") : t("fin_save")}
               </button>
             </div>
           </>

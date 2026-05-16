@@ -2,6 +2,7 @@
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { financeService, ManualJournalEntry, ManualJournalEntryLine } from "@/services/finance/financeService";
+import { useLanguage } from "@/context/LanguageContext";
 import { useEffect, useState } from "react";
 import { BookOpen, Loader2, Plus, Trash2, X } from "lucide-react";
 
@@ -42,6 +43,7 @@ const COMMON_ACCOUNTS = [
 type NewLine = { accountCode: string; accountName: string; side: "DEBIT" | "CREDIT"; amount: string };
 
 export default function EcrituresPage() {
+  const { t } = useLanguage();
   const [entries, setEntries] = useState<ManualJournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -152,10 +154,10 @@ export default function EcrituresPage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-                Écritures manuelles
+                {t("fin_ecrTitle")}
               </h1>
               <p className="text-sm text-slate-500 dark:text-slate-400">
-                Saisie libre d'écritures comptables — loyers, salaires, amortissements, etc.
+                {t("fin_ecrSubtitle")}
               </p>
             </div>
           </div>
@@ -164,7 +166,7 @@ export default function EcrituresPage() {
             className="inline-flex items-center gap-2 rounded-2xl border border-black bg-black px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-slate-900"
           >
             <Plus size={15} />
-            Nouvelle écriture
+            {t("fin_newEntry")}
           </button>
         </div>
 
@@ -177,12 +179,12 @@ export default function EcrituresPage() {
         {loading ? (
           <div className={`${surface} flex items-center justify-center gap-2 py-16 text-sm text-slate-500 dark:text-slate-400`}>
             <Loader2 size={16} className="animate-spin" />
-            Chargement...
+            {t("fin_loading")}
           </div>
         ) : !entries.length ? (
           <div className={`${surface} flex flex-col items-center justify-center py-16`}>
             <BookOpen size={32} className="mb-3 text-slate-300 dark:text-slate-700" />
-            <p className="text-sm text-slate-400 dark:text-slate-500">Aucune écriture manuelle pour le moment</p>
+            <p className="text-sm text-slate-400 dark:text-slate-500">{t("fin_noManualEntries")}</p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -192,7 +194,7 @@ export default function EcrituresPage() {
                   <div>
                     <p className="font-semibold text-slate-950 dark:text-white">{entry.reference}</p>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
-                      {entry.description || "Écriture manuelle"} · {new Date(entry.occurredAt).toLocaleDateString("fr-TN")}
+                      {entry.description || t("fin_entryManual")} · {new Date(entry.occurredAt).toLocaleDateString("fr-TN")}
                     </p>
                   </div>
                   <button
@@ -207,10 +209,10 @@ export default function EcrituresPage() {
                   <table className="min-w-full divide-y divide-slate-100 text-sm dark:divide-slate-800">
                     <thead className="bg-slate-50 dark:bg-slate-950/40">
                       <tr>
-                        <th className="px-6 py-3 text-left font-medium text-slate-500">Compte</th>
-                        <th className="px-6 py-3 text-left font-medium text-slate-500">Libellé</th>
-                        <th className="px-6 py-3 text-right font-medium text-slate-500">Débit</th>
-                        <th className="px-6 py-3 text-right font-medium text-slate-500">Crédit</th>
+                        <th className="px-6 py-3 text-left font-medium text-slate-500">{t("fin_accountCol")}</th>
+                        <th className="px-6 py-3 text-left font-medium text-slate-500">{t("fin_accountLabel")}</th>
+                        <th className="px-6 py-3 text-right font-medium text-slate-500">{t("fin_debit")}</th>
+                        <th className="px-6 py-3 text-right font-medium text-slate-500">{t("fin_credit")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -219,10 +221,10 @@ export default function EcrituresPage() {
                           <td className="px-6 py-3 font-medium text-slate-900 dark:text-white">{line.accountCode}</td>
                           <td className="px-6 py-3 text-slate-600 dark:text-slate-300">{line.accountName}</td>
                           <td className="px-6 py-3 text-right text-slate-900 dark:text-white">
-                            {line.side === "DEBIT" ? `${line.amount.toLocaleString("fr-TN", { minimumFractionDigits: 3 })} TND` : "—"}
+                            {line.side === "DEBIT" ? `${line.amount.toLocaleString("fr-TN", { minimumFractionDigits: 3 })} ${t("fin_tnd")}` : "—"}
                           </td>
                           <td className="px-6 py-3 text-right text-slate-900 dark:text-white">
-                            {line.side === "CREDIT" ? `${line.amount.toLocaleString("fr-TN", { minimumFractionDigits: 3 })} TND` : "—"}
+                            {line.side === "CREDIT" ? `${line.amount.toLocaleString("fr-TN", { minimumFractionDigits: 3 })} ${t("fin_tnd")}` : "—"}
                           </td>
                         </tr>
                       ))}
@@ -238,7 +240,7 @@ export default function EcrituresPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
             <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
               <div className="mb-5 flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-slate-950 dark:text-white">Nouvelle écriture manuelle</h3>
+                <h3 className="text-lg font-semibold text-slate-950 dark:text-white">{t("fin_newEntry")}</h3>
                 <button onClick={() => setCreateOpen(false)} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
                   <X size={16} />
                 </button>
@@ -247,34 +249,34 @@ export default function EcrituresPage() {
               <div className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-3">
                   <label className="block text-sm sm:col-span-1">
-                    <span className="mb-1.5 block text-slate-600 dark:text-slate-300">Référence *</span>
-                    <input className={inputClass} placeholder="EX: OD-001" value={reference} onChange={(e) => setReference(e.target.value)} />
+                    <span className="mb-1.5 block text-slate-600 dark:text-slate-300">{t("fin_refField")}</span>
+                    <input className={inputClass} placeholder={t("fin_refPlaceholder")} value={reference} onChange={(e) => setReference(e.target.value)} />
                   </label>
                   <label className="block text-sm sm:col-span-1">
-                    <span className="mb-1.5 block text-slate-600 dark:text-slate-300">Date</span>
+                    <span className="mb-1.5 block text-slate-600 dark:text-slate-300">{t("fin_dateField")}</span>
                     <input className={inputClass} type="date" value={occurredAt} onChange={(e) => setOccurredAt(e.target.value)} />
                   </label>
                   <label className="block text-sm sm:col-span-1">
-                    <span className="mb-1.5 block text-slate-600 dark:text-slate-300">Description</span>
-                    <input className={inputClass} placeholder="Ex: Loyer mars 2026" value={description} onChange={(e) => setDescription(e.target.value)} />
+                    <span className="mb-1.5 block text-slate-600 dark:text-slate-300">{t("fin_descriptionField")}</span>
+                    <input className={inputClass} placeholder={t("fin_descPlaceholder")} value={description} onChange={(e) => setDescription(e.target.value)} />
                   </label>
                 </div>
 
                 <div>
                   <div className="mb-2 flex items-center justify-between">
-                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Lignes comptables</span>
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{t("fin_accountLines")}</span>
                     <button onClick={addLine} className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">
-                      <Plus size={13} /> Ajouter une ligne
+                      <Plus size={13} /> {t("fin_addLine")}
                     </button>
                   </div>
                   <div className="rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
                     <table className="min-w-full text-sm">
                       <thead className="bg-slate-50 dark:bg-slate-950/40">
                         <tr>
-                          <th className="px-3 py-2 text-left font-medium text-slate-500 w-28">N° compte</th>
-                          <th className="px-3 py-2 text-left font-medium text-slate-500">Libellé</th>
-                          <th className="px-3 py-2 text-left font-medium text-slate-500 w-24">Sens</th>
-                          <th className="px-3 py-2 text-right font-medium text-slate-500 w-32">Montant</th>
+                          <th className="px-3 py-2 text-left font-medium text-slate-500 w-28">{t("fin_accountNo")}</th>
+                          <th className="px-3 py-2 text-left font-medium text-slate-500">{t("fin_accountLabel")}</th>
+                          <th className="px-3 py-2 text-left font-medium text-slate-500 w-24">{t("fin_side")}</th>
+                          <th className="px-3 py-2 text-right font-medium text-slate-500 w-32">{t("fin_amountField")}</th>
                           <th className="px-3 py-2 w-8" />
                         </tr>
                       </thead>
@@ -296,7 +298,7 @@ export default function EcrituresPage() {
                             <td className="px-2 py-1.5">
                               <input
                                 className={inputClass}
-                                placeholder="Libellé du compte"
+                                placeholder={t("fin_accountLabel")}
                                 value={line.accountName}
                                 onChange={(e) => updateLine(i, "accountName", e.target.value)}
                               />
@@ -307,8 +309,8 @@ export default function EcrituresPage() {
                                 value={line.side}
                                 onChange={(e) => updateLine(i, "side", e.target.value)}
                               >
-                                <option value="DEBIT">Débit</option>
-                                <option value="CREDIT">Crédit</option>
+                                <option value="DEBIT">{t("fin_debit")}</option>
+                                <option value="CREDIT">{t("fin_credit")}</option>
                               </select>
                             </td>
                             <td className="px-2 py-1.5">
@@ -337,16 +339,16 @@ export default function EcrituresPage() {
 
                   <div className="mt-3 flex items-center justify-end gap-6 text-sm">
                     <span className="text-slate-500">
-                      Débit total : <strong className="text-slate-900 dark:text-white">{roundAmount(totalDebit).toLocaleString("fr-TN", { minimumFractionDigits: 3 })} TND</strong>
+                      {t("fin_debitTotal")} <strong className="text-slate-900 dark:text-white">{roundAmount(totalDebit).toLocaleString("fr-TN", { minimumFractionDigits: 3 })} {t("fin_tnd")}</strong>
                     </span>
                     <span className="text-slate-500">
-                      Crédit total : <strong className="text-slate-900 dark:text-white">{roundAmount(totalCredit).toLocaleString("fr-TN", { minimumFractionDigits: 3 })} TND</strong>
+                      {t("fin_creditTotal")} <strong className="text-slate-900 dark:text-white">{roundAmount(totalCredit).toLocaleString("fr-TN", { minimumFractionDigits: 3 })} {t("fin_tnd")}</strong>
                     </span>
                     {!balanced && (
-                      <span className="font-medium text-rose-600">Déséquilibre : {roundAmount(Math.abs(totalDebit - totalCredit)).toLocaleString("fr-TN", { minimumFractionDigits: 3 })} TND</span>
+                      <span className="font-medium text-rose-600">{t("fin_imbalance")} {roundAmount(Math.abs(totalDebit - totalCredit)).toLocaleString("fr-TN", { minimumFractionDigits: 3 })} {t("fin_tnd")}</span>
                     )}
                     {balanced && totalDebit > 0 && (
-                      <span className="font-medium text-emerald-600">Équilibrée ✓</span>
+                      <span className="font-medium text-emerald-600">{t("fin_balanced")}</span>
                     )}
                   </div>
                 </div>
@@ -354,14 +356,14 @@ export default function EcrituresPage() {
 
               <div className="mt-6 flex justify-end gap-3">
                 <button onClick={() => setCreateOpen(false)} className="rounded-2xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 dark:border-slate-700 dark:text-slate-200">
-                  Annuler
+                  {t("fin_cancel")}
                 </button>
                 <button
                   onClick={save}
                   disabled={saving || !balanced || totalDebit <= 0 || !reference.trim()}
                   className="rounded-2xl border border-black bg-black px-4 py-2.5 text-sm font-medium text-white shadow-sm disabled:opacity-60"
                 >
-                  {saving ? "Enregistrement..." : "Enregistrer l'écriture"}
+                  {saving ? t("fin_saving") : t("fin_saveEntry")}
                 </button>
               </div>
             </div>

@@ -115,4 +115,8 @@ export const customerInvoiceService = {
     (await api.post(`/commercial/invoices/${id}/remind`, payload)).data,
   clearCheque: async (id: string, paymentId: string): Promise<CustomerInvoice> =>
     (await api.post(`/commercial/invoices/${id}/clear-cheque`, { paymentId })).data,
+  getAllKumbil: async (): Promise<CustomerInvoice[]> =>
+    (await api.get("/commercial/invoices/kumbil")).data,
+  cancelInstallment: async (id: string, index: number): Promise<CustomerInvoice> =>
+    (await api.delete(`/commercial/invoices/${id}/installments/${index}`)).data,
 };
