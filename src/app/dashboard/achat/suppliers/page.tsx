@@ -3,6 +3,7 @@
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useLanguage } from "@/context/LanguageContext";
 import { supplierService, Supplier } from "@/services/purchase/supplierService";
+import { supplementaryCategoryService, SupplementaryCategory } from "@/services/purchase/supplementaryCategoryService";
 import { useEffect, useMemo, useState } from "react";
 import {
   Building2,
@@ -56,9 +57,11 @@ const emptyForm = {
   address: "",
   rib: "",
   paymentTerms: "",
-  category: "GENERAL",
+  category: "",
   rating: 0,
   notes: "",
+  priceHt: 0,
+  leadTimeDays: 0,
 };
 
 export default function PurchaseSuppliersPage() {
@@ -94,6 +97,7 @@ export default function PurchaseSuppliersPage() {
           empty: "No suppliers found",
         };
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [purchaseCategories, setPurchaseCategories] = useState<SupplementaryCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -108,7 +112,12 @@ export default function PurchaseSuppliersPage() {
     try {
       setLoading(true);
       setError("");
-      setSuppliers(await supplierService.getAll());
+      const [supplierList, categoryList] = await Promise.all([
+        supplierService.getAll(),
+        supplementaryCategoryService.getActive(),
+      ]);
+      setSuppliers(supplierList);
+      setPurchaseCategories(categoryList);
     } catch (err: unknown) {
       setError(getErrorMessage(err, "Failed to load suppliers"));
     } finally {
@@ -171,6 +180,8 @@ export default function PurchaseSuppliersPage() {
       category: supplier.category || "GENERAL",
       rating: supplier.rating || 0,
       notes: supplier.notes || "",
+      priceHt: supplier.priceHt || 0,
+      leadTimeDays: supplier.leadTimeDays || 0,
     });
     setShowForm(true);
     setError("");
@@ -309,12 +320,12 @@ export default function PurchaseSuppliersPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 dark:bg-slate-800/50">
                   <tr className="text-left text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                    <th className="px-6 py-3 font-medium">Supplier</th>
-                    <th className="px-6 py-3 font-medium">Category</th>
+                    <th className="px-6 py-3 font-medium">Fournisseur</th>
+                    <th className="px-6 py-3 font-medium">Catégorie</th>
                     <th className="px-6 py-3 font-medium">Contact</th>
-                    <th className="px-6 py-3 font-medium">Payment Terms</th>
-                    <th className="px-6 py-3 font-medium">Rating</th>
-                    <th className="px-6 py-3 font-medium">Status</th>
+                    <th className="px-6 py-3 font-medium">PU (TND)</th>
+                    <th className="px-6 py-3 font-medium">Délai (j)</th>
+                    <th className="px-6 py-3 font-medium">Statut</th>
                     <th className="px-6 py-3 font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -327,15 +338,23 @@ export default function PurchaseSuppliersPage() {
                           <p className="text-xs font-mono text-slate-500 dark:text-slate-400">{supplier.supplierNo}</p>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{supplier.category}</td>
+                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
+                        {purchaseCategories.find((c) => c.name === supplier.category)?.label ?? supplier.category ?? "—"}
+                      </td>
                       <td className="px-6 py-4">
                         <div className="text-slate-600 dark:text-slate-300">
                           <p>{supplier.contactName || "—"}</p>
                           <p className="text-xs text-slate-500 dark:text-slate-400">{supplier.email || supplier.phone || "—"}</p>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{supplier.paymentTerms || "—"}</td>
-                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{supplier.rating.toFixed(1)} / 5</td>
+                      <td className="px-6 py-4 font-semibold text-slate-800 dark:text-slate-100">
+                        {supplier.priceHt > 0
+                          ? supplier.priceHt.toLocaleString("fr-TN", { minimumFractionDigits: 3 })
+                          : <span className="font-normal text-slate-400">—</span>}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
+                        {supplier.leadTimeDays > 0 ? `${supplier.leadTimeDays} j` : <span className="text-slate-400">—</span>}
+                      </td>
                       <td className="px-6 py-4">
                         <span
                           className={`rounded-full px-2.5 py-1 text-xs font-medium ${
@@ -416,41 +435,53 @@ export default function PurchaseSuppliersPage() {
                   <input className={inputClass} value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
                 </div>
                 <div>
-                  <label className={labelClass}>Category</label>
-                  <input className={inputClass} value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value.toUpperCase() }))} />
+                  <label className={labelClass}>Category *</label>
+                  <select
+                    className={inputClass}
+                    value={form.category}
+                    onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+                  >
+                    <option value="">— Select category —</option>
+                    {purchaseCategories.map((cat) => (
+                      <option key={cat._id} value={cat.name}>{cat.label}</option>
+                    ))}
+                  </select>
+                  {purchaseCategories.length === 0 && (
+                    <p className="mt-1.5 text-xs text-slate-400">
+                      No categories yet — create them in the Categories page.
+                    </p>
+                  )}
                 </div>
                 <div>
-                  <label className={labelClass}>Rating (0-5)</label>
+                  <label className={labelClass}>PU (TND)</label>
                   <input
                     className={inputClass}
                     type="number"
                     min={0}
-                    max={5}
-                    step={0.1}
-                    value={form.rating}
-                    onChange={(e) => setForm((f) => ({ ...f, rating: Number(e.target.value) }))}
+                    step={0.001}
+                    placeholder="0,000"
+                    value={form.priceHt}
+                    onChange={(e) => setForm((f) => ({ ...f, priceHt: Number(e.target.value) }))}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Délai livraison (jours)</label>
+                  <input
+                    className={inputClass}
+                    type="number"
+                    min={0}
+                    placeholder="ex : 7"
+                    value={form.leadTimeDays}
+                    onChange={(e) => setForm((f) => ({ ...f, leadTimeDays: Number(e.target.value) }))}
                   />
                 </div>
                 <div>
                   <label className={labelClass}>RIB</label>
                   <input className={inputClass} value={form.rib} onChange={(e) => setForm((f) => ({ ...f, rib: e.target.value }))} />
                 </div>
-                <div>
-                  <label className={labelClass}>Payment Terms</label>
-                  <input className={inputClass} value={form.paymentTerms} onChange={(e) => setForm((f) => ({ ...f, paymentTerms: e.target.value }))} />
-                </div>
                 <div className="md:col-span-2">
                   <label className={labelClass}>Address</label>
                   <input className={inputClass} value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
-                </div>
-                <div className="md:col-span-2">
-                  <label className={labelClass}>Notes</label>
-                  <textarea
-                    className={`${inputClass} resize-none`}
-                    rows={3}
-                    value={form.notes}
-                    onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                  />
                 </div>
               </div>
 

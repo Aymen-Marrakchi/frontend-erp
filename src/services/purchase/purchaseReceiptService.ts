@@ -22,6 +22,7 @@ export interface PurchaseReceiptLine {
 export interface PurchaseReceipt {
   _id: string;
   receiptNo: string;
+  supplierRating?: number | null;
   purchaseOrderId: {
     _id: string;
     orderNo: string;
@@ -51,17 +52,28 @@ export interface PurchaseReceipt {
 export const purchaseReceiptService = {
   getAll: async (): Promise<PurchaseReceipt[]> => (await api.get("/purchase/receipts")).data,
 
-  create: async (payload: {
-    purchaseOrderId: string;
-    depotId: string;
-    lines: Array<{
-      purchaseOrderLineId: string;
-      receivedQuantity: number;
-      acceptedQuantity: number;
-      qualityStatus?: "ACCEPTED" | "WITH_RESERVATION" | "REJECTED";
-      discrepancyNotes?: string;
-      lotRef?: string;
-    }>;
-    notes?: string;
-  }): Promise<PurchaseReceipt> => (await api.post("/purchase/receipts", payload)).data,
+  getMine: async (): Promise<PurchaseReceipt[]> => (await api.get("/purchase/receipts/mine")).data,
+
+  create: async (
+    payload: {
+      purchaseOrderId: string;
+      depotId?: string;
+      lines: Array<{
+        purchaseOrderLineId: string;
+        receivedQuantity: number;
+        acceptedQuantity: number;
+      }>;
+      supplierRating?: number;
+      notes?: string;
+    },
+    factureFile?: File | null
+  ): Promise<PurchaseReceipt> => {
+    if (factureFile) {
+      const form = new FormData();
+      form.append("data", JSON.stringify(payload));
+      form.append("facture", factureFile);
+      return (await api.post("/purchase/receipts", form)).data;
+    }
+    return (await api.post("/purchase/receipts", payload)).data;
+  },
 };

@@ -566,7 +566,7 @@ export default function PlanningPage() {
                           : "border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
                       }`}
                     >
-                      {type === "SHIPMENT" ? ("🚚 " + t("deliveryPlanLabel")) : ("🔍 " + t("explorationPlanLabel"))}
+                      {type === "SHIPMENT" ? t("deliveryPlanLabel") : t("explorationPlanLabel")}
                     </button>
                   ))}
                 </div>
@@ -674,16 +674,6 @@ export default function PlanningPage() {
                         {shipmentGovs.length} zones currently have customers.
                       </p>
                     )}
-                  </div>
-                  <div>
-                    <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                      {t("notes") || "Notes"}
-                    </label>
-                    <input
-                      value={form.notes || ""}
-                      onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
-                    />
                   </div>
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">

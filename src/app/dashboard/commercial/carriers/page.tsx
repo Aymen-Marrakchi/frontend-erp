@@ -295,17 +295,6 @@ export default function CarriersPage() {
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
                 />
               </div>
-              <div className="md:col-span-2">
-                <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                  {t("notes") || "Notes"}
-                </label>
-                <textarea
-                  rows={2}
-                  value={form.notes || ""}
-                  onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none dark:border-slate-800 dark:bg-slate-950 dark:text-white"
-                />
-              </div>
             </div>
 
             <div className="mt-5 flex gap-3">

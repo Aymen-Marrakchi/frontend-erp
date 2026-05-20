@@ -14,6 +14,7 @@ export interface Depot {
 
 export const stockDepotService = {
   getAll: async (): Promise<Depot[]> => (await api.get("/stock/depots")).data,
+  getMine: async (): Promise<Depot | null> => (await api.get("/stock/depots/mine")).data,
   getById: async (id: string): Promise<Depot> => (await api.get(`/stock/depots/${id}`)).data,
   create: async (payload: {
     name: string;

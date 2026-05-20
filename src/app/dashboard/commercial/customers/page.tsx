@@ -455,17 +455,6 @@ export default function CustomersPage() {
                   </div>
                 </div>
 
-                <div>
-                  <label className={labelClass}>{t("notes") || "Notes"}</label>
-                  <textarea
-                    rows={2}
-                    value={form.notes}
-                    onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                    className={`${inputClass} resize-none`}
-                    placeholder="Optional notes..."
-                  />
-                </div>
-
                 {error && (
                   <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400">
                     {error}

@@ -41,25 +41,21 @@ export default function PurchaseSettingsPage() {
     language === "fr"
       ? {
           title: "Paramètres Achat",
-          subtitle: "Configurez la numérotation, les taxes, la devise, le workflow, les catégories et les unités",
+          subtitle: "Configurez la numérotation, les taxes et la devise",
           save: "Enregistrer les paramètres",
           saveSuccess: "Paramètres achat mis à jour",
           loading: "Chargement des paramètres achat...",
           numbering: "Numérotation",
           taxes: "Taxes et devise",
-          workflow: "Workflow",
-          categories: "Catégories et unités",
         }
       : {
           title: "Purchase Settings",
-          subtitle: "Configure numbering prefixes, taxes, currency, validation workflow, categories, and units",
+          subtitle: "Configure numbering prefixes, taxes, and currency",
           save: "Save Settings",
           saveSuccess: "Purchase settings updated",
           loading: "Loading purchase settings...",
           numbering: "Numbering",
           taxes: "Taxes & Currency",
-          workflow: "Workflow",
-          categories: "Categories & Units",
         };
   const [settings, setSettings] = useState<PurchaseSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -93,11 +89,7 @@ export default function PurchaseSettingsPage() {
       setSaving(true);
       setError("");
       setSuccess("");
-      const payload = {
-        ...settings,
-        purchasedProductCategories: settings.purchasedProductCategories.filter(Boolean),
-        unitsOfMeasure: settings.unitsOfMeasure.filter(Boolean),
-      };
+      const payload = { ...settings };
       const updated = await purchaseSettingService.update(payload);
       setSettings(updated);
       setSuccess(text.saveSuccess);
@@ -256,78 +248,6 @@ export default function PurchaseSettingsPage() {
               </div>
             </div>
 
-            <div className="grid gap-6 xl:grid-cols-2">
-              <div className={`${surface} p-6`}>
-                <h2 className="text-lg font-semibold text-slate-950 dark:text-white">{text.workflow}</h2>
-                <div className="mt-4 grid gap-4">
-                  <div>
-                    <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-                      Approval Mode
-                    </label>
-                    <select
-                      className={inputClass}
-                      value={settings.approvalMode}
-                      onChange={(e) => updateField("approvalMode", e.target.value as "SINGLE_LEVEL" | "MULTI_LEVEL")}
-                    >
-                      <option value="SINGLE_LEVEL">Single Level</option>
-                      <option value="MULTI_LEVEL">Multi Level</option>
-                    </select>
-                  </div>
-                  <label className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 dark:border-slate-800 dark:text-slate-300">
-                    <input
-                      type="checkbox"
-                      checked={settings.lowPriorityNeedsApproval}
-                      onChange={(e) => updateField("lowPriorityNeedsApproval", e.target.checked)}
-                    />
-                    Low-priority requests still require approval
-                  </label>
-                  <label className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 dark:border-slate-800 dark:text-slate-300">
-                    <input
-                      type="checkbox"
-                      checked={settings.urgentAutoEscalation}
-                      onChange={(e) => updateField("urgentAutoEscalation", e.target.checked)}
-                    />
-                    Urgent requests auto-escalate in workflow
-                  </label>
-                </div>
-              </div>
-
-              <div className={`${surface} p-6`}>
-                <h2 className="text-lg font-semibold text-slate-950 dark:text-white">{text.categories}</h2>
-                <div className="mt-4 grid gap-4">
-                  <div>
-                    <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-                      Purchased Product Categories
-                    </label>
-                    <input
-                      className={inputClass}
-                      value={settings.purchasedProductCategories.join(", ")}
-                      onChange={(e) =>
-                        updateField(
-                          "purchasedProductCategories",
-                          e.target.value.split(",").map((item) => item.trim()).filter(Boolean)
-                        )
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-                      Units Of Measure
-                    </label>
-                    <input
-                      className={inputClass}
-                      value={settings.unitsOfMeasure.join(", ")}
-                      onChange={(e) =>
-                        updateField(
-                          "unitsOfMeasure",
-                          e.target.value.split(",").map((item) => item.trim()).filter(Boolean)
-                        )
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
           </>
         )}
       </div>

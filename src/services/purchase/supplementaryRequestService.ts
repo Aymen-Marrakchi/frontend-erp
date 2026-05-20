@@ -2,19 +2,12 @@ import api from "../api";
 
 export type SupplementaryRequestStatus = "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED";
 export type SupplementaryRequestPriority = "LOW" | "NORMAL" | "URGENT";
-export type SupplementaryRequestCategory =
-  | "FOURNITURES"
-  | "INFORMATIQUE"
-  | "MOBILIER"
-  | "MAINTENANCE"
-  | "SERVICE"
-  | "AUTRE";
 
 export interface SupplementaryRequest {
   _id: string;
   requestNo: string;
   title: string;
-  category: SupplementaryRequestCategory;
+  category: string;
   quantity: number;
   unit: string;
   estimatedCost: number;
@@ -41,7 +34,7 @@ export const supplementaryRequestService = {
 
   create: async (payload: {
     title: string;
-    category?: SupplementaryRequestCategory;
+    category?: string;
     quantity: number;
     unit?: string;
     estimatedCost?: number;
@@ -52,9 +45,12 @@ export const supplementaryRequestService = {
   }): Promise<SupplementaryRequest> =>
     (await api.post("/purchase/supplementary", payload)).data,
 
+  submit: async (id: string): Promise<SupplementaryRequest> =>
+    (await api.post(`/purchase/supplementary/${id}/submit`, {})).data,
+
   updateStatus: async (
     id: string,
-    status: "SUBMITTED" | "APPROVED" | "REJECTED",
+    status: "APPROVED" | "REJECTED",
     notes?: string
   ): Promise<SupplementaryRequest> =>
     (await api.patch(`/purchase/supplementary/${id}/status`, { status, notes })).data,

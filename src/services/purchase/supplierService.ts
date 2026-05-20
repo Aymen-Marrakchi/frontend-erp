@@ -12,9 +12,12 @@ export interface Supplier {
   paymentTerms?: string;
   category: string;
   rating: number;
+  ratingCount: number;
   notes?: string;
   isBlocked: boolean;
   blockedReason?: string;
+  priceHt: number;
+  leadTimeDays: number;
   createdAt: string;
 }
 
@@ -30,6 +33,8 @@ export interface SupplierPayload {
   rating?: number;
   notes?: string;
   blockedReason?: string;
+  priceHt?: number;
+  leadTimeDays?: number;
 }
 
 export const supplierService = {

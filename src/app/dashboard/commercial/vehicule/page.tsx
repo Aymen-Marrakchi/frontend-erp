@@ -5,7 +5,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { vehicleService, Vehicle, VehicleDelivery } from "@/services/commercial/vehicleService";
 import {
   Car, Plus, Pencil, Power, ChevronDown, ChevronUp,
-  Weight, Package, CalendarDays, Clock, Loader2, Search, X,
+  Weight, Package, CalendarDays, Clock, Loader2, Search, X, TrendingUp,
 } from "lucide-react";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -22,7 +22,7 @@ const labelClass =
 function calcDurabilityFromLifeDays(lifeExpectancyDays = 3650): number {
   if (lifeExpectancyDays < 365) return 50;
   if (lifeExpectancyDays <= 4 * 365) return 100;
-  return Math.max(0, 100 - 7 * (lifeExpectancyDays - 4 * 365));
+  return Math.max(0, 100 - 0.7 * (lifeExpectancyDays - 4 * 365));
 }
 
 function calcDurability(_purchaseDate: string, lifeExpectancyDays = 3650): number {
@@ -149,10 +149,12 @@ function VehicleCard({
   vehicle,
   onEdit,
   onToggle,
+  onAdjust,
 }: {
   vehicle: Vehicle;
   onEdit: (v: Vehicle) => void;
   onToggle: (v: Vehicle) => void;
+  onAdjust: (v: Vehicle) => void;
 }) {
   const { t } = useLanguage();
   const [open, setOpen] = useState(false);
@@ -228,6 +230,13 @@ function VehicleCard({
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
+          <button
+            className="p-2 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+            onClick={(e) => { e.stopPropagation(); onAdjust(vehicle); }}
+            title="Ajuster la durabilité"
+          >
+            <TrendingUp size={14} />
+          </button>
           <button
             className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
             onClick={(e) => { e.stopPropagation(); onEdit(vehicle); }}
@@ -502,19 +511,6 @@ function VehicleModal({
             </div>
           </div>
 
-          <div>
-            <label className={labelClass}>{t("durabilityLabel")}</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              className={inputClass}
-              value={form.durabilityPercent}
-              onChange={set("durabilityPercent")}
-              required
-            />
-          </div>
-
           {/* Live durability preview */}
           {previewPct !== null && (
             <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 px-4 py-3 flex items-center gap-3">
@@ -555,6 +551,125 @@ function VehicleModal({
   );
 }
 
+// ─── Adjust Durability Modal ──────────────────────────────────────────────────
+function AdjustDurabilityModal({
+  vehicle,
+  onClose,
+  onSave,
+}: {
+  vehicle: Vehicle;
+  onClose: () => void;
+  onSave: (addPct: number, reason: string) => Promise<void>;
+}) {
+  const currentPct = vehicle.durabilityPercent ?? calcDurabilityFromLifeDays(vehicle.lifeExpectancyDays);
+  const [addPct, setAddPct] = useState("10");
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const parsed = Math.min(100, Math.max(0, Number(addPct) || 0));
+  const newPct = Math.min(100, currentPct + parsed);
+  const newColor = durColor(newPct);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reason.trim()) { setErr("La raison est obligatoire."); return; }
+    if (parsed <= 0) { setErr("Le pourcentage doit être supérieur à 0."); return; }
+    setSaving(true);
+    setErr("");
+    try {
+      await onSave(parsed, reason.trim());
+      onClose();
+    } catch (ex: unknown) {
+      setErr((ex as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "Erreur");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className={`${surface} w-full max-w-sm p-6 shadow-2xl`}>
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">Ajuster la durabilité</h2>
+            <p className="text-xs text-slate-400 mt-0.5">{vehicle.matricule}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        <form onSubmit={submit} className="space-y-4">
+          <div>
+            <label className={labelClass}>Pourcentage à ajouter (%)</label>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              className={inputClass}
+              value={addPct}
+              onChange={(e) => setAddPct(e.target.value)}
+              required
+            />
+          </div>
+
+          <div>
+            <label className={labelClass}>Raison</label>
+            <textarea
+              rows={3}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Ex: Révision complète effectuée, remplacement des pièces..."
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 dark:border-slate-800 dark:bg-slate-950 dark:text-white dark:focus:border-indigo-500 dark:focus:ring-indigo-900/30"
+            />
+          </div>
+
+          {/* Preview */}
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 px-4 py-3 space-y-2">
+            <div className="flex justify-between text-xs text-slate-500">
+              <span>Avant</span>
+              <span className="font-semibold text-slate-700 dark:text-slate-300">{currentPct.toFixed(0)}%</span>
+            </div>
+            <div className="flex justify-between text-xs text-slate-500">
+              <span>Ajout</span>
+              <span className="font-semibold text-emerald-600">+{parsed}%</span>
+            </div>
+            <div className="border-t border-slate-200 dark:border-slate-700 pt-2">
+              <div className="flex justify-between text-sm font-semibold">
+                <span className="text-slate-700 dark:text-slate-200">Après</span>
+                <span className={newColor.text}>{newPct.toFixed(0)}%</span>
+              </div>
+              <div className="mt-1.5 h-2 rounded-full bg-slate-200 dark:bg-slate-800">
+                <div className={`h-2 rounded-full transition-all ${newColor.bar}`} style={{ width: `${newPct}%` }} />
+              </div>
+            </div>
+          </div>
+
+          {err && <p className="text-xs text-red-500">{err}</p>}
+
+          <div className="flex gap-3 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-sm transition-colors"
+            >
+              Annuler
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {saving ? "Enregistrement..." : "Confirmer"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function FleetPage() {
   const { t } = useLanguage();
@@ -563,6 +678,7 @@ export default function FleetPage() {
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Vehicle | undefined>();
+  const [adjusting, setAdjusting] = useState<Vehicle | undefined>();
 
   const load = async () => {
     try { setVehicles(await vehicleService.getAll()); }
@@ -606,6 +722,21 @@ export default function FleetPage() {
   const handleToggle = async (v: Vehicle) => {
     const updated = await vehicleService.toggleActive(v._id);
     setVehicles((p) => p.map((x) => (x._id === v._id ? updated : x)));
+  };
+
+  const handleAdjust = async (addPct: number, reason: string) => {
+    if (!adjusting) return;
+    const currentPct = adjusting.durabilityPercent ?? calcDurabilityFromLifeDays(adjusting.lifeExpectancyDays);
+    const newPct = Math.min(100, currentPct + addPct);
+    const date = new Date().toLocaleDateString("fr-TN");
+    const noteEntry = `[${date}] +${addPct}% — ${reason}`;
+    const existingNotes = adjusting.notes ? adjusting.notes.trim() : "";
+    const updatedNotes = existingNotes ? `${existingNotes}\n${noteEntry}` : noteEntry;
+    const updated = await vehicleService.update(adjusting._id, {
+      durabilityPercent: newPct,
+      notes: updatedNotes,
+    });
+    setVehicles((p) => p.map((x) => (x._id === adjusting._id ? updated : x)));
   };
 
   return (
@@ -673,7 +804,7 @@ export default function FleetPage() {
       ) : (
         <div className="space-y-3">
           {filtered.map((v) => (
-            <VehicleCard key={v._id} vehicle={v} onEdit={openEdit} onToggle={handleToggle} />
+            <VehicleCard key={v._id} vehicle={v} onEdit={openEdit} onToggle={handleToggle} onAdjust={(veh) => setAdjusting(veh)} />
           ))}
         </div>
       )}
@@ -683,6 +814,14 @@ export default function FleetPage() {
           initial={editing}
           onClose={() => setShowModal(false)}
           onSave={handleSave}
+        />
+      )}
+
+      {adjusting && (
+        <AdjustDurabilityModal
+          vehicle={adjusting}
+          onClose={() => setAdjusting(undefined)}
+          onSave={handleAdjust}
         />
       )}
     </div>

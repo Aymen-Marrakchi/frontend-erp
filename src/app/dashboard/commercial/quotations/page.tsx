@@ -191,8 +191,8 @@ function openDevisDocument(devis: Devis, settings: CompanySettings | null) {
       <td style="width:48%;vertical-align:top;border:1px solid #e2e8f0;border-radius:6px;padding:10px 14px">
         <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:#64748b;font-weight:600;margin-bottom:6px">Client / Destinataire</div>
         <div style="font-size:13px;font-weight:700">${devis.customerName}</div>
-        ${devis.customerMf ? `<div style="font-size:11px;color:#64748b;margin-top:3px">MF : ${devis.customerMf}</div>` : ""}
-        ${devis.customerAddress ? `<div style="font-size:11px;color:#64748b;margin-top:1px">Adresse : ${devis.customerAddress}</div>` : ""}
+        ${devis.customerAddress ? `<div style="font-size:11px;color:#64748b;margin-top:3px">Adresse : ${devis.customerAddress}</div>` : ""}
+        ${(devis.customerMf || devis.customerId?.mf) ? `<div style="font-size:11px;color:#64748b;margin-top:1px">MF : ${devis.customerMf || devis.customerId?.mf}</div>` : ""}
       </td>
     </tr>
   </table>

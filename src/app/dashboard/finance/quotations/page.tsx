@@ -381,7 +381,7 @@ export default function FinanceQuotationsPage() {
             {t("fin_loadingQuotes")}
           </div>
         ) : (
-          <div className={`${surface} overflow-hidden`}>
+          <div className={`${surface}`}>
             {!filtered.length ? (
               <div className="flex flex-col items-center justify-center py-16">
                 <FileText size={32} className="mb-3 text-slate-300 dark:text-slate-700" />

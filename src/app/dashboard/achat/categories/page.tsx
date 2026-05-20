@@ -69,6 +69,17 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function toCode(label: string): string {
+  return label
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 // ─── Category form ────────────────────────────────────────────────────────────
 
 const EMPTY = { name: "", label: "", description: "", color: "slate" };
@@ -88,69 +99,51 @@ function CategoryForm({
   error: string;
   saving: boolean;
 }) {
-  const [form, setForm] = useState(initial);
-  const set = (k: keyof typeof EMPTY, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const [label, setLabel] = useState(initial.label);
+  const [color, setColor] = useState(initial.color);
+
+  const code = isEdit ? initial.name : toCode(label);
 
   const inputCls =
     "w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:bg-white dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:focus:border-slate-500";
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSubmit({ name: code, label, description: "", color });
+  };
+
   return (
-    <form onSubmit={(e) => { e.preventDefault(); onSubmit(form); }} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4">
       {error && (
         <p className="rounded-xl bg-rose-50 px-4 py-2 text-xs text-rose-600 dark:bg-rose-950/30 dark:text-rose-400">
           {error}
         </p>
       )}
 
-      {!isEdit && (
-        <div>
-          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
-            Code interne <span className="text-rose-500">*</span>
-          </label>
-          <input
-            required
-            className={inputCls + " uppercase"}
-            placeholder="Ex: CONSOMMABLES"
-            value={form.name}
-            onChange={(e) => set("name", e.target.value)}
-          />
-          <p className="mt-1 text-xs text-slate-400">Identifiant unique, majuscules, pas d&apos;espaces</p>
-        </div>
-      )}
-
       <div>
         <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
-          Libellé affiché <span className="text-rose-500">*</span>
+          Category Name <span className="text-rose-500">*</span>
         </label>
         <input
           required
+          autoFocus
           className={inputCls}
-          placeholder="Ex: Consommables bureau"
-          value={form.label}
-          onChange={(e) => set("label", e.target.value)}
+          placeholder="e.g. Office Supplies"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
         />
       </div>
 
       <div>
-        <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Description</label>
-        <input
-          className={inputCls}
-          placeholder="Brève description optionnelle…"
-          value={form.description}
-          onChange={(e) => set("description", e.target.value)}
-        />
-      </div>
-
-      <div>
-        <label className="mb-2 block text-xs font-medium text-slate-500 dark:text-slate-400">Couleur</label>
+        <label className="mb-2 block text-xs font-medium text-slate-500 dark:text-slate-400">Color</label>
         <div className="flex flex-wrap gap-2">
           {COLORS.map((c) => (
             <button
               key={c.key}
               type="button"
-              onClick={() => set("color", c.key)}
+              onClick={() => setColor(c.key)}
               className={`flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-medium transition ${c.bg} ${c.text} ${
-                form.color === c.key
+                color === c.key
                   ? "ring-2 ring-slate-400 ring-offset-1 dark:ring-slate-500"
                   : "opacity-70 hover:opacity-100"
               }`}
@@ -162,37 +155,21 @@ function CategoryForm({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-800/50">
-        <p className="mb-2 text-xs text-slate-400">Aperçu :</p>
-        <CategoryBadge
-          category={{
-            _id: "",
-            name: form.name || "CODE",
-            label: form.label || "Libellé",
-            description: form.description,
-            color: form.color,
-            isActive: true,
-            createdAt: "",
-            updatedAt: "",
-          }}
-        />
-      </div>
-
       <div className="flex justify-end gap-2 pt-1">
         <button
           type="button"
           onClick={onCancel}
           className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
         >
-          Annuler
+          Cancel
         </button>
         <button
           type="submit"
-          disabled={saving}
+          disabled={saving || !label.trim()}
           className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700 disabled:opacity-50 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
         >
           {saving ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
-          {saving ? "Enregistrement…" : isEdit ? "Enregistrer" : "Créer"}
+          {saving ? "Saving…" : isEdit ? "Save" : "Create"}
         </button>
       </div>
     </form>
@@ -246,7 +223,6 @@ export default function SupplementaryCategoriesPage() {
     try {
       const updated = await supplementaryCategoryService.update(editTarget._id, {
         label: values.label,
-        description: values.description,
         color: values.color,
       });
       setCategories((prev) => prev.map((c) => (c._id === updated._id ? updated : c)));
@@ -304,7 +280,7 @@ export default function SupplementaryCategoriesPage() {
             initial={{
               name: editTarget.name,
               label: editTarget.label,
-              description: editTarget.description,
+              description: "",
               color: editTarget.color,
             }}
             isEdit={true}
@@ -381,11 +357,6 @@ export default function SupplementaryCategoriesPage() {
                     <div className="min-w-0 flex-1">
                       <CategoryBadge category={cat} />
                       <p className="mt-2 font-mono text-xs text-slate-400 dark:text-slate-500">{cat.name}</p>
-                      {cat.description && (
-                        <p className="mt-1.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
-                          {cat.description}
-                        </p>
-                      )}
                     </div>
                     <span className={`shrink-0 rounded-xl px-2 py-0.5 text-xs font-medium ${
                       cat.isActive

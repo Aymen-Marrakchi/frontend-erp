@@ -10,7 +10,6 @@ import {
   Boxes,
   Package,
   Search,
-  Bell,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -91,7 +90,6 @@ export default function StockDashboardPage() {
   const [alerts, setAlerts] = useState<StockAlertItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [showNotifications, setShowNotifications] = useState(false);
 
   const surface =
     "rounded-3xl border border-slate-200 bg-white shadow-sm transition-colors duration-200 dark:border-slate-800 dark:bg-slate-900";
@@ -276,72 +274,6 @@ export default function StockDashboardPage() {
             </h1>
           </div>
 
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowNotifications((prev) => !prev)}
-              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
-              <div className="relative">
-                <Bell size={16} />
-                {openAlerts.length > 0 && (
-                  <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold text-white">
-                    {openAlerts.length}
-                  </span>
-                )}
-              </div>
-              <span className="text-[11px] uppercase tracking-[0.16em]">
-                {t("stockAlertsMenu")}
-              </span>
-            </button>
-
-            {showNotifications && (
-              <div className="absolute right-0 z-20 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-3 text-xs shadow-xl dark:border-slate-800 dark:bg-slate-950">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                    {t("stockAlerts")}
-                  </span>
-                  <span className="text-[11px] text-slate-400 dark:text-slate-500">
-                    {Math.min(openAlerts.length, 5)} / {openAlerts.length}
-                  </span>
-                </div>
-
-                {latestAlerts.slice(0, 5).length === 0 ? (
-                  <div className="py-4 text-center text-slate-500 dark:text-slate-400">
-                    {t("noResults")}
-                  </div>
-                ) : (
-                  <ul className="space-y-2 max-h-64 overflow-y-auto">
-                    {latestAlerts.slice(0, 5).map((alert) => (
-                      <li
-                        key={alert._id}
-                        className="rounded-xl border border-slate-100 px-3 py-2 dark:border-slate-800"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="text-xs font-medium text-slate-900 dark:text-white">
-                              {alert.productId?.sku || "—"} ·{" "}
-                              {alert.productId?.name || t("product")}
-                            </p>
-                            <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500 dark:text-slate-400">
-                              {alert.message}
-                            </p>
-                          </div>
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${alertBadge(
-                              alert.type
-                            )}`}
-                          >
-                            {alert.type}
-                          </span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-          </div>
         </div>
 
         {loading ? (

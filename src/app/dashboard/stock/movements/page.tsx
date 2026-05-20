@@ -54,7 +54,6 @@ interface MovementFormState {
   productId: string;
   quantity: string;
   reason: string;
-  notes: string;
   lotMode: "" | "FIFO" | "LIFO" | "MANUAL";
   lotRef: string;
 }
@@ -114,7 +113,6 @@ export default function StockMovementsPage() {
     productId: "",
     quantity: "",
     reason: "",
-    notes: "",
     lotMode: "",
     lotRef: "",
   };
@@ -228,7 +226,6 @@ export default function StockMovementsPage() {
     productId: form.productId,
     quantity: Number(form.quantity),
     reason: form.reason.trim(),
-    notes: form.notes.trim(),
     lotMode: form.lotMode || undefined,
     lotRef: form.lotRef.trim() || undefined,
     sourceModule: "STOCK",
@@ -634,20 +631,11 @@ export default function StockMovementsPage() {
               )}
 
               <div>
-                <label className={labelClass}>{t("reason")}</label>
+                <label className={labelClass}>Reason</label>
                 <input
                   className={inputClass}
                   value={form.reason}
                   onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
-                />
-              </div>
-
-              <div>
-                <label className={labelClass}>{t("notes")}</label>
-                <textarea
-                  className={`${inputClass} min-h-[90px] resize-none`}
-                  value={form.notes}
-                  onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
                 />
               </div>
 

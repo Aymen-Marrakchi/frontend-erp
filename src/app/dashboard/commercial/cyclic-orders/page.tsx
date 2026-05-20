@@ -271,9 +271,12 @@ export default function CommercialCyclicOrdersPage() {
                         )}
                       </div>
                       <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                        {cyclic.productId.name} ({cyclic.productId.sku}) ·{" "}
+                        {cyclic.productId
+                          ? `${cyclic.productId.name} (${cyclic.productId.sku})`
+                          : "—"}{" "}
+                        ·{" "}
                         <span className="font-medium text-slate-700 dark:text-slate-300">
-                          {cyclic.quantity} {cyclic.productId.unit}
+                          {cyclic.quantity} {cyclic.productId?.unit}
                         </span>
                       </p>
                       <p className="text-[11px] text-slate-400 dark:text-slate-500">
@@ -409,17 +412,6 @@ export default function CommercialCyclicOrdersPage() {
                     value={form.nextDueDate}
                     onChange={(event) => setForm({ ...form, nextDueDate: event.target.value })}
                     className={inputClass}
-                  />
-                </div>
-
-                <div>
-                  <label className={labelClass}>{t("notesField")}</label>
-                  <textarea
-                    value={form.notes || ""}
-                    onChange={(event) => setForm({ ...form, notes: event.target.value })}
-                    rows={2}
-                    className={`${inputClass} resize-none`}
-                    placeholder={t("recurringNotesExample")}
                   />
                 </div>
 

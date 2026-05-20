@@ -436,7 +436,7 @@ export default function AchatPage() {
   const handleSubmit = async (request: SupplementaryRequest) => {
     setActionLoading(request._id);
     try {
-      replace(await supplementaryRequestService.updateStatus(request._id, "SUBMITTED"));
+      replace(await supplementaryRequestService.submit(request._id));
     } catch (err) {
       setError(getError(err));
     } finally {

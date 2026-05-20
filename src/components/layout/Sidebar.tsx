@@ -113,6 +113,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/commercial", label: t("dashboard"), icon: LayoutDashboard },
     { href: "/dashboard/commercial/customers", label: t("customersTitle") || "Customers", icon: Users },
     { href: "/dashboard/commercial/cyclic-orders", label: "Recurring Orders", icon: RotateCcw },
+    { href: "/dashboard/commercial/prices", label: "Prix de vente", icon: Tag },
     { href: "/dashboard/commercial/orders", label: t("onlineOrders"), icon: FileText },
     { href: "/dashboard/commercial/quotations", label: "Quotations", icon: FileText },
     { href: "/dashboard/commercial/ordonnancement", label: "Ordonnancement", icon: Sparkles },
@@ -124,7 +125,9 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/commercial/vehicule", label: t("fleetTitle") || "Vehicles", icon: Car },
     { href: "/dashboard/commercial/regions", label: t("regionsTitle") || "Régions", icon: Globe },
     { href: "/dashboard/commercial/backorders", label: t("backorders") || "Backorders", icon: RotateCcw },
+    { href: "/dashboard/commercial/purchase-request", label: "Purchase Request", icon: ShoppingCart },
     { href: "/dashboard/commercial/approvals", label: "Approbations", icon: ShieldAlert },
+    { href: "/dashboard/commercial/deliveries", label: "Réceptions", icon: ClipboardCheck },
     { href: "/dashboard/commercial/reports", label: t("reportsKpi") || "Reports", icon: BarChart3 },
   ];
 
@@ -137,7 +140,8 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/stock/alerts", label: t("stockAlertsMenu"), icon: TriangleAlert },
     { href: "/dashboard/stock/inventories", label: t("inventories"), icon: ClipboardList },
     { href: "/dashboard/stock/depots", label: t("depots"), icon: Warehouse },
-    { href: "/dashboard/stock/achat", label: "Demandes achat", icon: ShoppingBag },
+    { href: "/dashboard/stock/purchase-request", label: "Purchase Request", icon: ShoppingCart },
+    { href: "/dashboard/stock/deliveries", label: "Réceptions", icon: Truck },
     { href: "/dashboard/stock/settings", label: t("settings"), icon: FileText },
   ];
 
@@ -163,6 +167,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/depot/preparation", label: "Preparation", icon: Package },
     { href: "/dashboard/stock/movements", label: t("movements"), icon: FileText },
     { href: "/dashboard/stock/inventories", label: t("inventories"), icon: ClipboardList },
+    { href: "/dashboard/stock/deliveries", label: "Réceptions", icon: Truck },
   ];
 
   const purchaseItems: NavItem[] = [
@@ -175,6 +180,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/achat/invoices", label: "Invoices", icon: Receipt },
     { href: "/dashboard/achat/returns", label: "Returns", icon: RotateCcw },
     { href: "/dashboard/achat/categories", label: "Catégories", icon: Tag },
+    { href: "/dashboard/achat/calendar", label: "Calendrier", icon: Calendar },
     { href: "/dashboard/achat/reports", label: "Reports", icon: BarChart3 },
     { href: "/dashboard/achat/settings", label: "Settings", icon: Settings },
   ];

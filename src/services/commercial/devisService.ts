@@ -16,7 +16,7 @@ export interface Devis {
   _id: string;
   devisNo: string;
   salesOrderId?: { _id: string; orderNo: string; status: string } | null;
-  customerId?: { _id: string; name: string; email?: string } | null;
+  customerId?: { _id: string; name: string; email?: string; mf?: string } | null;
   customerName: string;
   customerMf?: string;
   customerAddress?: string;

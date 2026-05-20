@@ -35,6 +35,8 @@ export interface SalesOrder {
         email?: string;
         phone?: string;
         company?: string;
+        mf?: string;
+        address?: string;
       }
     | null;
   customerName: string;
