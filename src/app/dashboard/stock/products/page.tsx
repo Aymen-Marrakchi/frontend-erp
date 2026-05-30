@@ -35,6 +35,7 @@ interface SkuSetting {
   _id: string;
   skuName: string;
   skuMax: number;
+  lastCounter: number;
 }
 
 interface ProductFormState {
@@ -120,15 +121,16 @@ export default function StockProductsPage() {
   const getNextNumber = (prefix: string): string => {
     const setting = skuSettings.find((s) => s.skuName === prefix);
     if (!setting) return "";
-    let maxNum = 0;
+    // Start from the persisted lastCounter so changing length never resets the sequence
+    let maxNum = setting.lastCounter ?? 0;
     for (const p of products) {
-      // Support format: PREFIX-DIGITS
       if (p.sku.startsWith(prefix + "-")) {
         const numPart = p.sku.slice(prefix.length + 1);
         if (/^\d+$/.test(numPart)) maxNum = Math.max(maxNum, Number(numPart));
       }
     }
-    return String(maxNum + 1).padStart(setting.skuMax, "0");
+    const digits = Math.max(1, Number(setting.skuMax));
+    return String(maxNum + 1).padStart(digits, "0");
   };
 
   // Compose the full SKU string: PREFIX-001
@@ -229,8 +231,9 @@ export default function StockProductsPage() {
       setSubmitting(true);
       setFormError("");
 
+      const generatedSku = composeSku(form.skuPrefix);
       await stockProductService.create({
-        sku: composeSku(form.skuPrefix),
+        sku: generatedSku,
         name: form.name.trim(),
         type: form.type,
         unit: form.unit,
@@ -238,7 +241,18 @@ export default function StockProductsPage() {
         status: form.status,
       });
 
+      // Persist the counter so changing length never resets the sequence
+      const setting = skuSettings.find((s) => s.skuName === form.skuPrefix);
+      if (setting && generatedSku) {
+        const numPart = generatedSku.slice(form.skuPrefix.length + 1);
+        const counterValue = Number(numPart) || 0;
+        if (counterValue > 0) {
+          skuSettingService.updateCounter(setting._id, counterValue).catch(() => {});
+        }
+      }
+
       await fetchProducts();
+      await fetchSkuSettings();
       setShowCreate(false);
       setForm(emptyForm);
     } catch (err: any) {

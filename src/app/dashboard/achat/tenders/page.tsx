@@ -309,21 +309,37 @@ export default function PurchaseTendersPage() {
   const [createNotes, setCreateNotes] = useState("");
   const [creating, setCreating] = useState(false);
 
+  const activeTenderStatuses: TenderStatus[] = ["DRAFT", "SENT", "COMPARING", "AWARDED"];
+  const usedStockIds = new Set(
+    tenders
+      .filter((t) => activeTenderStatuses.includes(t.status) && t.purchaseRequestId)
+      .map((t) => t.purchaseRequestId!._id)
+  );
+  const usedSuppIds = new Set(
+    tenders
+      .filter((t) => activeTenderStatuses.includes(t.status) && t.supplementaryRequestId)
+      .map((t) => t.supplementaryRequestId!._id)
+  );
+
   const allApprovedDAs: UnifiedDA[] = [
-    ...approvedRequests.map((r) => ({
-      _id: r._id,
-      requestNo: r.requestNo,
-      label: `${r.requestNo} · ${r.productId?.name ?? "Product"} · ${r.requestedQuantity} units`,
-      category: r.productId?.category ?? "",
-      type: "stock" as const,
-    })),
-    ...approvedSupp.map((r) => ({
-      _id: r._id,
-      requestNo: r.requestNo,
-      label: `${r.requestNo} · ${r.title} · ${r.quantity} ${r.unit}`,
-      category: r.category ?? "",
-      type: "supplementary" as const,
-    })),
+    ...approvedRequests
+      .filter((r) => !usedStockIds.has(r._id))
+      .map((r) => ({
+        _id: r._id,
+        requestNo: r.requestNo,
+        label: `${r.requestNo} · ${r.productId?.name ?? "Product"} · ${r.requestedQuantity} units`,
+        category: r.productId?.category ?? "",
+        type: "stock" as const,
+      })),
+    ...approvedSupp
+      .filter((r) => !usedSuppIds.has(r._id))
+      .map((r) => ({
+        _id: r._id,
+        requestNo: r.requestNo,
+        label: `${r.requestNo} · ${r.title} · ${r.quantity} ${r.unit}`,
+        category: r.category ?? "",
+        type: "supplementary" as const,
+      })),
   ];
 
   const fetchAll = async () => {

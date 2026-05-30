@@ -9,6 +9,9 @@ export const skuSettingService = {
   update: async (id: string, payload: { skuName?: string; skuMax?: number }) =>
     (await api.put(`/stock/settings/sku/${id}`, payload)).data,
 
+  updateCounter: async (id: string, counter: number) =>
+    (await api.patch(`/stock/settings/sku/${id}/counter`, { counter })).data,
+
   delete: async (id: string) =>
     (await api.delete(`/stock/settings/sku/${id}`)).data,
 };

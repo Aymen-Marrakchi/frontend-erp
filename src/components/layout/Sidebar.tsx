@@ -128,6 +128,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/commercial/purchase-request", label: "Purchase Request", icon: ShoppingCart },
     { href: "/dashboard/commercial/approvals", label: "Approbations", icon: ShieldAlert },
     { href: "/dashboard/commercial/deliveries", label: "Réceptions", icon: ClipboardCheck },
+    { href: "/dashboard/commercial/documents", label: "Documents", icon: BookMarked },
     { href: "/dashboard/commercial/reports", label: t("reportsKpi") || "Reports", icon: BarChart3 },
   ];
 
@@ -142,6 +143,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/stock/depots", label: t("depots"), icon: Warehouse },
     { href: "/dashboard/stock/purchase-request", label: "Purchase Request", icon: ShoppingCart },
     { href: "/dashboard/stock/deliveries", label: "Réceptions", icon: Truck },
+    { href: "/dashboard/stock/documents", label: "Documents", icon: BookMarked },
     { href: "/dashboard/stock/settings", label: t("settings"), icon: FileText },
   ];
 
@@ -158,6 +160,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
   { href: "/dashboard/finance/accounts", label: t("fin_navAccounts"), icon: Landmark },
   { href: "/dashboard/finance/ecritures", label: t("fin_navEcritures"), icon: BookMarked },
   { href: "/dashboard/finance/rs", label: t("fin_navRs"), icon: ClipboardList },
+  { href: "/dashboard/finance/documents", label: "Documents", icon: BookMarked },
   { href: "/dashboard/finance/reports", label: t("fin_navReports"), icon: BarChart3 },
   { href: "/dashboard/finance/settings", label: t("fin_navSettings"), icon: Settings },
 ];
@@ -168,6 +171,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/stock/movements", label: t("movements"), icon: FileText },
     { href: "/dashboard/stock/inventories", label: t("inventories"), icon: ClipboardList },
     { href: "/dashboard/stock/deliveries", label: "Réceptions", icon: Truck },
+    { href: "/dashboard/depot/documents", label: "Documents", icon: BookMarked },
   ];
 
   const purchaseItems: NavItem[] = [
@@ -181,6 +185,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/achat/returns", label: "Returns", icon: RotateCcw },
     { href: "/dashboard/achat/categories", label: "Catégories", icon: Tag },
     { href: "/dashboard/achat/calendar", label: "Calendrier", icon: Calendar },
+    { href: "/dashboard/achat/documents", label: "Documents", icon: BookMarked },
     { href: "/dashboard/achat/reports", label: "Reports", icon: BarChart3 },
     { href: "/dashboard/achat/settings", label: "Settings", icon: Settings },
   ];
@@ -213,14 +218,9 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
         <div className="mb-6 flex items-center justify-between">
           <div className="min-w-0">
             {!collapsed ? (
-              <>
-                <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                  ERP Workspace
-                </div>
-                <div className="mt-1 text-lg font-bold tracking-tight text-slate-950 dark:text-white">
-                  ERP<span className="text-slate-400">.</span>
-                </div>
-              </>
+              <div className="text-lg font-bold tracking-tight text-slate-950 dark:text-white">
+                ERP<span className="text-slate-400">.</span>
+              </div>
             ) : (
               <div className="h-10" />
             )}
@@ -256,7 +256,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
           )}
         </div>
 
-        <nav className="flex-1 space-y-1">
+        <nav className="flex-1 space-y-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
           {items.map((item) => {
             const Icon = item.icon;
             const active =

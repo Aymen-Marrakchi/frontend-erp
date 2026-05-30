@@ -216,10 +216,7 @@ export default function Navbar() {
       <div className="flex items-center justify-between rounded-3xl border border-slate-200 bg-white/90 px-5 py-4 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/85">
         {/* Left */}
         <div className="min-w-0">
-          <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-            {t("erpSubtitle")}
-          </div>
-          <div className="mt-1 truncate text-sm font-semibold text-slate-950 dark:text-white">
+          <div className="truncate text-sm font-semibold text-slate-950 dark:text-white">
             {roleName || "Dashboard"}
           </div>
         </div>

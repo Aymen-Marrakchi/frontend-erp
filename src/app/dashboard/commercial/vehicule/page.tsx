@@ -22,7 +22,7 @@ const labelClass =
 function calcDurabilityFromLifeDays(lifeExpectancyDays = 3650): number {
   if (lifeExpectancyDays < 365) return 50;
   if (lifeExpectancyDays <= 4 * 365) return 100;
-  return Math.max(0, 100 - 0.7 * (lifeExpectancyDays - 4 * 365));
+  return Math.max(0, 100 - 0.07 * (lifeExpectancyDays - 4 * 365));
 }
 
 function calcDurability(_purchaseDate: string, lifeExpectancyDays = 3650): number {
