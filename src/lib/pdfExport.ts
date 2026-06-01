@@ -489,6 +489,511 @@ export async function printInvoiceTemplate(
   doc.save(filename);
 }
 
+// ─── Supplier invoice HTML print (same design as receivables page) ──────────
+export interface FournisseurDocumentOptions {
+  invoiceNo: string;
+  supplierRef?: string;
+  supplierName: string;
+  orderNo?: string | null;
+  invoiceDate?: string | null;
+  dueDate?: string | null;
+  paymentStatus?: string;
+  company?: {
+    name?: string; address?: string; phone?: string; email?: string;
+    mf?: string; rne?: string; rib?: string; iban?: string; bank?: string; agence?: string;
+  };
+  subtotalHt?: number;
+  fodecRate?: number;
+  totalFodec?: number;
+  tvaRate?: number;
+  totalVat?: number;
+  totalBeforeStamp?: number;
+  timbreFiscal?: number;
+  totalTtc: number;
+  amountPaid?: number;
+}
+
+export function openFournisseurDocument(opts: FournisseurDocumentOptions): void {
+  const co = opts.company ?? {};
+  const companyName    = co.name    || "Notre Société";
+  const companyAddress = co.address || "";
+  const companyPhone   = co.phone   || "";
+  const companyEmail   = co.email   || "";
+  const companyMf      = co.mf      || "";
+  const companyRne     = co.rne     || "";
+  const companyRib     = co.rib     || "";
+  const companyIban    = co.iban    || "";
+  const companyBank    = co.bank    || "";
+  const companyAgence  = co.agence  || "";
+
+  const fmtDate = (v?: string | null) =>
+    v ? new Date(v + (v.includes("T") ? "" : "T12:00:00")).toLocaleDateString("fr-TN") : "—";
+
+  const STATUS_LABEL: Record<string, string> = {
+    PENDING_APPROVAL: "En attente", APPROVED: "Approuvée",
+    REJECTED: "Rejetée", PARTIALLY_PAID: "Part. payée", PAID: "Payée",
+    OPEN: "Ouverte", SETTLED: "Soldée",
+  };
+  const STATUS_COLOR: Record<string, string> = {
+    PAID: "#16a34a", SETTLED: "#16a34a", APPROVED: "#2563eb",
+    PARTIALLY_PAID: "#d97706", PENDING_APPROVAL: "#d97706",
+    REJECTED: "#dc2626", OPEN: "#64748b",
+  };
+  const st = opts.paymentStatus ?? "";
+
+  const hasBreakdown = opts.subtotalHt !== undefined;
+  const amountInWords = frenchWords(opts.totalTtc);
+
+  const taxRows = hasBreakdown
+    ? `
+      <tr style="background:#f8fafc">
+        <td style="padding:6px 12px;font-size:12px;color:#64748b">Total brut HT</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:600">${opts.subtotalHt!.toFixed(3)} TND</td>
+      </tr>
+      ${(opts.totalFodec ?? 0) > 0 ? `<tr>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b">FODEC (${opts.fodecRate ?? 1}%)</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px">${(opts.totalFodec ?? 0).toFixed(3)} TND</td>
+      </tr>` : ""}
+      ${(opts.totalVat ?? 0) > 0 ? `<tr>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b">TVA (${opts.tvaRate ?? 19}%)</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px">${(opts.totalVat ?? 0).toFixed(3)} TND</td>
+      </tr>` : ""}
+      <tr style="background:#f8fafc">
+        <td style="padding:6px 12px;font-size:12px;color:#64748b">Avant timbre</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px">${(opts.totalBeforeStamp ?? 0).toFixed(3)} TND</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b">Timbre fiscal</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px">${(opts.timbreFiscal ?? 0).toFixed(3)} TND</td>
+      </tr>`
+    : `${opts.amountPaid !== undefined ? `
+      <tr style="background:#f8fafc">
+        <td style="padding:6px 12px;font-size:12px;color:#64748b">Montant payé</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:600;color:#16a34a">${opts.amountPaid.toFixed(3)} TND</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b">Restant dû</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:600;color:#dc2626">${Math.max(0, opts.totalTtc - opts.amountPaid).toFixed(3)} TND</td>
+      </tr>` : ""}`;
+
+  // Product table: single summary row when no line items
+  const productRow = `
+    <tr>
+      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;color:#64748b;font-size:12px">1</td>
+      <td style="border:1px solid #e2e8f0;padding:7px 10px;font-size:11px;color:#64748b">${opts.supplierRef || opts.invoiceNo}</td>
+      <td style="border:1px solid #e2e8f0;padding:7px 10px;font-size:13px">Facture fournisseur — ${opts.supplierName}</td>
+      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;font-size:13px">1</td>
+      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:right;font-size:13px">${hasBreakdown ? opts.subtotalHt!.toFixed(3) : opts.totalTtc.toFixed(3)}</td>
+      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:right;font-size:13px;font-weight:600">${hasBreakdown ? opts.subtotalHt!.toFixed(3) : opts.totalTtc.toFixed(3)}</td>
+    </tr>`;
+
+  const html = `<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <title>Facture Fournisseur ${opts.invoiceNo}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 13px; color: #0f172a; background: #fff; }
+    @page { size: A4; margin: 18mm 15mm; }
+    @media print { body { padding: 0; } }
+    .page { max-width: 794px; margin: 0 auto; padding: 24px 28px; display:flex; flex-direction:column; min-height:261mm; }
+    table { border-collapse: collapse; width: 100%; }
+    th { font-weight: 600; }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HEADER -->
+  <table style="margin-bottom:18px">
+    <tr>
+      <td style="vertical-align:top;width:55%">
+        <img src="${typeof window !== "undefined" ? window.location.origin : ""}/EMMlogo.png" alt="${companyName}" style="height:60px;max-width:180px;object-fit:contain;display:block;margin-bottom:8px"/>
+        <div style="font-size:11px;color:#64748b;margin-top:3px">${companyAddress}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:1px">Tél : ${companyPhone} &nbsp;·&nbsp; ${companyEmail}</div>
+        ${companyMf || companyRne ? `<div style="font-size:11px;color:#64748b;margin-top:4px">${companyMf ? `<strong>MF :</strong> ${companyMf}` : ""}${companyMf && companyRne ? " &nbsp;|&nbsp; " : ""}${companyRne ? `<strong>RNE :</strong> ${companyRne}` : ""}</div>` : ""}
+        ${companyRib ? `<div style="font-size:11px;color:#64748b;margin-top:1px"><strong>RIB :</strong> ${companyRib}${companyBank ? ` &nbsp;(${companyBank}${companyAgence ? " — " + companyAgence : ""})` : ""}</div>` : ""}
+      </td>
+      <td style="vertical-align:top;text-align:right;width:45%">
+        <div style="font-size:11px;font-weight:600;letter-spacing:0.08em;color:#64748b;text-transform:uppercase;margin-bottom:4px">Facture Fournisseur</div>
+        <div style="font-size:26px;font-weight:700;letter-spacing:-1px;color:#0f172a">${opts.invoiceNo}</div>
+        ${opts.supplierRef ? `<div style="font-size:11px;color:#64748b;margin-top:2px">Réf. fournisseur : ${opts.supplierRef}</div>` : ""}
+        <table style="margin-top:10px;margin-left:auto;width:auto">
+          <tr>
+            <td style="font-size:11px;color:#64748b;padding:2px 8px 2px 0;text-align:right">Date :</td>
+            <td style="font-size:11px;font-weight:600;padding:2px 0">${fmtDate(opts.invoiceDate)}</td>
+          </tr>
+          <tr>
+            <td style="font-size:11px;color:#64748b;padding:2px 8px 2px 0;text-align:right">Échéance :</td>
+            <td style="font-size:11px;font-weight:600;padding:2px 0">${fmtDate(opts.dueDate)}</td>
+          </tr>
+          <tr>
+            <td style="font-size:11px;color:#64748b;padding:2px 8px 2px 0;text-align:right">Statut :</td>
+            <td style="font-size:11px;font-weight:600;padding:2px 0;color:${STATUS_COLOR[st] ?? "#0f172a"}">${STATUS_LABEL[st] ?? st.replace(/_/g, " ")}</td>
+          </tr>
+          ${opts.orderNo ? `<tr>
+            <td style="font-size:11px;color:#64748b;padding:2px 8px 2px 0;text-align:right">Commande :</td>
+            <td style="font-size:11px;font-weight:600;padding:2px 0">${opts.orderNo}</td>
+          </tr>` : ""}
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  <!-- ACHETEUR / FOURNISSEUR -->
+  <table style="margin-bottom:16px">
+    <tr>
+      <td style="width:48%;vertical-align:top;border:1px solid #e2e8f0;border-radius:6px;padding:10px 14px">
+        <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:#64748b;font-weight:600;margin-bottom:6px">Acheteur</div>
+        <div style="font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px">
+          <img src="${typeof window !== "undefined" ? window.location.origin : ""}/EMMlogo.png" alt="${companyName}" style="height:22px;object-fit:contain"/>
+          ${companyName}
+        </div>
+        <div style="font-size:11px;color:#64748b;margin-top:3px">${companyAddress}</div>
+        ${companyMf ? `<div style="font-size:11px;color:#64748b;margin-top:1px">MF : ${companyMf}</div>` : ""}
+      </td>
+      <td style="width:4%"></td>
+      <td style="width:48%;vertical-align:top;border:1px solid #e2e8f0;border-radius:6px;padding:10px 14px">
+        <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:#64748b;font-weight:600;margin-bottom:6px">Fournisseur</div>
+        <div style="font-size:13px;font-weight:700">${opts.supplierName}</div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- PRODUCT TABLE -->
+  <table style="margin-bottom:0;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden">
+    <thead>
+      <tr style="background:#0f172a;color:#fff">
+        <th style="padding:9px 10px;text-align:center;font-size:11px;width:32px">N°</th>
+        <th style="padding:9px 10px;text-align:left;font-size:11px;width:70px">Réf.</th>
+        <th style="padding:9px 10px;text-align:left;font-size:11px">Désignation</th>
+        <th style="padding:9px 10px;text-align:center;font-size:11px;width:50px">Qté</th>
+        <th style="padding:9px 10px;text-align:right;font-size:11px;width:110px">P.U. HT (TND)</th>
+        <th style="padding:9px 10px;text-align:right;font-size:11px;width:110px">Montant HT (TND)</th>
+      </tr>
+    </thead>
+    <tbody>${productRow}</tbody>
+  </table>
+
+  <!-- BOTTOM ANCHOR -->
+  <div style="margin-top:auto">
+
+  <!-- TAX SUMMARY -->
+  <div style="display:flex;justify-content:flex-end;margin-top:16px;margin-bottom:16px">
+    <table style="width:280px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 6px 6px;overflow:hidden">
+      ${taxRows}
+      <tr style="background:#0f172a">
+        <td style="padding:9px 12px;font-size:13px;font-weight:700;color:#fff">NET À PAYER TTC</td>
+        <td style="padding:9px 12px;text-align:right;font-size:13px;font-weight:700;color:#fff">${opts.totalTtc.toFixed(3)} TND</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- MONTANT EN LETTRES -->
+  <div style="border:1px solid #e2e8f0;border-radius:6px;padding:10px 14px;margin-bottom:16px;background:#f8fafc">
+    <span style="font-size:11px;color:#64748b">Arrêté la présente facture à la somme de : </span>
+    <strong style="font-size:12px">${amountInWords}</strong>
+  </div>
+
+  <!-- FOOTER -->
+  <div style="border-top:1px solid #e2e8f0;padding-top:12px;display:flex;justify-content:space-between;align-items:flex-start">
+    <div style="font-size:10px;color:#64748b;max-width:55%">
+      <strong style="color:#0f172a">Conditions de règlement :</strong> Selon conditions convenues<br/>
+      Tout retard de paiement entraîne des pénalités au taux légal en vigueur.<br/>
+      En cas de litige, compétence exclusive du Tribunal de Commerce de Tunis.
+    </div>
+    <div style="font-size:10px;color:#64748b;text-align:right">
+      <strong style="color:#0f172a">Coordonnées bancaires</strong><br/>
+      ${companyRib ? `RIB : ${companyRib}<br/>` : ""}
+      ${companyIban ? `IBAN : ${companyIban}<br/>` : ""}
+      ${companyBank ? `Banque : ${companyBank}${companyAgence ? " · Agence : " + companyAgence : ""}` : ""}
+    </div>
+  </div>
+
+  <div style="margin-top:14px;text-align:center;font-size:9px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:10px">
+    ${companyName}${companyMf ? " · MF : " + companyMf : ""}${companyRne ? " · RNE : " + companyRne : ""} · ${companyAddress} · ${companyPhone} · ${companyEmail}
+  </div>
+
+  </div>
+
+</div>
+</body>
+</html>`;
+
+  const win = window.open("", "_blank", "width=900,height=750");
+  if (win) {
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 400);
+  }
+}
+
+// ─── Client invoice HTML print (same design as finance/receivables page) ─────
+export interface ClientDocumentOptions {
+  invoiceNo: string;
+  orderNo?: string | null;
+  customerName: string;
+  customerMf?: string;
+  customerAddress?: string;
+  invoiceDate?: string | null;
+  dueDate?: string | null;
+  paymentStatus?: string;
+  paymentMethod?: string;
+  company?: {
+    name?: string; address?: string; phone?: string; email?: string;
+    mf?: string; rne?: string; rib?: string; iban?: string; bank?: string; agence?: string;
+  };
+  lines?: Array<{ ref?: string; description: string; qty: number; unitPrice: number; totalHt: number }>;
+  subtotalHt?: number;
+  fodecRate?: number;
+  totalFodec?: number;
+  tvaRate?: number;
+  totalVat?: number;
+  totalBeforeStamp?: number;
+  timbreFiscal?: number;
+  totalTtc: number;
+  amountPaid?: number;
+}
+
+export function openClientDocument(opts: ClientDocumentOptions): void {
+  const co = opts.company ?? {};
+  const companyName    = co.name    || "Notre Société";
+  const companyAddress = co.address || "";
+  const companyPhone   = co.phone   || "";
+  const companyEmail   = co.email   || "";
+  const companyMf      = co.mf      || "";
+  const companyRne     = co.rne     || "";
+  const companyRib     = co.rib     || "";
+  const companyIban    = co.iban    || "";
+  const companyBank    = co.bank    || "";
+  const companyAgence  = co.agence  || "";
+
+  const fmtDate = (v?: string | null) =>
+    v ? new Date(v + (v.includes("T") ? "" : "T12:00:00")).toLocaleDateString("fr-TN") : "—";
+
+  const PAYMENT_METHOD: Record<string, string> = {
+    ESPECE: "Espèces", CHEQUE: "Chèque", VIREMENT: "Virement bancaire",
+    KUMBIL: "Kumbil", MIXED: "Mode mixte", UNSET: "—",
+  };
+  const PAYMENT_STATUS: Record<string, string> = {
+    NON_PAYEE: "Non payée", PARTIELLEMENT_PAYEE: "Partiellement payée",
+    PENDING_CHEQUE: "Chèque en attente", PAYEE: "Payée",
+  };
+  const STATUS_COLOR: Record<string, string> = {
+    PAYEE: "#16a34a", PARTIELLEMENT_PAYEE: "#d97706",
+    PENDING_CHEQUE: "#7c3aed", NON_PAYEE: "#64748b",
+  };
+
+  const st  = opts.paymentStatus ?? "";
+  const pm  = opts.paymentMethod ?? "";
+  const hasBreakdown = opts.subtotalHt !== undefined;
+  const amountInWords = frenchWords(opts.totalTtc);
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+
+  // Product rows
+  const productRows = opts.lines && opts.lines.length > 0
+    ? opts.lines.map((l, idx) => `
+      <tr style="background:${idx % 2 === 0 ? "#fff" : "#f8fafc"}">
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;color:#64748b;font-size:12px">${idx + 1}</td>
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;font-size:11px;color:#64748b">${l.ref || "—"}</td>
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;font-size:13px">${l.description}</td>
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;font-size:13px">${l.qty}</td>
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:right;font-size:13px">${l.unitPrice.toFixed(3)}</td>
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:right;font-size:13px;font-weight:600">${l.totalHt.toFixed(3)}</td>
+      </tr>`).join("")
+    : `<tr>
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;color:#64748b;font-size:12px">1</td>
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;font-size:11px;color:#64748b">${opts.invoiceNo}</td>
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;font-size:13px">Facture client — ${opts.customerName}</td>
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;font-size:13px">1</td>
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:right;font-size:13px">${hasBreakdown ? opts.subtotalHt!.toFixed(3) : opts.totalTtc.toFixed(3)}</td>
+        <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:right;font-size:13px;font-weight:600">${hasBreakdown ? opts.subtotalHt!.toFixed(3) : opts.totalTtc.toFixed(3)}</td>
+      </tr>`;
+
+  const taxRows = hasBreakdown
+    ? `
+      <tr style="background:#f8fafc">
+        <td style="padding:6px 12px;font-size:12px;color:#64748b">Total brut HT</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:600">${opts.subtotalHt!.toFixed(3)} TND</td>
+      </tr>
+      ${(opts.totalFodec ?? 0) > 0 ? `<tr>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b">FODEC (${opts.fodecRate ?? 1}%)</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px">${(opts.totalFodec ?? 0).toFixed(3)} TND</td>
+      </tr>` : ""}
+      ${(opts.totalVat ?? 0) > 0 ? `<tr>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b">TVA (${opts.tvaRate ?? 19}%)</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px">${(opts.totalVat ?? 0).toFixed(3)} TND</td>
+      </tr>` : ""}
+      <tr style="background:#f8fafc">
+        <td style="padding:6px 12px;font-size:12px;color:#64748b">Avant timbre</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px">${(opts.totalBeforeStamp ?? 0).toFixed(3)} TND</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b">Timbre fiscal</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px">${(opts.timbreFiscal ?? 0).toFixed(3)} TND</td>
+      </tr>`
+    : `${opts.amountPaid !== undefined ? `
+      <tr style="background:#f8fafc">
+        <td style="padding:6px 12px;font-size:12px;color:#64748b">Montant payé</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:600;color:#16a34a">${opts.amountPaid.toFixed(3)} TND</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b">Restant dû</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:600;color:#dc2626">${Math.max(0, opts.totalTtc - opts.amountPaid).toFixed(3)} TND</td>
+      </tr>` : ""}`;
+
+  const html = `<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <title>Facture ${opts.invoiceNo}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 13px; color: #0f172a; background: #fff; }
+    @page { size: A4; margin: 18mm 15mm; }
+    @media print { body { padding: 0; } }
+    .page { max-width: 794px; margin: 0 auto; padding: 24px 28px; display:flex; flex-direction:column; min-height:261mm; }
+    table { border-collapse: collapse; width: 100%; }
+    th { font-weight: 600; }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HEADER -->
+  <table style="margin-bottom:18px">
+    <tr>
+      <td style="vertical-align:top;width:55%">
+        <img src="${origin}/EMMlogo.png" alt="${companyName}" style="height:60px;max-width:180px;object-fit:contain;display:block;margin-bottom:8px"/>
+        <div style="font-size:11px;color:#64748b;margin-top:3px">${companyAddress}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:1px">Tél : ${companyPhone} &nbsp;·&nbsp; ${companyEmail}</div>
+        ${companyMf || companyRne ? `<div style="font-size:11px;color:#64748b;margin-top:4px">${companyMf ? `<strong>MF :</strong> ${companyMf}` : ""}${companyMf && companyRne ? " &nbsp;|&nbsp; " : ""}${companyRne ? `<strong>RNE :</strong> ${companyRne}` : ""}</div>` : ""}
+        ${companyRib ? `<div style="font-size:11px;color:#64748b;margin-top:1px"><strong>RIB :</strong> ${companyRib}${companyBank ? ` &nbsp;(${companyBank}${companyAgence ? " — " + companyAgence : ""})` : ""}</div>` : ""}
+      </td>
+      <td style="vertical-align:top;text-align:right;width:45%">
+        <div style="font-size:26px;font-weight:700;letter-spacing:-1px;color:#0f172a">FACTURE</div>
+        <div style="font-size:15px;font-weight:600;color:#334155;margin-top:2px">${opts.invoiceNo}</div>
+        <table style="margin-top:10px;margin-left:auto;width:auto">
+          <tr>
+            <td style="font-size:11px;color:#64748b;padding:2px 8px 2px 0;text-align:right">Date :</td>
+            <td style="font-size:11px;font-weight:600;padding:2px 0">${fmtDate(opts.invoiceDate)}</td>
+          </tr>
+          <tr>
+            <td style="font-size:11px;color:#64748b;padding:2px 8px 2px 0;text-align:right">Échéance :</td>
+            <td style="font-size:11px;font-weight:600;padding:2px 0">${fmtDate(opts.dueDate)}</td>
+          </tr>
+          <tr>
+            <td style="font-size:11px;color:#64748b;padding:2px 8px 2px 0;text-align:right">Règlement :</td>
+            <td style="font-size:11px;font-weight:600;padding:2px 0">${PAYMENT_METHOD[pm] || pm || "—"}</td>
+          </tr>
+          <tr>
+            <td style="font-size:11px;color:#64748b;padding:2px 8px 2px 0;text-align:right">Statut :</td>
+            <td style="font-size:11px;font-weight:600;padding:2px 0;color:${STATUS_COLOR[st] ?? "#0f172a"}">${PAYMENT_STATUS[st] || st.replace(/_/g, " ") || "—"}</td>
+          </tr>
+          ${opts.orderNo ? `<tr>
+            <td style="font-size:11px;color:#64748b;padding:2px 8px 2px 0;text-align:right">Commande :</td>
+            <td style="font-size:11px;font-weight:600;padding:2px 0">${opts.orderNo}</td>
+          </tr>` : ""}
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  <!-- VENDOR / CLIENT -->
+  <table style="margin-bottom:16px">
+    <tr>
+      <td style="width:48%;vertical-align:top;border:1px solid #e2e8f0;border-radius:6px;padding:10px 14px">
+        <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:#64748b;font-weight:600;margin-bottom:6px">Vendeur</div>
+        <div style="font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px">
+          <img src="${origin}/EMMlogo.png" alt="${companyName}" style="height:22px;object-fit:contain"/>
+          ${companyName}
+        </div>
+        <div style="font-size:11px;color:#64748b;margin-top:3px">${companyAddress}</div>
+        ${companyMf ? `<div style="font-size:11px;color:#64748b;margin-top:1px">MF : ${companyMf}</div>` : ""}
+      </td>
+      <td style="width:4%"></td>
+      <td style="width:48%;vertical-align:top;border:1px solid #e2e8f0;border-radius:6px;padding:10px 14px">
+        <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:#64748b;font-weight:600;margin-bottom:6px">Client / Destinataire</div>
+        <div style="font-size:13px;font-weight:700">${opts.customerName}</div>
+        ${opts.customerMf ? `<div style="font-size:11px;color:#64748b;margin-top:3px">MF : ${opts.customerMf}</div>` : ""}
+        ${opts.customerAddress ? `<div style="font-size:11px;color:#64748b;margin-top:1px">Adresse : ${opts.customerAddress}</div>` : ""}
+      </td>
+    </tr>
+  </table>
+
+  <!-- PRODUCT TABLE -->
+  <table style="margin-bottom:0;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden">
+    <thead>
+      <tr style="background:#0f172a;color:#fff">
+        <th style="padding:9px 10px;text-align:center;font-size:11px;width:32px">N°</th>
+        <th style="padding:9px 10px;text-align:left;font-size:11px;width:70px">Réf.</th>
+        <th style="padding:9px 10px;text-align:left;font-size:11px">Désignation</th>
+        <th style="padding:9px 10px;text-align:center;font-size:11px;width:50px">Qté</th>
+        <th style="padding:9px 10px;text-align:right;font-size:11px;width:110px">P.U. HT (TND)</th>
+        <th style="padding:9px 10px;text-align:right;font-size:11px;width:110px">Montant HT (TND)</th>
+      </tr>
+    </thead>
+    <tbody>${productRows}</tbody>
+  </table>
+
+  <!-- BOTTOM ANCHOR -->
+  <div style="margin-top:auto">
+
+  <!-- TAX SUMMARY -->
+  <div style="display:flex;justify-content:flex-end;margin-top:16px;margin-bottom:16px">
+    <table style="width:280px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 6px 6px;overflow:hidden">
+      ${taxRows}
+      <tr style="background:#0f172a">
+        <td style="padding:9px 12px;font-size:13px;font-weight:700;color:#fff">NET À PAYER TTC</td>
+        <td style="padding:9px 12px;text-align:right;font-size:13px;font-weight:700;color:#fff">${opts.totalTtc.toFixed(3)} TND</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- MONTANT EN LETTRES -->
+  <div style="border:1px solid #e2e8f0;border-radius:6px;padding:10px 14px;margin-bottom:16px;background:#f8fafc">
+    <span style="font-size:11px;color:#64748b">Arrêté la présente facture à la somme de : </span>
+    <strong style="font-size:12px">${amountInWords}</strong>
+  </div>
+
+  <!-- FOOTER -->
+  <div style="border-top:1px solid #e2e8f0;padding-top:12px;display:flex;justify-content:space-between;align-items:flex-start">
+    <div style="font-size:10px;color:#64748b;max-width:55%">
+      <strong style="color:#0f172a">Conditions de règlement :</strong> ${PAYMENT_METHOD[pm] || "Selon conditions convenues"}<br/>
+      Tout retard de paiement entraîne des pénalités au taux légal en vigueur.<br/>
+      En cas de litige, compétence exclusive du Tribunal de Commerce de Tunis.
+    </div>
+    <div style="font-size:10px;color:#64748b;text-align:right">
+      <strong style="color:#0f172a">Coordonnées bancaires</strong><br/>
+      ${companyRib ? `RIB : ${companyRib}<br/>` : ""}
+      ${companyIban ? `IBAN : ${companyIban}<br/>` : ""}
+      ${companyBank ? `Banque : ${companyBank}${companyAgence ? " · Agence : " + companyAgence : ""}` : ""}
+    </div>
+  </div>
+
+  <div style="margin-top:14px;text-align:center;font-size:9px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:10px">
+    ${companyName}${companyMf ? " · MF : " + companyMf : ""}${companyRne ? " · RNE : " + companyRne : ""} · ${companyAddress} · ${companyPhone} · ${companyEmail}
+  </div>
+
+  </div>
+
+</div>
+</body>
+</html>`;
+
+  const win = window.open("", "_blank", "width=900,height=750");
+  if (win) {
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 400);
+  }
+}
+
 // ─── Traite commerciale (Kambial / Lettre de change) ────────────────────────
 export interface KambialTemplateOptions {
   installmentNumber: number;
@@ -600,6 +1105,188 @@ export async function printKambialTemplate(
     put(`MF: ${opts.customerMf}`,             142, 141, 6);
 
   doc.save(filename);
+}
+
+// ─── Bon de Réception HTML print ──────────────────────────────────────────────
+
+export interface BonReceptionDocumentOptions {
+  receiptNo: string;
+  supplierName: string;
+  orderNo?: string | null;
+  depotName?: string | null;
+  receiptStatus?: string;
+  invoiceDate?: string | null;
+  notes?: string;
+  company?: {
+    name?: string; address?: string; phone?: string; email?: string;
+    mf?: string; rne?: string; rib?: string; iban?: string; bank?: string; agence?: string;
+  };
+  lines?: Array<{
+    sku?: string;
+    name: string;
+    orderedQty: number;
+    receivedQty: number;
+    acceptedQty: number;
+    qualityStatus: string;
+    lotRef?: string;
+  }>;
+}
+
+export function openBonReceptionDocument(opts: BonReceptionDocumentOptions): void {
+  const co = opts.company ?? {};
+  const companyName    = co.name    || "Notre Société";
+  const companyAddress = co.address || "";
+  const companyPhone   = co.phone   || "";
+  const companyEmail   = co.email   || "";
+  const companyMf      = co.mf      || "";
+  const companyRne     = co.rne     || "";
+  const companyRib     = co.rib     || "";
+  const companyBank    = co.bank    || "";
+
+  const fmtDate = (v?: string | null) =>
+    v ? new Date(v + (v.includes("T") ? "" : "T12:00:00")).toLocaleDateString("fr-TN") : "—";
+
+  const STATUS_LABEL: Record<string, string> = {
+    PARTIAL: "Réception partielle", FULL: "Réception complète", LITIGATION: "Litige",
+  };
+  const STATUS_COLOR: Record<string, string> = {
+    FULL: "#16a34a", PARTIAL: "#d97706", LITIGATION: "#dc2626",
+  };
+  const st = opts.receiptStatus ?? "";
+  const stLabel = STATUS_LABEL[st] || st.replace(/_/g, " ");
+  const stColor = STATUS_COLOR[st] || "#64748b";
+
+  const QUALITY_LABEL: Record<string, string> = {
+    ACCEPTED: "Accepté", WITH_RESERVATION: "Avec réserve", REJECTED: "Rejeté",
+  };
+  const QUALITY_COLOR: Record<string, string> = {
+    ACCEPTED: "#16a34a", WITH_RESERVATION: "#d97706", REJECTED: "#dc2626",
+  };
+
+  const lineRows = (opts.lines ?? []).map((l, i) => `
+    <tr style="background:${i % 2 === 0 ? "#ffffff" : "#f8fafc"}">
+      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;color:#64748b;font-size:12px">${i + 1}</td>
+      <td style="border:1px solid #e2e8f0;padding:7px 10px;font-size:11px;color:#64748b">${l.sku || "—"}</td>
+      <td style="border:1px solid #e2e8f0;padding:7px 10px;font-size:13px">${l.name}</td>
+      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;font-size:13px">${l.orderedQty}</td>
+      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;font-size:13px">${l.receivedQty}</td>
+      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;font-size:13px">${l.acceptedQty}</td>
+      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;font-size:12px;color:${QUALITY_COLOR[l.qualityStatus] || "#64748b"};font-weight:600">${QUALITY_LABEL[l.qualityStatus] || l.qualityStatus}</td>
+      <td style="border:1px solid #e2e8f0;padding:7px 10px;font-size:11px;color:#64748b">${l.lotRef || "—"}</td>
+    </tr>`).join("");
+
+  const html = `<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <title>Bon de Réception ${opts.receiptNo}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #1e293b; background: #fff; }
+    @page { size: A4 landscape; margin: 12mm 14mm; }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+<div style="max-width:940px;margin:0 auto;padding:0 4px">
+
+  <div style="background:#0f766e;color:#fff;padding:14px 20px;border-radius:10px 10px 0 0;display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <div style="font-size:20px;font-weight:800;letter-spacing:0.5px">BON DE RÉCEPTION</div>
+      <div style="font-size:11px;opacity:.8;margin-top:3px">N° ${opts.receiptNo}</div>
+    </div>
+    <div style="text-align:right;font-size:11px;opacity:.85">
+      <div style="font-size:16px;font-weight:700">${companyName}</div>
+      ${companyAddress ? `<div>${companyAddress}</div>` : ""}
+      ${companyMf ? `<div>MF: ${companyMf}</div>` : ""}
+    </div>
+  </div>
+
+  <div style="border:1px solid #e2e8f0;border-top:none;padding:12px 20px;background:#f8fafc;display:flex;gap:32px;flex-wrap:wrap">
+    <div><span style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em">Date</span><br/><strong>${fmtDate(opts.invoiceDate)}</strong></div>
+    <div><span style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em">N° Commande</span><br/><strong>${opts.orderNo || "—"}</strong></div>
+    <div><span style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em">Dépôt</span><br/><strong>${opts.depotName || "—"}</strong></div>
+    <div><span style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em">Statut</span><br/><span style="font-weight:700;color:${stColor}">${stLabel}</span></div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid #e2e8f0;border-top:none">
+    <div style="padding:16px 20px;border-right:1px solid #e2e8f0">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#94a3b8;margin-bottom:8px">Acheteur / Destinataire</div>
+      <div style="font-weight:700;font-size:14px;color:#0f766e">${companyName}</div>
+      ${companyAddress ? `<div style="font-size:12px;color:#64748b;margin-top:3px">${companyAddress}</div>` : ""}
+      ${companyPhone ? `<div style="font-size:12px;color:#64748b">Tél : ${companyPhone}</div>` : ""}
+      ${companyEmail ? `<div style="font-size:12px;color:#64748b">${companyEmail}</div>` : ""}
+      ${companyMf ? `<div style="font-size:12px;color:#64748b;margin-top:4px">MF : ${companyMf}</div>` : ""}
+      ${companyRne ? `<div style="font-size:12px;color:#64748b">RNE : ${companyRne}</div>` : ""}
+    </div>
+    <div style="padding:16px 20px;background:#f8fafc">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#94a3b8;margin-bottom:8px">Fournisseur</div>
+      <div style="font-weight:700;font-size:14px">${opts.supplierName}</div>
+      ${companyRib ? `<div style="font-size:12px;color:#64748b;margin-top:4px">RIB : ${companyRib}</div>` : ""}
+      ${companyBank ? `<div style="font-size:12px;color:#64748b">Banque : ${companyBank}</div>` : ""}
+    </div>
+  </div>
+
+  <div style="margin-top:16px">
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr style="background:#0f766e;color:#fff">
+          <th style="padding:8px 10px;text-align:center;font-size:11px;width:36px">#</th>
+          <th style="padding:8px 10px;text-align:left;font-size:11px;width:80px">Réf / SKU</th>
+          <th style="padding:8px 10px;text-align:left;font-size:11px">Produit</th>
+          <th style="padding:8px 10px;text-align:center;font-size:11px;width:80px">Qté cmdée</th>
+          <th style="padding:8px 10px;text-align:center;font-size:11px;width:80px">Qté reçue</th>
+          <th style="padding:8px 10px;text-align:center;font-size:11px;width:80px">Qté acceptée</th>
+          <th style="padding:8px 10px;text-align:center;font-size:11px;width:100px">Qualité</th>
+          <th style="padding:8px 10px;text-align:left;font-size:11px;width:80px">Lot</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${lineRows || `<tr><td colspan="8" style="padding:20px;text-align:center;color:#94a3b8;font-size:12px">Aucune ligne</td></tr>`}
+      </tbody>
+    </table>
+  </div>
+
+  ${opts.notes ? `
+  <div style="margin-top:16px;border:1px solid #e2e8f0;border-radius:8px;padding:12px 16px;background:#fffbeb">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#92400e;margin-bottom:6px">Notes</div>
+    <div style="font-size:13px;color:#78350f">${opts.notes}</div>
+  </div>` : ""}
+
+  <div style="display:flex;justify-content:flex-end;margin-top:16px">
+    <table style="border-collapse:collapse;min-width:260px">
+      <tr style="background:#f8fafc">
+        <td style="padding:8px 14px;font-size:12px;color:#64748b">Total lignes</td>
+        <td style="padding:8px 14px;text-align:right;font-size:13px;font-weight:700">${(opts.lines ?? []).length} ligne${(opts.lines ?? []).length !== 1 ? "s" : ""}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 14px;font-size:12px;color:#64748b">Total reçu</td>
+        <td style="padding:8px 14px;text-align:right;font-size:13px;font-weight:700">${(opts.lines ?? []).reduce((s, l) => s + l.receivedQty, 0)} unités</td>
+      </tr>
+      <tr style="background:#0f766e">
+        <td style="padding:10px 14px;font-size:13px;font-weight:700;color:#fff">Total accepté</td>
+        <td style="padding:10px 14px;text-align:right;font-size:14px;font-weight:800;color:#fff">${(opts.lines ?? []).reduce((s, l) => s + l.acceptedQty, 0)} unités</td>
+      </tr>
+    </table>
+  </div>
+
+  <div style="margin-top:24px;border-top:2px solid #e2e8f0;padding-top:12px;display:flex;justify-content:space-between;font-size:10px;color:#94a3b8">
+    <span>${companyName}${companyMf ? ` · MF ${companyMf}` : ""}</span>
+    <span>Imprimé le ${new Date().toLocaleDateString("fr-TN", { day: "2-digit", month: "long", year: "numeric" } as Intl.DateTimeFormatOptions)}</span>
+    <span>Bon de réception ${opts.receiptNo}</span>
+  </div>
+
+</div>
+</body>
+</html>`;
+
+  const win = window.open("", "_blank");
+  if (!win) return;
+  win.document.write(html);
+  win.document.close();
+  setTimeout(() => { win.focus(); win.print(); }, 400);
 }
 
 // ─── Legacy receipt/document print (non-invoice layout) ─────────────────────

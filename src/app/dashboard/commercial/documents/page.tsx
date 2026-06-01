@@ -10,7 +10,7 @@ import {
   Download, Printer, DollarSign, FileSpreadsheet, Clock,
 } from "lucide-react";
 import { financeService, type CompanySettings } from "@/services/finance/financeService";
-import { exportToPdf, exportToCsv, printInvoiceTemplate } from "@/lib/pdfExport";
+import { exportToPdf, exportToCsv, openClientDocument } from "@/lib/pdfExport";
 
 const fmt = (v?: string | null) =>
   v ? new Date(v).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }) : "—";
@@ -110,16 +110,16 @@ export default function CommercialDocumentsPage() {
   };
 
   const handlePrintInvoice = (i: CustomerInvoice) => {
-    void printInvoiceTemplate({
+    openClientDocument({
       invoiceNo: i.invoiceNo, invoiceDate: i.issueDate, dueDate: i.dueDate ?? null,
       orderNo: i.salesOrderId?.orderNo ?? null, paymentMethod: i.paymentMethod, paymentStatus: i.paymentStatus,
-      company: settings ? { name: settings.companyName, address: settings.address, phone: settings.phone, email: settings.email, mf: settings.mf, rne: settings.rne, rib: settings.rib, bank: settings.bank, agence: settings.agence } : undefined,
-      party: { label: "CLIENT / DESTINATAIRE", name: i.customerName, mf: i.customerMf, address: i.customerAddress },
+      company: settings ? { name: settings.companyName, address: settings.address, phone: settings.phone, email: settings.email, mf: settings.mf, rne: settings.rne, rib: settings.rib, iban: settings.iban, bank: settings.bank, agence: settings.agence } : undefined,
+      customerName: i.customerName, customerMf: i.customerMf, customerAddress: i.customerAddress,
       lines: i.lines?.map((l) => ({ ref: l.productId?.sku, description: l.productId?.name ?? "—", qty: l.quantity, unitPrice: l.inputUnitPrice, totalHt: l.subtotalHt })),
       subtotalHt: i.subtotalHt, fodecRate: i.fodecRate, totalFodec: i.totalFodec,
       tvaRate: i.tvaRate, totalVat: i.totalVat, totalBeforeStamp: i.totalBeforeStamp,
       timbreFiscal: i.timbreFiscal, totalTtc: i.totalTtc, amountPaid: i.amountPaid,
-    }, `${i.invoiceNo}.pdf`);
+    });
     logExport(`Facture ${i.invoiceNo} — PDF`, `${i.invoiceNo}.pdf`);
   };
 

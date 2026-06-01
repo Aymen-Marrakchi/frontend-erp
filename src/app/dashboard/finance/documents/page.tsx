@@ -11,7 +11,7 @@ import {
 } from "@/services/finance/financeService";
 import { useEffect, useState } from "react";
 import { FileText, Loader2, Download, Printer, BookOpen, BookMarked, Receipt, TrendingUp, Clock } from "lucide-react";
-import { exportToPdf, exportToCsv, printInvoiceTemplate } from "@/lib/pdfExport";
+import { exportToPdf, exportToCsv, openFournisseurDocument, openClientDocument } from "@/lib/pdfExport";
 
 const STATUS_COLORS: Record<string, string> = {
   OPEN:                "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
@@ -380,18 +380,16 @@ export default function FinanceDocumentsPage() {
                           </div>
                           <button
                             title="Imprimer"
-                            onClick={() => void printInvoiceTemplate({
-                              docType: "FACTURE FOURNISSEUR",
-                              companyRole: "ACHETEUR",
+                            onClick={() => openFournisseurDocument({
                               invoiceNo: p.invoiceNo,
-                              dueDate: p.dueDate,
+                              supplierName: p.supplierName,
                               invoiceDate: p.invoiceDate,
+                              dueDate: p.dueDate,
                               paymentStatus: p.status,
-                              company: settings ? { name: settings.companyName, address: settings.address, phone: settings.phone, email: settings.email, mf: settings.mf, rne: settings.rne, rib: settings.rib, bank: settings.bank, agence: settings.agence } : undefined,
-                              party: { label: "FOURNISSEUR", name: p.supplierName },
+                              company: settings ? { name: settings.companyName, address: settings.address, phone: settings.phone, email: settings.email, mf: settings.mf, rne: settings.rne, rib: settings.rib, iban: settings.iban, bank: settings.bank, agence: settings.agence } : undefined,
                               totalTtc: p.totalTtc,
                               amountPaid: p.amountPaid,
-                            }, `${p.invoiceNo}.pdf`)}
+                            })}
                             className="rounded-lg p-1.5 text-slate-400 transition hover:bg-teal-50 hover:text-teal-600 dark:hover:bg-teal-950/20 dark:hover:text-teal-400"
                           >
                             <Printer size={13} />
@@ -450,16 +448,16 @@ export default function FinanceDocumentsPage() {
                           </div>
                           <button
                             title="Imprimer"
-                            onClick={() => void printInvoiceTemplate({
+                            onClick={() => openClientDocument({
                               invoiceNo: r.invoiceNo || r.orderNo,
                               orderNo: r.orderNo,
+                              customerName: r.customerName,
                               paymentStatus: r.paymentStatus,
                               paymentMethod: r.paymentMethod,
-                              company: settings ? { name: settings.companyName, address: settings.address, phone: settings.phone, email: settings.email, mf: settings.mf, rne: settings.rne, rib: settings.rib, bank: settings.bank, agence: settings.agence } : undefined,
-                              party: { label: "CLIENT / DESTINATAIRE", name: r.customerName },
+                              company: settings ? { name: settings.companyName, address: settings.address, phone: settings.phone, email: settings.email, mf: settings.mf, rne: settings.rne, rib: settings.rib, iban: settings.iban, bank: settings.bank, agence: settings.agence } : undefined,
                               totalTtc: r.totalTtc ?? r.amount,
                               amountPaid: r.amountPaid,
-                            }, `${r.invoiceNo || r.orderNo}.pdf`)}
+                            })}
                             className="rounded-lg p-1.5 text-slate-400 transition hover:bg-teal-50 hover:text-teal-600 dark:hover:bg-teal-950/20 dark:hover:text-teal-400"
                           >
                             <Printer size={13} />

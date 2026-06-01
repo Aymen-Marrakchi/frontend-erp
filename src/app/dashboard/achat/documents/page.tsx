@@ -8,7 +8,7 @@ import { purchaseReturnService, type PurchaseReturn } from "@/services/purchase/
 import { useEffect, useState } from "react";
 import { FileText, Loader2, ShoppingCart, Truck, Receipt, RotateCcw, Download, Printer, Clock, TrendingDown } from "lucide-react";
 import { financeService, type CompanySettings } from "@/services/finance/financeService";
-import { exportToPdf, exportToCsv, printInvoiceTemplate } from "@/lib/pdfExport";
+import { exportToPdf, exportToCsv, openFournisseurDocument } from "@/lib/pdfExport";
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT:            "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
@@ -327,20 +327,19 @@ export default function AchatDocumentsPage() {
                           </div>
                           <button
                             title="Imprimer"
-                            onClick={() => void printInvoiceTemplate({
-                              docType: "FACTURE FOURNISSEUR",
-                              companyRole: "ACHETEUR",
+                            onClick={() => openFournisseurDocument({
                               invoiceNo: i.invoiceNo,
+                              supplierRef: i.supplierInvoiceRef,
+                              supplierName: i.supplierId?.name ?? "—",
+                              orderNo: i.purchaseOrderId?.orderNo ?? null,
                               invoiceDate: i.invoiceDate,
                               dueDate: i.dueDate,
-                              orderNo: i.purchaseOrderId?.orderNo ?? null,
                               paymentStatus: i.status,
-                              company: settings ? { name: settings.companyName, address: settings.address, phone: settings.phone, email: settings.email, mf: settings.mf, rne: settings.rne, rib: settings.rib, bank: settings.bank, agence: settings.agence } : undefined,
-                              party: { label: "FOURNISSEUR", name: i.supplierId?.name ?? "—" },
+                              company: settings ? { name: settings.companyName, address: settings.address, phone: settings.phone, email: settings.email, mf: settings.mf, rne: settings.rne, rib: settings.rib, iban: settings.iban, bank: settings.bank, agence: settings.agence } : undefined,
                               subtotalHt: i.subtotalHt, fodecRate: i.fodecRate, totalFodec: i.totalFodec,
                               tvaRate: i.tvaRate, totalVat: i.totalVat, totalBeforeStamp: i.totalBeforeStamp,
                               timbreFiscal: i.timbreFiscal, totalTtc: i.totalTtc, amountPaid: i.amountPaid,
-                            }, `${i.invoiceNo}.pdf`)}
+                            })}
                             className="rounded-lg p-1.5 text-slate-400 transition hover:bg-teal-50 hover:text-teal-600 dark:hover:bg-teal-950/20 dark:hover:text-teal-400"
                           >
                             <Printer size={13} />
