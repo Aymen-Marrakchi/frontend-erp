@@ -15,10 +15,20 @@ import {
   Hash,
 } from "lucide-react";
 
+type ProductType = "PRODUIT_FINI" | "SOUS_ENSEMBLE" | "COMPOSANT" | "MATIERE_PREMIERE";
+
+const PRODUCT_TYPES: ProductType[] = [
+  "PRODUIT_FINI",
+  "SOUS_ENSEMBLE",
+  "COMPOSANT",
+  "MATIERE_PREMIERE",
+];
+
 interface SkuSetting {
   _id: string;
   skuName: string;
   skuMax: number;
+  productType: ProductType | null;
   createdAt: string;
 }
 
@@ -26,6 +36,7 @@ export default function StockSettingsPage() {
   const [settings, setSettings] = useState<SkuSetting[]>([]);
   const [skuName, setSkuName] = useState("");
   const [skuMax, setSkuMax] = useState("");
+  const [skuProductType, setSkuProductType] = useState<ProductType | "">("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -34,6 +45,7 @@ export default function StockSettingsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editSkuName, setEditSkuName] = useState("");
   const [editSkuMax, setEditSkuMax] = useState("");
+  const [editSkuProductType, setEditSkuProductType] = useState<ProductType | "">("");
 
   const fetchData = async () => {
     try {
@@ -63,9 +75,11 @@ export default function StockSettingsPage() {
       await skuSettingService.create({
         skuName: skuName.trim(),
         skuMax: Number(skuMax),
+        productType: skuProductType || null,
       });
       setSkuName("");
       setSkuMax("");
+      setSkuProductType("");
       await fetchData();
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to create SKU setting");
@@ -78,6 +92,7 @@ export default function StockSettingsPage() {
     setEditingId(item._id);
     setEditSkuName(item.skuName);
     setEditSkuMax(item.skuMax.toString());
+    setEditSkuProductType(item.productType ?? "");
     setError("");
   };
 
@@ -93,10 +108,12 @@ export default function StockSettingsPage() {
       await skuSettingService.update(editingId, {
         skuName: editSkuName.trim(),
         skuMax: Number(editSkuMax),
+        productType: editSkuProductType || null,
       });
       setEditingId(null);
       setEditSkuName("");
       setEditSkuMax("");
+      setEditSkuProductType("");
       await fetchData();
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to update SKU setting");
@@ -109,6 +126,7 @@ export default function StockSettingsPage() {
     setEditingId(null);
     setEditSkuName("");
     setEditSkuMax("");
+    setEditSkuProductType("");
     setError("");
   };
 
@@ -165,7 +183,7 @@ export default function StockSettingsPage() {
           </div>
 
           <div className="p-6">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div className="space-y-1.5">
                 <label className="flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
                   <ScanLine size={11} />
@@ -191,6 +209,22 @@ export default function StockSettingsPage() {
                   value={skuMax}
                   onChange={(e) => setSkuMax(e.target.value)}
                 />
+              </div>
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                  <ScanLine size={11} />
+                  Product Type
+                </label>
+                <select
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 transition focus:border-slate-400 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:focus:border-slate-600 dark:focus:bg-slate-800"
+                  value={skuProductType}
+                  onChange={(e) => setSkuProductType(e.target.value as ProductType | "")}
+                >
+                  <option value="">— Any type —</option>
+                  {PRODUCT_TYPES.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
               </div>
             </div>
 
@@ -260,6 +294,9 @@ export default function StockSettingsPage() {
                       <th className="pb-3 pr-6 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">
                         Max Digits
                       </th>
+                      <th className="pb-3 pr-6 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">
+                        Product Type
+                      </th>
                       <th className="pb-3 text-right text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">
                         Actions
                       </th>
@@ -285,6 +322,18 @@ export default function StockSettingsPage() {
                                 value={editSkuMax}
                                 onChange={(e) => setEditSkuMax(e.target.value)}
                               />
+                            </td>
+                            <td className="py-3 pr-6">
+                              <select
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-900 focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                                value={editSkuProductType}
+                                onChange={(e) => setEditSkuProductType(e.target.value as ProductType | "")}
+                              >
+                                <option value="">— Any type —</option>
+                                {PRODUCT_TYPES.map((t) => (
+                                  <option key={t} value={t}>{t}</option>
+                                ))}
+                              </select>
                             </td>
                             <td className="py-3 text-right">
                               <div className="flex items-center justify-end gap-2">
@@ -321,6 +370,15 @@ export default function StockSettingsPage() {
                             </td>
                             <td className="py-3.5 pr-6 text-sm font-medium text-slate-700 dark:text-slate-300">
                               {item.skuMax}
+                            </td>
+                            <td className="py-3.5 pr-6">
+                              {item.productType ? (
+                                <span className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                  {item.productType}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-slate-400 dark:text-slate-500">Any</span>
+                              )}
                             </td>
                             <td className="py-3.5 text-right">
                               <div className="flex items-center justify-end gap-2">

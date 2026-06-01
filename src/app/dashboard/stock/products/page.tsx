@@ -36,6 +36,7 @@ interface SkuSetting {
   skuName: string;
   skuMax: number;
   lastCounter: number;
+  productType: Product["type"] | null;
 }
 
 interface ProductFormState {
@@ -143,6 +144,13 @@ export default function StockProductsPage() {
 
   const [form, setForm] = useState<ProductFormState>(emptyForm);
 
+  // SKU settings compatible with the currently selected product type.
+  // Show only type-specific ones if any exist; otherwise fall back to untyped ("Any") ones.
+  const typeSpecific = skuSettings.filter((s) => s.productType === form.type);
+  const compatibleSkuSettings = typeSpecific.length > 0
+    ? typeSpecific
+    : skuSettings.filter((s) => !s.productType);
+
   const surface =
     "rounded-3xl border border-slate-200 bg-white shadow-sm transition-colors duration-200 dark:border-slate-800 dark:bg-slate-900";
 
@@ -180,7 +188,12 @@ export default function StockProductsPage() {
   };
 
   const openCreate = () => {
-    setForm({ ...emptyForm, skuPrefix: skuSettings[0]?.skuName ?? "" });
+    const defaultType = emptyForm.type;
+    const specific = skuSettings.filter((s) => s.productType === defaultType);
+    const firstCompatible = specific.length > 0
+      ? specific[0]
+      : skuSettings.find((s) => !s.productType);
+    setForm({ ...emptyForm, skuPrefix: firstCompatible?.skuName ?? "" });
     setFormError("");
     setShowCreate(true);
   };
@@ -561,9 +574,11 @@ export default function StockProductsPage() {
           <Modal title={t("addProduct")} onClose={() => setShowCreate(false)}>
             <div className="space-y-4">
               {/* SKU composer */}
-              {skuSettings.length === 0 ? (
+              {compatibleSkuSettings.length === 0 ? (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-400">
-                  No SKU prefixes configured. Go to Settings → Stock to create one.
+                  {skuSettings.length === 0
+                    ? "No SKU prefixes configured. Go to Settings → Stock to create one."
+                    : `No SKU prefix is configured for ${form.type}. Go to Settings → Stock to create one.`}
                 </div>
               ) : (
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/40">
@@ -576,7 +591,7 @@ export default function StockProductsPage() {
                         value={form.skuPrefix}
                         onChange={(e) => setForm((f) => ({ ...f, skuPrefix: e.target.value }))}
                       >
-                        {skuSettings.map((s) => (
+                        {compatibleSkuSettings.map((s) => (
                           <option key={s._id} value={s.skuName}>
                             {s.skuName}
                           </option>
@@ -610,9 +625,18 @@ export default function StockProductsPage() {
                   <select
                     className={inputClass}
                     value={form.type}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, type: e.target.value as Product["type"] }))
-                    }
+                    onChange={(e) => {
+                      const newType = e.target.value as Product["type"];
+                      const specific = skuSettings.filter((s) => s.productType === newType);
+                      const firstCompatible = specific.length > 0
+                        ? specific[0]
+                        : skuSettings.find((s) => !s.productType);
+                      setForm((f) => ({
+                        ...f,
+                        type: newType,
+                        skuPrefix: firstCompatible?.skuName ?? "",
+                      }));
+                    }}
                   >
                     {PRODUCT_TYPES.map((t) => (
                       <option key={t} value={t}>

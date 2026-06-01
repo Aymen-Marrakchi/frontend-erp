@@ -489,6 +489,119 @@ export async function printInvoiceTemplate(
   doc.save(filename);
 }
 
+// ─── Traite commerciale (Kambial / Lettre de change) ────────────────────────
+export interface KambialTemplateOptions {
+  installmentNumber: number;
+  totalInstallments: number;
+  amount: number;
+  dueDate: string;
+  issueDate?: string;
+  invoiceNo: string;
+  customerName: string;
+  customerAddress?: string;
+  customerMf?: string;
+  company?: {
+    name?: string;
+    address?: string;
+    phone?: string;
+    mf?: string;
+    rib?: string;
+    bank?: string;
+    agence?: string;
+  };
+}
+
+// Calibration offsets — adjust if text doesn't align on your printed form
+const K_OFFSET_X = 0;  // mm — shift everything left/right
+const K_OFFSET_Y = 0;  // mm — shift everything up/down
+
+export async function printKambialTemplate(
+  opts: KambialTemplateOptions,
+  filename: string
+): Promise<void> {
+  const { jsPDF } = await import("jspdf");
+  // A4 landscape — same format as the physical pre-printed Tunisian lettre de change
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const co = opts.company ?? {};
+  const cName   = co.name    || "";
+  const cAddr   = co.address || "";
+  const cMf     = co.mf      || "";
+  const cRib    = co.rib     || "";
+  const cBank   = co.bank    || "";
+  const cAgence = co.agence  || "";
+
+  const issueDate = opts.issueDate ?? new Date().toISOString();
+  const fmtD = (v: string) =>
+    new Date(v + (v.includes("T") ? "" : "T12:00:00"))
+      .toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const fmtN = (v: number) =>
+    v.toLocaleString("fr-TN", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+
+  // Helper: place text with global offset applied
+  const put = (
+    text: string,
+    x: number,
+    y: number,
+    size: number,
+    bold = false,
+    align: "left" | "center" | "right" = "left"
+  ) => {
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFontSize(size);
+    doc.setTextColor(0, 0, 0);
+    doc.text(text, x + K_OFFSET_X, y + K_OFFSET_Y, { align });
+  };
+
+  // ── Field positions (mm from top-left of page) ────────────────────────────
+  // These coordinates are calibrated to the standard Tunisian lettre de change
+  // pre-printed form. Adjust K_OFFSET_X / K_OFFSET_Y at the top of this file
+  // if the printed text is shifted left/right/up/down on your physical form.
+
+  // ROW 1 — Echéance + city + issue date + amount
+  put(fmtD(opts.dueDate),                    112,  37, 8, true);   // Echéance value
+  put(cBank || "Tunis",                       178,  37, 8);          // "A" city
+  put(fmtD(issueDate),                        112,  48, 8);          // "Le" date
+  put(fmtN(opts.amount),                      258,  38, 10, true, "center"); // Montant (top box)
+
+  // ROW 2 — Tireur (company) + customer name + second amount
+  put(cName,                                   12,  65, 8, true);   // Tireur
+  if (cAddr)
+    put(cAddr,                                 12,  72, 7);
+  put(opts.customerName,                       70,  82, 9, true);   // Payez à l'ordre de
+  put(fmtN(opts.amount),                      258,  68, 10, true, "center"); // Montant (second box)
+  put(`${opts.installmentNumber}/${opts.totalInstallments}`, 248, 76, 7);   // Noa
+
+  // ROW 3 — Montant en lettres + data cells
+  const words = frenchWords(opts.amount);
+  const wordLines = doc.splitTextToSize(words, 95) as string[];
+  put(wordLines[0] || "",                      12,  98, 7, true);
+  if (wordLines[1])
+    put(wordLines[1],                          12, 104, 7, true);
+  put(cBank || "Tunis",                       116,  98, 7);          // Lieu de création
+  put(fmtD(issueDate),                        152,  98, 7);          // Date de création
+  put(fmtD(opts.dueDate),                     188,  98, 7);          // Echéance cell
+  put(opts.customerName.substring(0, 18),     223,  98, 7);          // Nom du client
+  put(cMf || "",                              258,  98, 7);           // Codes Banques
+
+  // ROW 4 — RIB du Tireur + Le + Valeur en + Domiciliation
+  put(cRib || "",                              12, 115, 7);           // RIB du Tireur
+  put(fmtD(issueDate),                         82, 115, 7);           // Le
+  put(`${fmtN(opts.amount)} TND`,             148, 115, 7);           // Valeur en
+  const domicil = cBank ? `${cBank}${cAgence ? ` ${cAgence}` : ""}` : "";
+  put(domicil,                                222, 115, 7);           // Domiciliation
+
+  // ROW 5 — N° de compte + Nom et adresse du Tiré
+  put(opts.customerName,                      142, 128, 7, true);    // Nom du Tiré
+  if (opts.customerAddress)
+    put(opts.customerAddress.substring(0, 50), 142, 135, 7);         // Adresse du Tiré
+  if (opts.customerMf)
+    put(`MF: ${opts.customerMf}`,             142, 141, 6);
+
+  doc.save(filename);
+}
+
 // ─── Legacy receipt/document print (non-invoice layout) ─────────────────────
 export async function printInvoicePdf(
   docType: string,

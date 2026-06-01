@@ -4,8 +4,14 @@ export const stockInventoryService = {
   getAll: async () => (await api.get("/stock/inventories")).data,
   getById: async (id: string) => (await api.get(`/stock/inventories/${id}`)).data,
 
-  create: async (payload: { type: "PERIODIC" | "PERMANENT"; notes?: string; depotId?: string }) =>
-    (await api.post("/stock/inventories", payload)).data,
+  create: async (payload: {
+    type: "PERIODIC" | "PERMANENT";
+    notes?: string;
+    depotId?: string;
+    dateDebut?: string;
+    dateFin?: string;
+    year?: number;
+  }) => (await api.post("/stock/inventories", payload)).data,
 
   getLines: async (id: string) =>
     (await api.get(`/stock/inventories/${id}/lines`)).data,

@@ -5,42 +5,20 @@ import { stockInventoryService } from "@/services/stock/stockInventoryService";
 import { purchaseReceiptService, type PurchaseReceipt } from "@/services/purchase/purchaseReceiptService";
 import { purchaseInvoiceService, type PurchaseInvoice } from "@/services/purchase/purchaseInvoiceService";
 import { useEffect, useState } from "react";
-import { FileText, Loader2, Search, ClipboardList, Truck, Receipt, Download, Printer } from "lucide-react";
+import {
+  ClipboardList, Loader2, Truck, Receipt,
+  Download, Printer, DollarSign, FileSpreadsheet, Clock, FileText,
+} from "lucide-react";
 import { financeService, type CompanySettings } from "@/services/finance/financeService";
 import { exportToPdf, exportToCsv, printInvoiceTemplate } from "@/lib/pdfExport";
 
 interface InventorySession {
-  _id: string;
-  code: string;
+  _id: string; code: string;
   type: "PERIODIC" | "PERMANENT";
   status: "IN_PROGRESS" | "SENT_TO_DEPOT" | "PENDING_APPROVAL" | "CLOSED";
   depotId?: { _id: string; name: string } | null;
   startedBy?: { _id: string; name: string } | null;
-  createdAt: string;
-  closedAt?: string | null;
-}
-
-const STATUS_COLORS: Record<string, string> = {
-  IN_PROGRESS:      "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
-  SENT_TO_DEPOT:    "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300",
-  PENDING_APPROVAL: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-  CLOSED:           "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
-  PARTIAL:          "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-  FULL:             "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
-  LITIGATION:       "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
-  PENDING_APPROVAL_INV: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-  APPROVED:         "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
-  REJECTED:         "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
-  PARTIALLY_PAID:   "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-  PAID:             "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
-};
-
-function Badge({ status }: { status: string }) {
-  return (
-    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_COLORS[status] ?? "bg-slate-100 text-slate-500"}`}>
-      {status.replace(/_/g, " ")}
-    </span>
-  );
+  createdAt: string; closedAt?: string | null;
 }
 
 const fmt = (v?: string | null) =>
@@ -48,22 +26,30 @@ const fmt = (v?: string | null) =>
 
 const tnd = (v: number) => v.toLocaleString("fr-TN", { minimumFractionDigits: 3 });
 
-const surface = "rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900";
-const thCls = "px-5 py-3 font-medium";
-const tdCls = "px-5 py-3";
+const monthLabel = () =>
+  new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }).toUpperCase();
 
-type Tab = "inventaires" | "receptions" | "factures";
+interface ExportEntry { label: string; filename: string; at: string }
+
+interface ReportCard {
+  key: string;
+  icon: React.ReactNode;
+  badge: string;
+  title: string;
+  description: string;
+  onPdf: () => Promise<void>;
+  onCsv: () => void;
+}
 
 export default function StockDocumentsPage() {
-  const [tab, setTab]               = useState<Tab>("inventaires");
   const [inventories, setInventories] = useState<InventorySession[]>([]);
-  const [receipts, setReceipts]     = useState<PurchaseReceipt[]>([]);
-  const [invoices, setInvoices]     = useState<PurchaseInvoice[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState("");
-  const [search, setSearch]         = useState("");
-  const [exporting, setExporting]   = useState(false);
-  const [settings, setSettings]     = useState<CompanySettings | null>(null);
+  const [receipts, setReceipts]       = useState<PurchaseReceipt[]>([]);
+  const [invoices, setInvoices]       = useState<PurchaseInvoice[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState("");
+  const [settings, setSettings]       = useState<CompanySettings | null>(null);
+  const [exporting, setExporting]     = useState<string | null>(null);
+  const [exportLog, setExportLog]     = useState<ExportEntry[]>([]);
 
   useEffect(() => {
     setLoading(true);
@@ -78,71 +64,146 @@ export default function StockDocumentsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const q = search.toLowerCase();
-  const filteredInventories = inventories.filter(
-    (i) => i.code.toLowerCase().includes(q) || (i.depotId?.name ?? "").toLowerCase().includes(q)
-  );
-  const filteredReceipts = receipts.filter(
-    (r) => r.receiptNo.toLowerCase().includes(q) || (r.supplierId?.name ?? "").toLowerCase().includes(q)
-  );
-  const filteredInvoices = invoices.filter(
-    (i) => i.invoiceNo.toLowerCase().includes(q) || (i.supplierId?.name ?? "").toLowerCase().includes(q)
-  );
-
-  const getExportData = () => {
-    if (tab === "inventaires") return {
-      title: "Documents Stock — Inventaires",
-      columns: ["Code", "Type", "Dépôt", "Statut", "Créé par", "Date création", "Clôturé le"],
-      rows: filteredInventories.map((i) => [i.code, i.type, i.depotId?.name ?? "—", i.status.replace(/_/g, " "), i.startedBy?.name ?? "—", fmt(i.createdAt), fmt(i.closedAt)]),
-      filename: `inventaires-${new Date().toISOString().slice(0, 10)}`,
-      count: filteredInventories.length,
-    };
-    if (tab === "receptions") return {
-      title: "Documents Stock — Bons de réception",
-      columns: ["N° Bon", "Fournisseur", "N° Commande", "Dépôt", "Statut", "Lignes", "Date"],
-      rows: filteredReceipts.map((r) => [r.receiptNo, r.supplierId?.name ?? "—", r.purchaseOrderId?.orderNo ?? "—", r.depotId?.name ?? "—", r.receiptStatus, r.lines?.length ?? 0, fmt(r.createdAt)]),
-      filename: `receptions-${new Date().toISOString().slice(0, 10)}`,
-      count: filteredReceipts.length,
-    };
-    return {
-      title: "Documents Stock — Factures fournisseurs",
-      columns: ["N° Facture", "Réf fournisseur", "Fournisseur", "Statut", "Total TTC", "Payé", "Date facture", "Échéance"],
-      rows: filteredInvoices.map((i) => [i.invoiceNo, i.supplierInvoiceRef || "—", i.supplierId?.name ?? "—", i.status.replace(/_/g, " "), `${tnd(i.totalTtc)} TND`, `${tnd(i.amountPaid)} TND`, fmt(i.invoiceDate), fmt(i.dueDate)]),
-      filename: `factures-fournisseurs-${new Date().toISOString().slice(0, 10)}`,
-      count: filteredInvoices.length,
-    };
+  const logExport = (label: string, filename: string) => {
+    setExportLog((prev) => [
+      { label, filename, at: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) },
+      ...prev,
+    ]);
   };
 
-  const handlePdf = async () => {
-    setExporting(true);
-    const d = getExportData();
-    try { await exportToPdf(d.title, `${d.count} enregistrement(s)`, d.columns, d.rows, d.filename + ".pdf"); }
-    finally { setExporting(false); }
+  const totalTtc = invoices.reduce((s, i) => s + (i.totalTtc ?? 0), 0);
+
+  // ── PDF / CSV helpers ─────────────────────────────────────────────────────
+
+  const makeInventairesPdf = async () => {
+    setExporting("inv-pdf");
+    const cols = ["Code", "Type", "Dépôt", "Statut", "Date création", "Clôturé le"];
+    const rows = inventories.map((i) => [i.code, i.type, i.depotId?.name ?? "—", i.status.replace(/_/g, " "), fmt(i.createdAt), fmt(i.closedAt)]);
+    const fn = `inventaires-${new Date().toISOString().slice(0, 10)}.pdf`;
+    try { await exportToPdf("Inventaires", `${inventories.length} session(s)`, cols, rows, fn); logExport("Inventaires — PDF", fn); }
+    finally { setExporting(null); }
+  };
+  const makeInventairesCsv = () => {
+    const cols = ["Code", "Type", "Dépôt", "Statut", "Date création", "Clôturé le"];
+    const rows = inventories.map((i) => [i.code, i.type, i.depotId?.name ?? "—", i.status.replace(/_/g, " "), fmt(i.createdAt), fmt(i.closedAt)]);
+    const fn = `inventaires-${new Date().toISOString().slice(0, 10)}.csv`;
+    exportToCsv(cols, rows, fn); logExport("Inventaires — CSV", fn);
   };
 
-  const handleCsv = () => {
-    const d = getExportData();
-    exportToCsv(d.columns, d.rows, d.filename + ".csv");
+  const makeReceptionsPdf = async () => {
+    setExporting("rec-pdf");
+    const cols = ["N° Bon", "Fournisseur", "N° Commande", "Dépôt", "Statut", "Lignes", "Date"];
+    const rows = receipts.map((r) => [r.receiptNo, r.supplierId?.name ?? "—", r.purchaseOrderId?.orderNo ?? "—", r.depotId?.name ?? "—", r.receiptStatus, r.lines?.length ?? 0, fmt(r.createdAt)]);
+    const fn = `receptions-${new Date().toISOString().slice(0, 10)}.pdf`;
+    try { await exportToPdf("Bons de réception", `${receipts.length} bon(s)`, cols, rows, fn); logExport("Réceptions — PDF", fn); }
+    finally { setExporting(null); }
+  };
+  const makeReceptionsCsv = () => {
+    const cols = ["N° Bon", "Fournisseur", "N° Commande", "Dépôt", "Statut", "Lignes", "Date"];
+    const rows = receipts.map((r) => [r.receiptNo, r.supplierId?.name ?? "—", r.purchaseOrderId?.orderNo ?? "—", r.depotId?.name ?? "—", r.receiptStatus, r.lines?.length ?? 0, fmt(r.createdAt)]);
+    const fn = `receptions-${new Date().toISOString().slice(0, 10)}.csv`;
+    exportToCsv(cols, rows, fn); logExport("Réceptions — CSV", fn);
   };
 
-  const tabs: { key: Tab; label: string; icon: React.ComponentType<{ size?: number; className?: string }>; count: number }[] = [
-    { key: "inventaires", label: "Inventaires",      icon: ClipboardList, count: inventories.length },
-    { key: "receptions",  label: "Bons de réception", icon: Truck,         count: receipts.length },
-    { key: "factures",    label: "Factures",          icon: Receipt,       count: invoices.length },
+  const makeFacturesPdf = async () => {
+    setExporting("fac-pdf");
+    const cols = ["N° Facture", "Fournisseur", "Statut", "Total TTC", "Payé", "Date"];
+    const rows = invoices.map((i) => [i.invoiceNo, i.supplierId?.name ?? "—", i.status.replace(/_/g, " "), `${tnd(i.totalTtc)} TND`, `${tnd(i.amountPaid)} TND`, fmt(i.invoiceDate)]);
+    const fn = `factures-fournisseurs-${new Date().toISOString().slice(0, 10)}.pdf`;
+    try { await exportToPdf("Factures fournisseurs", `${invoices.length} facture(s)`, cols, rows, fn); logExport("Factures — PDF", fn); }
+    finally { setExporting(null); }
+  };
+  const makeFacturesCsv = () => {
+    const cols = ["N° Facture", "Fournisseur", "Statut", "Total TTC", "Payé", "Date"];
+    const rows = invoices.map((i) => [i.invoiceNo, i.supplierId?.name ?? "—", i.status.replace(/_/g, " "), `${tnd(i.totalTtc)} TND`, `${tnd(i.amountPaid)} TND`, fmt(i.invoiceDate)]);
+    const fn = `factures-fournisseurs-${new Date().toISOString().slice(0, 10)}.csv`;
+    exportToCsv(cols, rows, fn); logExport("Factures — CSV", fn);
+  };
+
+  const handlePrintInvoice = (i: PurchaseInvoice) => {
+    void printInvoiceTemplate({
+      docType: "FACTURE FOURNISSEUR", companyRole: "ACHETEUR",
+      invoiceNo: i.invoiceNo, invoiceDate: i.invoiceDate, dueDate: i.dueDate,
+      orderNo: i.purchaseOrderId?.orderNo ?? null, paymentStatus: i.status,
+      company: settings ? { name: settings.companyName, address: settings.address, phone: settings.phone, email: settings.email, mf: settings.mf, rne: settings.rne, rib: settings.rib, bank: settings.bank, agence: settings.agence } : undefined,
+      party: { label: "FOURNISSEUR", name: i.supplierId?.name ?? "—" },
+      subtotalHt: i.subtotalHt, fodecRate: i.fodecRate, totalFodec: i.totalFodec,
+      tvaRate: i.tvaRate, totalVat: i.totalVat, totalBeforeStamp: i.totalBeforeStamp,
+      timbreFiscal: i.timbreFiscal, totalTtc: i.totalTtc, amountPaid: i.amountPaid,
+    }, `${i.invoiceNo}.pdf`);
+    logExport(`Facture ${i.invoiceNo} — PDF`, `${i.invoiceNo}.pdf`);
+  };
+
+  const exportAllCsv = () => { makeInventairesCsv(); makeReceptionsCsv(); makeFacturesCsv(); };
+
+  const reports: ReportCard[] = [
+    {
+      key: "inv", icon: <ClipboardList size={20} />,
+      badge: "Toutes sessions",
+      title: "Rapport Inventaires",
+      description: "Sessions d'inventaire avec code, type, dépôt, statut et dates de clôture.",
+      onPdf: makeInventairesPdf, onCsv: makeInventairesCsv,
+    },
+    {
+      key: "rec", icon: <Truck size={20} />,
+      badge: "Toutes réceptions",
+      title: "Rapport Réceptions",
+      description: "Bons de réception avec fournisseur, commande liée, dépôt et statut.",
+      onPdf: makeReceptionsPdf, onCsv: makeReceptionsCsv,
+    },
+    {
+      key: "fac", icon: <Receipt size={20} />,
+      badge: "Tous statuts",
+      title: "Rapport Factures Fournisseurs",
+      description: "Factures fournisseurs avec FODEC, TVA, timbre fiscal et montants payés.",
+      onPdf: makeFacturesPdf, onCsv: makeFacturesCsv,
+    },
+  ];
+
+  const statCards = [
+    {
+      label: "TOTAL RAPPORTS", value: "3", sub: "Disponibles",
+      icon: <FileText size={18} />,
+      iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400",
+    },
+    {
+      label: "GÉNÉRÉS", value: String(exportLog.length), sub: "Cette session",
+      icon: <Download size={18} />,
+      iconBg: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
+    },
+    {
+      label: "TOTAL DOCUMENTS", value: String(inventories.length + receipts.length + invoices.length), sub: "Tous modules",
+      icon: <ClipboardList size={18} />,
+      iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400",
+    },
+    {
+      label: "TOTAL FACTURES TTC", value: tnd(totalTtc), sub: "TND — Fournisseurs",
+      icon: <DollarSign size={18} />,
+      iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400",
+      large: true,
+    },
   ];
 
   return (
     <ProtectedRoute allowedRoles={["ADMIN", "STOCK_MANAGER", "DEPOT_MANAGER"]}>
       <div className="space-y-6">
 
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800">
-            <FileText size={18} className="text-slate-600 dark:text-slate-300" />
-          </div>
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">Documents</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Archive des documents du module stock</p>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-950 dark:text-white">
+              Stock <span className="text-teal-500">Reports</span>
+            </h1>
+            <p className="mt-1 text-xs font-medium uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
+              EMM ERP · STOCK
+            </p>
           </div>
+          <button
+            onClick={exportAllCsv}
+            className="inline-flex items-center gap-2 rounded-2xl bg-teal-600 px-5 py-2.5 text-sm font-semibold uppercase tracking-wider text-white transition hover:bg-teal-700"
+          >
+            <Download size={15} /> Export All CSV
+          </button>
         </div>
 
         {error && (
@@ -151,154 +212,136 @@ export default function StockDocumentsPage() {
           </div>
         )}
 
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex gap-1 rounded-2xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
-            {tabs.map(({ key, label, icon: Icon, count }) => (
-              <button key={key} onClick={() => { setTab(key); setSearch(""); }}
-                className={`flex items-center gap-2 rounded-xl px-4 py-1.5 text-sm font-medium transition ${tab === key ? "bg-white shadow text-slate-950 dark:bg-slate-800 dark:text-white" : "text-slate-500 hover:text-slate-700 dark:text-slate-400"}`}
-              >
-                <Icon size={13} />{label}
-                <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${tab === key ? "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300" : "bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-400"}`}>{count}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="relative w-56">
-              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher..."
-                className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-9 pr-4 text-sm outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:focus:border-slate-600"
-              />
-            </div>
-            <button onClick={handlePdf} disabled={exporting}
-              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
-            >
-              {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} PDF
-            </button>
-            <button onClick={handleCsv}
-              className="inline-flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
-            >
-              <Download size={14} /> CSV
-            </button>
-          </div>
-        </div>
-
         {loading ? (
-          <div className="flex items-center justify-center gap-2 py-16 text-sm text-slate-500">
+          <div className="flex items-center justify-center gap-2 py-20 text-sm text-slate-500">
             <Loader2 size={16} className="animate-spin" /> Chargement...
           </div>
-        ) : tab === "inventaires" ? (
-          <div className={`${surface} overflow-hidden`}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 dark:bg-slate-800/40">
-                  <tr className="text-left text-[10px] uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-                    <th className={thCls}>Code</th><th className={thCls}>Type</th><th className={thCls}>Dépôt</th>
-                    <th className={thCls}>Statut</th><th className={thCls}>Créé par</th>
-                    <th className={thCls}>Date création</th><th className={thCls}>Clôturé le</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {filteredInventories.length === 0 ? (
-                    <tr><td colSpan={7} className="py-12 text-center text-sm text-slate-400">Aucun inventaire trouvé</td></tr>
-                  ) : filteredInventories.map((inv) => (
-                    <tr key={inv._id} className="transition hover:bg-slate-50 dark:hover:bg-slate-800/20">
-                      <td className={`${tdCls} font-mono text-xs font-semibold text-slate-800 dark:text-slate-200`}>{inv.code}</td>
-                      <td className={`${tdCls} text-xs text-slate-500`}>{inv.type}</td>
-                      <td className={`${tdCls} text-slate-700 dark:text-slate-300`}>{inv.depotId?.name ?? "—"}</td>
-                      <td className={tdCls}><Badge status={inv.status} /></td>
-                      <td className={`${tdCls} text-xs text-slate-500`}>{inv.startedBy?.name ?? "—"}</td>
-                      <td className={`${tdCls} text-xs text-slate-400 whitespace-nowrap`}>{fmt(inv.createdAt)}</td>
-                      <td className={`${tdCls} text-xs text-slate-400 whitespace-nowrap`}>{fmt(inv.closedAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : tab === "receptions" ? (
-          <div className={`${surface} overflow-hidden`}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 dark:bg-slate-800/40">
-                  <tr className="text-left text-[10px] uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-                    <th className={thCls}>N° Bon</th><th className={thCls}>Fournisseur</th>
-                    <th className={thCls}>N° Commande</th><th className={thCls}>Dépôt</th>
-                    <th className={thCls}>Statut</th><th className={thCls}>Lignes</th><th className={thCls}>Date</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {filteredReceipts.length === 0 ? (
-                    <tr><td colSpan={7} className="py-12 text-center text-sm text-slate-400">Aucun bon de réception trouvé</td></tr>
-                  ) : filteredReceipts.map((r) => (
-                    <tr key={r._id} className="transition hover:bg-slate-50 dark:hover:bg-slate-800/20">
-                      <td className={`${tdCls} font-mono text-xs font-semibold text-slate-800 dark:text-slate-200`}>{r.receiptNo}</td>
-                      <td className={`${tdCls} font-medium text-slate-900 dark:text-white`}>{r.supplierId?.name ?? "—"}</td>
-                      <td className={`${tdCls} font-mono text-xs text-slate-500`}>{r.purchaseOrderId?.orderNo ?? "—"}</td>
-                      <td className={`${tdCls} text-xs text-slate-500`}>{r.depotId?.name ?? "—"}</td>
-                      <td className={tdCls}><Badge status={r.receiptStatus} /></td>
-                      <td className={`${tdCls} text-slate-600 dark:text-slate-300`}>{r.lines?.length ?? 0} ligne{(r.lines?.length ?? 0) !== 1 ? "s" : ""}</td>
-                      <td className={`${tdCls} text-xs text-slate-400 whitespace-nowrap`}>{fmt(r.createdAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
         ) : (
-          <div className={`${surface} overflow-hidden`}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 dark:bg-slate-800/40">
-                  <tr className="text-left text-[10px] uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-                    <th className={thCls}>N° Facture</th><th className={thCls}>Réf fournisseur</th>
-                    <th className={thCls}>Fournisseur</th><th className={thCls}>Statut</th>
-                    <th className={thCls}>Total TTC</th><th className={thCls}>Payé</th>
-                    <th className={thCls}>Date facture</th><th className={thCls}>Échéance</th>
-                    <th className="w-10 px-3 py-3"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {filteredInvoices.length === 0 ? (
-                    <tr><td colSpan={9} className="py-12 text-center text-sm text-slate-400">Aucune facture trouvée</td></tr>
-                  ) : filteredInvoices.map((i) => (
-                    <tr key={i._id} className="transition hover:bg-slate-50 dark:hover:bg-slate-800/20">
-                      <td className={`${tdCls} font-mono text-xs font-semibold text-slate-800 dark:text-slate-200`}>{i.invoiceNo}</td>
-                      <td className={`${tdCls} text-xs text-slate-500`}>{i.supplierInvoiceRef || "—"}</td>
-                      <td className={`${tdCls} font-medium text-slate-900 dark:text-white`}>{i.supplierId?.name ?? "—"}</td>
-                      <td className={tdCls}><Badge status={i.status} /></td>
-                      <td className={`${tdCls} tabular-nums text-slate-700 dark:text-slate-300`}>{tnd(i.totalTtc)} TND</td>
-                      <td className={`${tdCls} tabular-nums ${i.amountPaid >= i.totalTtc ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>{tnd(i.amountPaid)} TND</td>
-                      <td className={`${tdCls} text-xs text-slate-400 whitespace-nowrap`}>{fmt(i.invoiceDate)}</td>
-                      <td className={`${tdCls} text-xs ${i.status !== "PAID" && new Date(i.dueDate) < new Date() ? "text-rose-500 font-medium" : "text-slate-400"} whitespace-nowrap`}>{fmt(i.dueDate)}</td>
-                      <td className="px-3 py-3 text-right">
-                        <button
-                          title="Imprimer"
-                          onClick={() => void printInvoiceTemplate({
-                            docType: "FACTURE FOURNISSEUR",
-                            companyRole: "ACHETEUR",
-                            invoiceNo: i.invoiceNo,
-                            invoiceDate: i.invoiceDate,
-                            dueDate: i.dueDate,
-                            orderNo: i.purchaseOrderId?.orderNo ?? null,
-                            paymentStatus: i.status,
-                            company: settings ? { name: settings.companyName, address: settings.address, phone: settings.phone, email: settings.email, mf: settings.mf, rne: settings.rne, rib: settings.rib, bank: settings.bank, agence: settings.agence } : undefined,
-                            party: { label: "FOURNISSEUR", name: i.supplierId?.name ?? "—" },
-                            subtotalHt: i.subtotalHt, fodecRate: i.fodecRate, totalFodec: i.totalFodec,
-                            tvaRate: i.tvaRate, totalVat: i.totalVat, totalBeforeStamp: i.totalBeforeStamp,
-                            timbreFiscal: i.timbreFiscal, totalTtc: i.totalTtc, amountPaid: i.amountPaid,
-                          }, `${i.invoiceNo}.pdf`)}
-                          className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                        >
-                          <Printer size={13} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <>
+            {/* Stat cards */}
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              {statCards.map((card, i) => (
+                <div key={i} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                  <div className={`mb-3 inline-flex h-10 w-10 items-center justify-center rounded-2xl ${card.iconBg}`}>
+                    {card.icon}
+                  </div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">{card.label}</p>
+                  {card.large ? (
+                    <p className="mt-1 text-xl font-bold leading-tight text-slate-950 dark:text-white">
+                      {card.value}<br /><span className="text-sm font-semibold text-slate-500">TND</span>
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-3xl font-bold text-slate-950 dark:text-white">{card.value}</p>
+                  )}
+                  <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{card.sub}</p>
+                </div>
+              ))}
             </div>
-          </div>
+
+            {/* Report cards + export log */}
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+
+              <div className="lg:col-span-2 grid grid-cols-1 gap-4 sm:grid-cols-2 content-start">
+                {reports.map((r) => {
+                  const isPdfLoading = exporting === `${r.key}-pdf`;
+                  return (
+                    <div key={r.key} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                      <div className="flex items-start justify-between gap-2 mb-4">
+                        <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400">
+                          {r.icon}
+                        </div>
+                        <span className="rounded-full bg-teal-100 px-2.5 py-1 text-[10px] font-semibold text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">
+                          {r.badge}
+                        </span>
+                      </div>
+                      <h3 className="font-bold text-slate-950 dark:text-white">{r.title}</h3>
+                      <p className="mt-1.5 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{r.description}</p>
+                      <p className="mt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">{monthLabel()}</p>
+                      <div className="mt-4 flex gap-2">
+                        <button onClick={r.onPdf} disabled={!!exporting}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-teal-700 disabled:opacity-50"
+                        >
+                          {isPdfLoading ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />} Export PDF
+                        </button>
+                        <button onClick={r.onCsv} disabled={!!exporting}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        >
+                          <Download size={12} /> Export CSV
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Per-invoice print card */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:col-span-2">
+                  <div className="flex items-start justify-between gap-2 mb-4">
+                    <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400">
+                      <Printer size={20} />
+                    </div>
+                    <span className="rounded-full bg-teal-100 px-2.5 py-1 text-[10px] font-semibold text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">
+                      Impression individuelle
+                    </span>
+                  </div>
+                  <h3 className="font-bold text-slate-950 dark:text-white">Imprimer une facture fournisseur</h3>
+                  <p className="mt-1.5 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                    Sélectionnez une facture pour générer le PDF Tunisien complet (FODEC · TVA · Timbre fiscal).
+                  </p>
+                  <div className="mt-4 max-h-48 overflow-y-auto rounded-xl border border-slate-100 divide-y divide-slate-100 dark:border-slate-800 dark:divide-slate-800">
+                    {invoices.length === 0 ? (
+                      <p className="py-6 text-center text-xs text-slate-400">Aucune facture</p>
+                    ) : invoices.map((i) => (
+                      <div key={i._id} className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition">
+                        <div>
+                          <p className="font-mono text-xs font-semibold text-slate-800 dark:text-slate-200">{i.invoiceNo}</p>
+                          <p className="text-[10px] text-slate-400">{i.supplierId?.name ?? "—"} · {tnd(i.totalTtc)} TND</p>
+                        </div>
+                        <button onClick={() => handlePrintInvoice(i)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[10px] font-semibold text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        >
+                          <Printer size={10} /> PDF
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Export log */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 h-fit">
+                <p className="text-base font-bold text-slate-950 dark:text-white">Export Log</p>
+                <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">Cette session</p>
+                <div className="mt-5">
+                  {exportLog.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-10 text-center">
+                      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800">
+                        <FileSpreadsheet size={16} className="text-slate-400" />
+                      </div>
+                      <p className="text-sm font-medium text-slate-400 dark:text-slate-500">No exports yet</p>
+                      <p className="mt-1 text-xs text-slate-400 dark:text-slate-600">Files appear here after download</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {exportLog.map((entry, i) => (
+                        <div key={i} className="flex items-start gap-2.5 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950">
+                          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-slate-200 dark:bg-slate-700">
+                            <Download size={11} className="text-slate-500 dark:text-slate-400" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-300">{entry.label}</p>
+                            <p className="truncate text-[10px] text-slate-400 dark:text-slate-500">{entry.filename}</p>
+                          </div>
+                          <div className="ml-auto flex shrink-0 items-center gap-1 text-[10px] text-slate-400">
+                            <Clock size={9} /> {entry.at}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
         )}
       </div>
     </ProtectedRoute>

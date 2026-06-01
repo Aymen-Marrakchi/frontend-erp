@@ -158,7 +158,14 @@ export default function StockInventoriesPage() {
   const [showReject,  setShowReject]  = useState(false);
 
   // Forms
-  const [sessionForm, setSessionForm] = useState({ type: "PERIODIC" as "PERIODIC" | "PERMANENT", notes: "", depotId: "" });
+  const [sessionForm, setSessionForm] = useState({
+    type: "PERIODIC" as "PERIODIC" | "PERMANENT",
+    notes: "",
+    depotId: "",
+    dateDebut: "",
+    dateFin: "",
+    year: new Date().getFullYear(),
+  });
   const [lineForm,    setLineForm]    = useState({ productId: "", notes: "" });
 
   // Depot count: lineId → typed quantity string
@@ -268,11 +275,19 @@ export default function StockInventoriesPage() {
 
   const handleCreateSession = async () => {
     if (!sessionForm.depotId) { setFormError(t("selectDepot")); return; }
+    if (sessionForm.type === "PERIODIC") {
+      if (!sessionForm.dateDebut || !sessionForm.dateFin) { setFormError("Date début and date fin are required."); return; }
+      if (new Date(sessionForm.dateFin) < new Date(sessionForm.dateDebut)) { setFormError("Date fin must be after date début."); return; }
+    }
+    if (sessionForm.type === "PERMANENT") {
+      const cutoff = new Date(sessionForm.year, 6, 31);
+      if (new Date() < cutoff) { setFormError(`Permanent inventory for ${sessionForm.year} requires the date to be at least July 31, ${sessionForm.year}.`); return; }
+    }
     try {
       setSubmitting(true); setFormError("");
       await stockInventoryService.create(sessionForm);
       setShowCreate(false);
-      setSessionForm({ type: "PERIODIC", notes: "", depotId: "" });
+      setSessionForm({ type: "PERIODIC", notes: "", depotId: "", dateDebut: "", dateFin: "", year: new Date().getFullYear() });
       await fetchAll();
     } catch (e: any) {
       setFormError(e?.response?.data?.message || "Failed to create session.");
@@ -887,13 +902,82 @@ export default function StockInventoriesPage() {
         {showCreate && (
           <Modal title={t("newInventorySession")} onClose={() => setShowCreate(false)}>
             <div className="space-y-4">
+              {/* Type */}
               <div>
                 <label className={labelCls}>{t("type")}</label>
-                <select className={inputCls} value={sessionForm.type} onChange={(e) => setSessionForm((p) => ({ ...p, type: e.target.value as "PERIODIC" | "PERMANENT" }))}>
-                  <option value="PERIODIC">{t("periodic")}</option>
-                  <option value="PERMANENT">{t("permanent")}</option>
-                </select>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["PERIODIC", "PERMANENT"] as const).map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => setSessionForm((p) => ({ ...p, type: opt }))}
+                      className={`rounded-2xl border px-4 py-2.5 text-sm font-medium transition ${
+                        sessionForm.type === opt
+                          ? "border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-950"
+                          : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                      }`}
+                    >
+                      {opt === "PERIODIC" ? "Périodique" : "Permanente"}
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              {/* PERIODIC: date range */}
+              {sessionForm.type === "PERIODIC" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelCls}>Date début</label>
+                    <input
+                      type="date"
+                      className={inputCls}
+                      value={sessionForm.dateDebut}
+                      onChange={(e) => setSessionForm((p) => ({ ...p, dateDebut: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Date fin</label>
+                    <input
+                      type="date"
+                      className={inputCls}
+                      value={sessionForm.dateFin}
+                      min={sessionForm.dateDebut || undefined}
+                      onChange={(e) => setSessionForm((p) => ({ ...p, dateFin: e.target.value }))}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* PERMANENT: year selector */}
+              {sessionForm.type === "PERMANENT" && (() => {
+                const today = new Date();
+                const currentYear = today.getFullYear();
+                const availableYears = Array.from({ length: 6 }, (_, i) => currentYear - 5 + i).filter(
+                  (y) => today >= new Date(y, 6, 31)
+                );
+                return (
+                  <div>
+                    <label className={labelCls}>Année fiscale</label>
+                    {availableYears.length === 0 ? (
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-400">
+                        Aucune année disponible — vous devez être au moins le 31 juillet de l&apos;année concernée.
+                      </div>
+                    ) : (
+                      <select
+                        className={inputCls}
+                        value={sessionForm.year}
+                        onChange={(e) => setSessionForm((p) => ({ ...p, year: Number(e.target.value) }))}
+                      >
+                        {availableYears.map((y) => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Depot */}
               <div>
                 <label className={labelCls}>{t("depots")}</label>
                 <select className={inputCls} value={sessionForm.depotId} onChange={(e) => setSessionForm((p) => ({ ...p, depotId: e.target.value }))}>
@@ -901,10 +985,13 @@ export default function StockInventoriesPage() {
                   {depots.map((d) => <option key={d._id} value={d._id}>{d.name}</option>)}
                 </select>
               </div>
+
+              {/* Notes */}
               <div>
                 <label className={labelCls}>{t("notesOptional")}</label>
-                <textarea className={`${inputCls} resize-none`} rows={3} placeholder={t("sessionNotesPlaceholder")} value={sessionForm.notes} onChange={(e) => setSessionForm((p) => ({ ...p, notes: e.target.value }))} />
+                <textarea className={`${inputCls} resize-none`} rows={2} placeholder={t("sessionNotesPlaceholder")} value={sessionForm.notes} onChange={(e) => setSessionForm((p) => ({ ...p, notes: e.target.value }))} />
               </div>
+
               {formError && <p className="text-sm text-rose-600 dark:text-rose-400">{formError}</p>}
               <div className="flex gap-3 pt-1">
                 <button onClick={handleCreateSession} disabled={submitting} className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-slate-950 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-950">
