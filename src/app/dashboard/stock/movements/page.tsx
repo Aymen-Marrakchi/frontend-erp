@@ -21,6 +21,7 @@ import { useEffect, useMemo, useState } from "react";
 import { stockMovementService } from "@/services/stock/stockMovementService";
 import { stockProductService } from "@/services/stock/stockProductService";
 import { stockDepotService, type Depot } from "@/services/stock/stockDepotService";
+import { stockItemService } from "@/services/stock/stockItemService";
 
 interface Product {
   _id: string;
@@ -97,6 +98,7 @@ export default function StockMovementsPage() {
 
   const [movements, setMovements] = useState<Movement[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [stockMap, setStockMap] = useState<Record<string, number>>({});
   const [myDepot, setMyDepot] = useState<Depot | null>(null);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("ALL");
@@ -145,6 +147,13 @@ export default function StockMovementsPage() {
       }
       const [movementData, productData, depotData] = await Promise.all(fetches);
       setMovements(movementData);
+
+      const itemData = await stockItemService.getAll();
+      const map: Record<string, number> = {};
+      for (const item of itemData) {
+        map[item.productId?._id ?? item.productId] = item.quantityOnHand ?? 0;
+      }
+      setStockMap(map);
 
       if (user?.role === "DEPOT_MANAGER" && depotData) {
         const depot: Depot | undefined = (depotData as Depot[]).find(
@@ -389,6 +398,42 @@ export default function StockMovementsPage() {
             </motion.div>
           ))}
         </div>
+
+        {/* Per-product stock cards */}
+        {Object.keys(stockMap).length > 0 && (
+          <div className="flex flex-wrap gap-3">
+            {products
+              .filter((p) => stockMap[p._id] !== undefined)
+              .map((p) => {
+                const qty = stockMap[p._id] ?? 0;
+                const low = qty <= 5;
+                return (
+                  <div
+                    key={p._id}
+                    className={`flex items-center gap-2.5 rounded-2xl border px-4 py-2.5 shadow-sm ${
+                      low
+                        ? "border-rose-200 bg-rose-50 dark:border-rose-900/40 dark:bg-rose-950/20"
+                        : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{p.name}</p>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500">{p.sku}</p>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-xl px-2.5 py-1 text-sm font-bold tabular-nums ${
+                        low
+                          ? "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
+                          : "bg-teal-50 text-teal-700 dark:bg-teal-950/30 dark:text-teal-300"
+                      }`}
+                    >
+                      {qty} <span className="text-[10px] font-medium">{p.unit}</span>
+                    </span>
+                  </div>
+                );
+              })}
+          </div>
+        )}
 
         <div className={`${surface} overflow-hidden`}>
           <div className="flex flex-col justify-between gap-4 border-b border-slate-200 px-6 py-5 lg:flex-row lg:items-center dark:border-slate-800">
