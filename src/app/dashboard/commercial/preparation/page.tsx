@@ -5,7 +5,6 @@ import { useLanguage } from "@/context/LanguageContext";
 import { customerInvoiceService, type CustomerInvoice } from "@/services/commercial/customerInvoiceService";
 import { salesOrderService, type SalesOrder } from "@/services/commercial/salesOrderService";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { financeService, type CompanySettings } from "@/services/finance/financeService";
 import { ChevronDown, Loader2, Package, Printer, Search, ShoppingCart } from "lucide-react";
 
 const surface =
@@ -116,7 +115,9 @@ function montantEnLettres(montant: number): string {
   return r.charAt(0).toUpperCase() + r.slice(1);
 }
 
-function openInvoiceDocument(order: SalesOrder, invoice: CustomerInvoice, settings: CompanySettings | null) {
+type InvoiceSettings = { companyName?: string; address?: string; phone?: string; email?: string; mf?: string; rne?: string; rib?: string; iban?: string; bank?: string; agence?: string } | null;
+
+function openInvoiceDocument(order: SalesOrder, invoice: CustomerInvoice, settings: InvoiceSettings) {
   const tvaRate = invoice.applyTva ? (invoice.tvaRate ?? 19) : 0;
   const fodecRate = invoice.applyFodec ? (invoice.fodecRate ?? 1) : 0;
   const issueDate = new Date(invoice.issueDate || Date.now()).toLocaleDateString("fr-TN");
@@ -325,15 +326,12 @@ export default function CommercialPreparationPage() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const settingsRef = useRef<CompanySettings | null>(null);
+  const settingsRef = useRef<InvoiceSettings>(null);
 
   const fetchOrders = async () => {
     try {
       setLoading(true);
       setError("");
-      if (!settingsRef.current) {
-        financeService.getSettings().then((s) => { settingsRef.current = s; }).catch(() => {});
-      }
       setOrders(await salesOrderService.getAll());
     } catch (err: unknown) {
       setError(getErrorMessage(err, "Failed to load preparation orders"));

@@ -38,6 +38,7 @@ import {
   BookMarked,
   ShoppingBag,
   Tag,
+  FolderOpen,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -130,6 +131,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/commercial/deliveries", label: "Réceptions", icon: ClipboardCheck },
     { href: "/dashboard/commercial/documents", label: "Documents", icon: BookMarked },
     { href: "/dashboard/commercial/reports", label: t("reportsKpi") || "Reports", icon: BarChart3 },
+    { href: "/dashboard/commercial/settings", label: "Paramètres", icon: Settings },
   ];
 
   const stockItems: NavItem[] = [
@@ -143,7 +145,8 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/stock/depots", label: t("depots"), icon: Warehouse },
     { href: "/dashboard/stock/purchase-request", label: "Purchase Request", icon: ShoppingCart },
     { href: "/dashboard/stock/deliveries", label: "Réceptions", icon: Truck },
-    { href: "/dashboard/stock/documents", label: "Documents", icon: BookMarked },
+    { href: "/dashboard/stock/rapports", label: "Rapports", icon: BookMarked },
+    { href: "/dashboard/stock/documents", label: "Documents", icon: FolderOpen },
     { href: "/dashboard/stock/settings", label: t("settings"), icon: FileText },
   ];
 

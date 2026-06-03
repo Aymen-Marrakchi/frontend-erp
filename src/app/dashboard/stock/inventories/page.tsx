@@ -166,7 +166,8 @@ export default function StockInventoriesPage() {
     dateFin: "",
     year: new Date().getFullYear(),
   });
-  const [lineForm,    setLineForm]    = useState({ productId: "", notes: "" });
+  const [lineForm,    setLineForm]    = useState({ productIds: [] as string[], notes: "" });
+  const [lineSearch,  setLineSearch]  = useState("");
 
   // Depot count: lineId → typed quantity string
   const [countValues, setCountValues] = useState<Record<string, string>>({});
@@ -295,16 +296,21 @@ export default function StockInventoriesPage() {
   };
 
   const handleAddLine = async () => {
-    if (!lineForm.productId) { setFormError(t("selectProduct")); return; }
+    if (lineForm.productIds.length === 0) { setFormError(t("selectProduct")); return; }
     if (!selected) return;
     try {
       setSubmitting(true); setFormError("");
-      await stockInventoryService.addLine(selected._id, { productId: lineForm.productId, notes: lineForm.notes });
+      await Promise.all(
+        lineForm.productIds.map((pid) =>
+          stockInventoryService.addLine(selected._id, { productId: pid, notes: lineForm.notes })
+        )
+      );
       setShowAddLine(false);
-      setLineForm({ productId: "", notes: "" });
+      setLineForm({ productIds: [], notes: "" });
+      setLineSearch("");
       await fetchLines(selected._id);
     } catch (e: any) {
-      setFormError(e?.response?.data?.message || "Failed to add line.");
+      setFormError(e?.response?.data?.message || "Failed to add lines.");
     } finally { setSubmitting(false); }
   };
 
@@ -647,7 +653,7 @@ export default function StockInventoriesPage() {
                     {canApprove && selected.status === "IN_PROGRESS" && (
                       <div className="flex items-center gap-2 flex-wrap">
                         <button
-                          onClick={() => { setShowAddLine(true); setFormError(""); setLineForm({ productId: "", notes: "" }); }}
+                          onClick={() => { setShowAddLine(true); setFormError(""); setLineForm({ productIds: [], notes: "" }); setLineSearch(""); }}
                           className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                         >
                           <Plus size={14} /> {t("addLineBtn")}
@@ -1006,15 +1012,75 @@ export default function StockInventoriesPage() {
         {showAddLine && (
           <Modal title={t("addCountLine")} onClose={() => setShowAddLine(false)}>
             <div className="space-y-4">
+              {/* Search + select all */}
               <div>
-                <label className={labelCls}>{t("product")}</label>
-                <select className={inputCls} value={lineForm.productId} onChange={(e) => setLineForm((p) => ({ ...p, productId: e.target.value }))}>
-                  <option value="">{t("selectProduct")}</option>
-                  {products.filter((p) => !usedProductIds.has(p._id)).map((p) => (
-                    <option key={p._id} value={p._id}>{p.name} ({p.sku})</option>
-                  ))}
-                </select>
-                <p className="mt-1.5 text-xs text-slate-400">System quantity is auto-loaded from current stock.</p>
+                <div className="mb-2 flex items-center justify-between">
+                  <label className={labelCls}>{t("product")}</label>
+                  {lineForm.productIds.length > 0 && (
+                    <span className="text-[11px] font-semibold text-teal-600 dark:text-teal-400">
+                      {lineForm.productIds.length} sélectionné{lineForm.productIds.length > 1 ? "s" : ""}
+                    </span>
+                  )}
+                </div>
+                <div className="relative mb-2">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={lineSearch}
+                    onChange={(e) => setLineSearch(e.target.value)}
+                    placeholder="Rechercher un produit…"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-8 pr-3 text-sm outline-none transition focus:border-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                  />
+                </div>
+                {/* Select all / deselect all */}
+                {(() => {
+                  const avail = products.filter((p) => !usedProductIds.has(p._id) && (p.name.toLowerCase().includes(lineSearch.toLowerCase()) || p.sku.toLowerCase().includes(lineSearch.toLowerCase())));
+                  const allSelected = avail.length > 0 && avail.every((p) => lineForm.productIds.includes(p._id));
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (allSelected) {
+                            setLineForm((f) => ({ ...f, productIds: f.productIds.filter((id) => !avail.find((p) => p._id === id)) }));
+                          } else {
+                            const newIds = [...new Set([...lineForm.productIds, ...avail.map((p) => p._id)])];
+                            setLineForm((f) => ({ ...f, productIds: newIds }));
+                          }
+                        }}
+                        className="mb-2 text-[11px] font-medium text-slate-500 underline underline-offset-2 transition hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+                      >
+                        {allSelected ? "Désélectionner tout" : "Sélectionner tout"}
+                      </button>
+                      <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100 dark:border-slate-700 dark:divide-slate-800">
+                        {avail.length === 0 ? (
+                          <p className="py-6 text-center text-xs text-slate-400">Aucun produit disponible</p>
+                        ) : avail.map((p) => {
+                          const checked = lineForm.productIds.includes(p._id);
+                          return (
+                            <label key={p._id} className={`flex cursor-pointer items-center gap-3 px-3 py-2.5 transition ${checked ? "bg-teal-50 dark:bg-teal-950/20" : "hover:bg-slate-50 dark:hover:bg-slate-800/30"}`}>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => setLineForm((f) => ({
+                                  ...f,
+                                  productIds: checked
+                                    ? f.productIds.filter((id) => id !== p._id)
+                                    : [...f.productIds, p._id],
+                                }))}
+                                className="h-4 w-4 rounded border-slate-300 accent-teal-600"
+                              />
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">{p.name}</p>
+                                <p className="text-[10px] text-slate-400">{p.sku}</p>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
+                <p className="mt-1.5 text-xs text-slate-400">Les quantités système sont chargées automatiquement.</p>
               </div>
               <div>
                 <label className={labelCls}>{t("notesOptional")}</label>
@@ -1022,8 +1088,9 @@ export default function StockInventoriesPage() {
               </div>
               {formError && <p className="text-sm text-rose-600 dark:text-rose-400">{formError}</p>}
               <div className="flex gap-3 pt-1">
-                <button onClick={handleAddLine} disabled={submitting} className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-slate-950 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-950">
-                  {submitting && <Loader2 size={13} className="animate-spin" />} {t("addLineBtn")}
+                <button onClick={handleAddLine} disabled={submitting || lineForm.productIds.length === 0} className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-slate-950 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-950">
+                  {submitting && <Loader2 size={13} className="animate-spin" />}
+                  {lineForm.productIds.length > 0 ? `Ajouter ${lineForm.productIds.length} produit${lineForm.productIds.length > 1 ? "s" : ""}` : t("addLineBtn")}
                 </button>
                 <button onClick={() => setShowAddLine(false)} className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">{t("cancel")}</button>
               </div>

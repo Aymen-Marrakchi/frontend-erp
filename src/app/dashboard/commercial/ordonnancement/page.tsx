@@ -9,12 +9,13 @@ import {
 import { stockDepotService, type Depot } from "@/services/stock/stockDepotService";
 import { stockItemService } from "@/services/stock/stockItemService";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
   Factory,
+  Lock,
   Loader2,
   Plus,
   Save,
@@ -137,110 +138,106 @@ export default function OrdonnancementPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        setError("");
+  const load = useCallback(async (preserveSelectedId?: string | null, clearSelection = false) => {
+    try {
+      setLoading(true);
+      setError("");
 
-        const [orderData, itemData, depotData] = await Promise.all([
-          salesOrderService.getAll(),
-          stockItemService.getAll(),
-          stockDepotService.getAll(),
-        ]);
+      const [orderData, itemData, depotData] = await Promise.all([
+        salesOrderService.getAll(),
+        stockItemService.getAll(),
+        stockDepotService.getAll(),
+      ]);
 
-        const visibleOrders = (orderData as SalesOrder[])
-          .filter((order) => {
-            if (order.status === "CONFIRMED") return true;
-            if (order.status !== "ORDONNANCED") return false;
-            if (focusId && order._id === focusId) return true;
-            return order.lines.some(
-              (line) =>
-                Math.max(
-                  0,
-                  line.plannedProductionQuantity ?? line.quantity - (line.allocatedQuantity || 0)
-                ) > 0
-            );
-          })
-          .map((order) => ({
-            ...order,
-            lines: order.lines.filter(hasProduct),
-          }))
-          .filter((order) => order.lines.length > 0)
-          .sort((a, b) => Number(Boolean(b.isUrgent)) - Number(Boolean(a.isUrgent)));
+      const visibleOrders = (orderData as SalesOrder[])
+        .filter((order) => {
+          if (order.status === "DELIVERED") return false;
+          return order.status === "CONFIRMED" || order.status === "ORDONNANCED";
+        })
+        .map((order) => ({
+          ...order,
+          lines: order.lines.filter(hasProduct),
+        }))
+        .filter((order) => order.lines.length > 0)
+        .sort((a, b) => Number(Boolean(b.isUrgent)) - Number(Boolean(a.isUrgent)));
 
-        const productIds = Array.from(
-          new Set(
-            visibleOrders.flatMap((order) => order.lines.map((line) => line.productId._id))
-          )
-        );
-        const depotAvailability = await stockItemService.getAvailabilityByDepot(productIds);
+      const productIds = Array.from(
+        new Set(
+          visibleOrders.flatMap((order) => order.lines.map((line) => line.productId._id))
+        )
+      );
+      const depotAvailability = await stockItemService.getAvailabilityByDepot(productIds);
 
-        setOrders(visibleOrders);
-        setStockByProduct(
-          Object.fromEntries(
-            (itemData as StockItem[])
-              .filter((item) => Boolean(item.productId?._id))
-              .map((item) => [item.productId._id, item.quantityAvailable || 0])
-          )
-        );
-        setStockByProductDepot(
-          Object.fromEntries(
-            depotAvailability.rows
-              .filter((row) => row.depotId)
-              .map((row) => [`${row.productId}::${row.depotId}`, row.quantityAvailable || 0])
-          )
-        );
-        setDepots((depotData as Depot[]).filter((depot) => depot.status === "ACTIVE"));
-        setDrafts(
-          Object.fromEntries(
-            visibleOrders.map((order) => [
-              order._id,
-              {
-                plannedStartDate: toDateInput(
-                  new Date(order.plannedStartDate || order.createdAt || Date.now())
-                ),
-                plannedEndDate: toDateInput(
-                  new Date(
-                    order.plannedEndDate ||
-                      addDays(new Date(order.plannedStartDate || order.createdAt || Date.now()), 2)
-                  )
-                ),
-                lines: Object.fromEntries(
-                  order.lines.map((line, index) => [
-                    lineKey(index),
-                    {
-                      allocations:
-                        line.depotId && (line.allocatedQuantity || 0) > 0
-                          ? [
-                              {
-                                depotId: line.depotId._id,
-                                allocatedQuantity: line.allocatedQuantity || 0,
-                              },
-                            ]
-                          : [],
-                    },
-                  ])
-                ),
-              },
-            ])
-          )
-        );
+      setOrders(visibleOrders);
+      setStockByProduct(
+        Object.fromEntries(
+          (itemData as StockItem[])
+            .filter((item) => Boolean(item.productId?._id))
+            .map((item) => [item.productId._id, item.quantityAvailable || 0])
+        )
+      );
+      setStockByProductDepot(
+        Object.fromEntries(
+          depotAvailability.rows
+            .filter((row) => row.depotId)
+            .map((row) => [`${row.productId}::${row.depotId}`, row.quantityAvailable || 0])
+        )
+      );
+      setDepots((depotData as Depot[]).filter((depot) => depot.status === "ACTIVE"));
+      setDrafts(
+        Object.fromEntries(
+          visibleOrders.map((order) => [
+            order._id,
+            {
+              plannedStartDate: toDateInput(
+                new Date(order.plannedStartDate || order.createdAt || Date.now())
+              ),
+              plannedEndDate: toDateInput(
+                new Date(
+                  order.plannedEndDate ||
+                    addDays(new Date(order.plannedStartDate || order.createdAt || Date.now()), 2)
+                )
+              ),
+              lines: Object.fromEntries(
+                order.lines.map((line, index) => [
+                  lineKey(index),
+                  {
+                    allocations:
+                      line.depotId && (line.allocatedQuantity || 0) > 0
+                        ? [
+                            {
+                              depotId: line.depotId._id,
+                              allocatedQuantity: line.allocatedQuantity || 0,
+                            },
+                          ]
+                        : [],
+                  },
+                ])
+              ),
+            },
+          ])
+        )
+      );
 
+      if (clearSelection) {
+        setSelectedId(null);
+      } else {
+        const keptId = preserveSelectedId && visibleOrders.find((o) => o._id === preserveSelectedId)?._id;
         const initialSelected =
+          keptId ||
           (focusId && visibleOrders.find((order) => order._id === focusId)?._id) ||
           visibleOrders[0]?._id ||
           null;
         setSelectedId(initialSelected);
-      } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : "Failed to load ordonnancement");
-      } finally {
-        setLoading(false);
       }
-    };
-
-    load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to load ordonnancement");
+    } finally {
+      setLoading(false);
+    }
   }, [focusId]);
+
+  useEffect(() => { void load(); }, [load]);
 
   const days = useMemo(
     () => Array.from({ length: dayCount }, (_, index) => addDays(weekStart, index)),
@@ -282,6 +279,7 @@ export default function OrdonnancementPage() {
 
   const selectedOrder = orders.find((order) => order._id === selectedId) || null;
   const selectedDraft = selectedOrder ? drafts[selectedOrder._id] : null;
+  const isReadOnly = selectedOrder?.status === "ORDONNANCED";
 
   const getCompatibleDepots = (productType?: string) =>
     depots.filter((depot) => {
@@ -342,6 +340,7 @@ export default function OrdonnancementPage() {
       });
 
       setSuccess("Ordonnancement saved.");
+      await load(null, true);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to save ordonnancement");
     } finally {
@@ -759,7 +758,7 @@ export default function OrdonnancementPage() {
                   <div className="flex flex-wrap gap-3">
                     <button
                       onClick={requestProduction}
-                      disabled={requestingProduction || !canRequestProduction}
+                      disabled={isReadOnly || requestingProduction || !canRequestProduction}
                       className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-900 transition hover:bg-slate-50 disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800"
                     >
                       {requestingProduction ? (
@@ -769,7 +768,7 @@ export default function OrdonnancementPage() {
                       )}
                       Request production
                     </button>
-                    {!canRequestProduction ? (
+                    {!canRequestProduction && !isReadOnly ? (
                       <p className="self-center text-xs text-slate-500 dark:text-slate-400">
                         Production request is available only when remaining stock is 0.
                       </p>
@@ -777,9 +776,17 @@ export default function OrdonnancementPage() {
                   </div>
 
                   <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-800 dark:bg-slate-950/50">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                      {selectedOrder.orderNo}
-                    </p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                        {selectedOrder.orderNo}
+                      </p>
+                      {isReadOnly && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-200 px-2.5 py-1 text-[10px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                          <Lock size={10} />
+                          Ordonnancé
+                        </span>
+                      )}
+                    </div>
                     <p className="mt-2 text-lg font-bold text-slate-950 dark:text-white">
                       {selectedOrder.customerName}
                     </p>
@@ -792,8 +799,9 @@ export default function OrdonnancementPage() {
                       </label>
                       <input
                         type="date"
-                        className={inputClass}
+                        className={`${inputClass} disabled:cursor-not-allowed disabled:opacity-60`}
                         value={selectedDraft.plannedStartDate}
+                        disabled={isReadOnly}
                         onChange={(event) =>
                           setOrderDate(selectedOrder._id, "plannedStartDate", event.target.value)
                         }
@@ -805,8 +813,9 @@ export default function OrdonnancementPage() {
                       </label>
                       <input
                         type="date"
-                        className={inputClass}
+                        className={`${inputClass} disabled:cursor-not-allowed disabled:opacity-60`}
                         value={selectedDraft.plannedEndDate}
+                        disabled={isReadOnly}
                         onChange={(event) =>
                           setOrderDate(selectedOrder._id, "plannedEndDate", event.target.value)
                         }
@@ -885,8 +894,9 @@ export default function OrdonnancementPage() {
                               >
                                 <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_110px_42px]">
                                   <select
-                                    className={inputClass}
+                                    className={`${inputClass} disabled:cursor-not-allowed disabled:opacity-60`}
                                     value={allocation.depotId}
+                                    disabled={isReadOnly}
                                     onChange={(event) =>
                                       updateAllocation(selectedOrder._id, index, allocationIndex, {
                                         depotId: event.target.value,
@@ -905,8 +915,9 @@ export default function OrdonnancementPage() {
                                     type="number"
                                     min={0}
                                     max={line.quantity}
-                                    className={inputClass}
+                                    className={`${inputClass} disabled:cursor-not-allowed disabled:opacity-60`}
                                     value={allocation.allocatedQuantity}
+                                    disabled={isReadOnly}
                                     onChange={(event) =>
                                       updateAllocation(selectedOrder._id, index, allocationIndex, {
                                         allocatedQuantity: Number(event.target.value),
@@ -916,10 +927,11 @@ export default function OrdonnancementPage() {
 
                                   <button
                                     type="button"
+                                    disabled={isReadOnly}
                                     onClick={() =>
                                       removeAllocationRow(selectedOrder._id, index, allocationIndex)
                                     }
-                                    className="inline-flex h-[46px] items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+                                    className="inline-flex h-[46px] items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
                                   >
                                     <Trash2 size={15} />
                                   </button>
@@ -937,14 +949,16 @@ export default function OrdonnancementPage() {
                             );
                           })}
 
-                          <button
-                            type="button"
-                            onClick={() => addAllocationRow(selectedOrder._id, index)}
-                            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                          >
-                            <Plus size={14} />
-                            Add depot split
-                          </button>
+                          {!isReadOnly && (
+                            <button
+                              type="button"
+                              onClick={() => addAllocationRow(selectedOrder._id, index)}
+                              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                              <Plus size={14} />
+                              Add depot split
+                            </button>
+                          )}
                         </div>
 
                         <div className="mt-3 grid grid-cols-3 gap-3 text-center text-xs">

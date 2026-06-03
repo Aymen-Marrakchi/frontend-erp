@@ -15,6 +15,7 @@ export interface DeliveryPlan {
   zone?: string;
   startDate?: string | null;
   fuelAddedLiters?: number;
+  distanceKm?: number | null;
   orderIds: SalesOrder[];
   status: DeliveryPlanStatus;
   planType: DeliveryPlanType;
@@ -60,8 +61,8 @@ export const deliveryPlanService = {
   start: async (id: string): Promise<DeliveryPlan> =>
     (await api.post(`/commercial/delivery-plans/${id}/start`)).data,
 
-  complete: async (id: string): Promise<DeliveryPlan> =>
-    (await api.post(`/commercial/delivery-plans/${id}/complete`)).data,
+  complete: async (id: string, distanceKm: number): Promise<DeliveryPlan> =>
+    (await api.post(`/commercial/delivery-plans/${id}/complete`, { distanceKm })).data,
 
   returnPlan: async (id: string, reason: string, orderId?: string): Promise<DeliveryPlan> =>
     (await api.post(`/commercial/delivery-plans/${id}/return`, { reason, orderId })).data,

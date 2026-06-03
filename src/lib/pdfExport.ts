@@ -28,50 +28,82 @@ export async function exportToPdf(
 
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
 
-  doc.setFillColor(15, 15, 15);
-  doc.rect(0, 0, 297, 18, "F");
-  doc.setFontSize(12);
-  doc.setTextColor(255, 255, 255);
+  // Load EMM logo
+  let logoDataUrl: string | null = null;
+  try {
+    const res = await fetch("/EMMlogo.png");
+    const blob = await res.blob();
+    logoDataUrl = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.readAsDataURL(blob);
+    });
+  } catch { /* logo optional */ }
+
+  const PAGE_W = 297;
+  const MARGIN = 14;
+  const HEADER_H = 24;
+
+  // White header area — logo top-left
+  if (logoDataUrl) {
+    doc.addImage(logoDataUrl, "PNG", MARGIN, 5, 22, 14);
+  }
+
+  // Title & subtitle to the right of the logo
+  const textX = logoDataUrl ? MARGIN + 26 : MARGIN;
+  doc.setFontSize(13);
   doc.setFont("helvetica", "bold");
-  doc.text(title, 14, 11);
+  doc.setTextColor(0, 0, 0);
+  doc.text(title, textX, 11);
 
   doc.setFontSize(8);
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(180, 180, 180);
-  doc.text(subtitle, 14, 16);
+  doc.setTextColor(100, 100, 100);
+  doc.text(subtitle, textX, 17);
 
   const printedAt = new Date().toLocaleDateString("fr-FR", {
     day: "2-digit", month: "long", year: "numeric",
     hour: "2-digit", minute: "2-digit",
-  });
-  doc.text(`Imprimé le : ${printedAt}`, 297 - 14, 16, { align: "right" });
+  } as Intl.DateTimeFormatOptions);
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 100, 100);
+  doc.text(`Imprimé le : ${printedAt}`, PAGE_W - MARGIN, 17, { align: "right" });
+
+  // Thin separator line under header
+  doc.setDrawColor(0, 0, 0);
+  doc.setLineWidth(0.4);
+  doc.line(MARGIN, HEADER_H, PAGE_W - MARGIN, HEADER_H);
 
   autoTable(doc, {
     head: [columns],
     body: rows,
-    startY: 22,
+    startY: HEADER_H + 2,
+    margin: { left: MARGIN, right: MARGIN },
     styles: {
       fontSize: 8,
       cellPadding: 3,
-      textColor: [30, 30, 30],
-      lineColor: [220, 220, 220],
-      lineWidth: 0.1,
+      textColor: [0, 0, 0],
+      lineColor: [0, 0, 0],
+      lineWidth: 0.2,
+      fillColor: [255, 255, 255],
     },
     headStyles: {
-      fillColor: [30, 30, 30],
+      fillColor: [0, 0, 0],
       textColor: [255, 255, 255],
       fontStyle: "bold",
-      fontSize: 7.5,
+      fontSize: 8,
+      lineColor: [0, 0, 0],
+      lineWidth: 0.2,
     },
-    alternateRowStyles: { fillColor: [248, 249, 250] },
+    alternateRowStyles: { fillColor: [245, 245, 245] },
     rowPageBreak: "auto",
     didDrawPage: (data) => {
       const pageCount = (doc as any).internal.getNumberOfPages();
       doc.setFontSize(7);
-      doc.setTextColor(160, 160, 160);
+      doc.setTextColor(120, 120, 120);
       doc.text(
         `Page ${data.pageNumber} / ${pageCount}`,
-        297 / 2,
+        PAGE_W / 2,
         210 - 5,
         { align: "center" }
       );

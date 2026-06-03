@@ -27,6 +27,29 @@ import {
   AlertTriangle,
 } from "lucide-react";
 
+function getNotificationRoute(n: AppNotification): string {
+  const { module, eventType } = n;
+  if (module === "COMMERCIAL") {
+    if (eventType === "ORDER_SHIPPED" || eventType === "ORDER_DELIVERED") return "/dashboard/commercial/orders";
+    return "/dashboard/commercial/orders";
+  }
+  if (module === "STOCK") {
+    if (eventType === "LOW_STOCK" || eventType === "OUT_OF_STOCK") return "/dashboard/stock/alerts";
+    if (eventType === "INVENTORY_CLOSED") return "/dashboard/stock/inventories";
+    if (eventType === "STOCK_DEDUCTED" || eventType === "STOCK_RELEASED" || eventType === "STOCK_RESERVED") return "/dashboard/stock/movements";
+    return "/dashboard/stock";
+  }
+  if (module === "PURCHASE") {
+    if (eventType === "PO_VALIDATED") return "/dashboard/achat/orders";
+    return "/dashboard/achat";
+  }
+  if (module === "FINANCE") {
+    if (eventType === "PAYMENT_MADE") return "/dashboard/finance/documents";
+    return "/dashboard/finance";
+  }
+  return "/dashboard";
+}
+
 const MODULE_ROLES: Record<string, string[]> = {
   COMMERCIAL: ["ADMIN", "COMMERCIAL_MANAGER"],
   FINANCE: ["ADMIN", "FINANCE_MANAGER"],
@@ -191,6 +214,7 @@ export default function Navbar() {
       }
     }
     setNotificationsOpen(false);
+    router.push(getNotificationRoute(notification));
   };
 
   const getInitials = (name?: string) => {

@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "@/context/LanguageContext";
 import { vehicleService, Vehicle, VehicleDelivery } from "@/services/commercial/vehicleService";
+import { commercialSettingService } from "@/services/commercial/commercialSettingService";
 import {
   Car, Plus, Pencil, Power, ChevronDown, ChevronUp,
-  Weight, Package, CalendarDays, Clock, Loader2, Search, X, TrendingUp,
+  Weight, Package, CalendarDays, Clock, Loader2, Search, X, TrendingUp, Fuel,
 } from "lucide-react";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -150,11 +151,15 @@ function VehicleCard({
   onEdit,
   onToggle,
   onAdjust,
+  fuelPricePerLiter,
+  fuelPer10Km,
 }: {
   vehicle: Vehicle;
   onEdit: (v: Vehicle) => void;
   onToggle: (v: Vehicle) => void;
   onAdjust: (v: Vehicle) => void;
+  fuelPricePerLiter: number;
+  fuelPer10Km: number;
 }) {
   const { t } = useLanguage();
   const [open, setOpen] = useState(false);
@@ -178,9 +183,15 @@ function VehicleCard({
       (sum, delivery) => sum + Number(delivery.fuelAddedLiters || 0),
       0
     );
+    const totalKm = completedDeliveries.reduce(
+      (sum, delivery) => sum + Number(delivery.distanceKm || 0),
+      0
+    );
+    const fuelConsumed = fuelPer10Km > 0 ? (totalKm / 10) * fuelPer10Km : 0;
+    const fuelCost = fuelConsumed * fuelPricePerLiter;
 
-    return { orderCount, income, fuelOutcome };
-  }, [deliveries]);
+    return { orderCount, income, fuelOutcome, totalKm, fuelConsumed, fuelCost };
+  }, [deliveries, fuelPer10Km, fuelPricePerLiter]);
 
   const toggleOpen = async () => {
     if (!open && deliveries.length === 0) {
@@ -276,7 +287,7 @@ function VehicleCard({
 
           {/* Delivery logs */}
           <div className="p-5">
-            <div className="mb-4 grid grid-cols-3 gap-3">
+            <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               <div className="rounded-2xl border border-slate-100 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{t("orders")}</p>
                 <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">{history.orderCount}</p>
@@ -291,6 +302,23 @@ function VehicleCard({
                 <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{t("fuelLabel")}</p>
                 <p className="mt-2 text-lg font-bold text-rose-600 dark:text-rose-400">
                   {history.fuelOutcome.toLocaleString("fr-TN", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} L
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-100 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">KM parcourus</p>
+                <p className="mt-2 text-lg font-bold text-indigo-600 dark:text-indigo-400">
+                  {history.totalKm.toLocaleString("fr-TN", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km
+                </p>
+              </div>
+              <div className="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-3 dark:border-amber-900/30 dark:bg-amber-950/20">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-500 dark:text-amber-400 flex items-center gap-1">
+                  <Fuel size={9} /> Carburant consommé
+                </p>
+                <p className="mt-2 text-base font-bold text-amber-700 dark:text-amber-300">
+                  {history.fuelConsumed.toLocaleString("fr-TN", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} L
+                </p>
+                <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                  ≈ {history.fuelCost.toLocaleString("fr-TN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TND
                 </p>
               </div>
             </div>
@@ -674,6 +702,8 @@ function AdjustDurabilityModal({
 export default function FleetPage() {
   const { t } = useLanguage();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [fuelPricePerLiter, setFuelPricePerLiter] = useState(0);
+  const [fuelPer10Km, setFuelPer10Km] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -681,7 +711,12 @@ export default function FleetPage() {
   const [adjusting, setAdjusting] = useState<Vehicle | undefined>();
 
   const load = async () => {
-    try { setVehicles(await vehicleService.getAll()); }
+    try {
+      const [v, s] = await Promise.all([vehicleService.getAll(), commercialSettingService.get()]);
+      setVehicles(v);
+      setFuelPricePerLiter(s.fuelPricePerLiter ?? 0);
+      setFuelPer10Km(s.fuelPer10Km ?? 0);
+    }
     catch { /* ignore */ }
     finally { setLoading(false); }
   };
@@ -804,7 +839,7 @@ export default function FleetPage() {
       ) : (
         <div className="space-y-3">
           {filtered.map((v) => (
-            <VehicleCard key={v._id} vehicle={v} onEdit={openEdit} onToggle={handleToggle} onAdjust={(veh) => setAdjusting(veh)} />
+            <VehicleCard key={v._id} vehicle={v} onEdit={openEdit} onToggle={handleToggle} onAdjust={(veh) => setAdjusting(veh)} fuelPricePerLiter={fuelPricePerLiter} fuelPer10Km={fuelPer10Km} />
           ))}
         </div>
       )}

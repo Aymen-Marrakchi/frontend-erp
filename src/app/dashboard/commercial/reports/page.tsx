@@ -4,6 +4,9 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import { useLanguage } from "@/context/LanguageContext";
 import { salesOrderService, SalesOrder } from "@/services/commercial/salesOrderService";
 import { backorderService } from "@/services/commercial/backorderService";
+import { devisService, type Devis } from "@/services/commercial/devisService";
+import { customerInvoiceService, type CustomerInvoice } from "@/services/commercial/customerInvoiceService";
+import { exportToPdf, exportToCsv, openClientDocument } from "@/lib/pdfExport";
 import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
@@ -15,6 +18,11 @@ import {
   AlertTriangle,
   DollarSign,
   Package,
+  FileText,
+  FileSpreadsheet,
+  Download,
+  Printer,
+  History,
 } from "lucide-react";
 
 const surface =
@@ -50,32 +58,185 @@ function formatMonth(key: string): string {
   });
 }
 
+interface ExportEntry { label: string; filename: string; at: string }
+
+const fmt = (v?: string | null) =>
+  v ? new Date(v).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+
+const tnd = (v: number) => v.toLocaleString("fr-TN", { minimumFractionDigits: 3 });
+
 export default function CommercialReportsPage() {
   const { t } = useLanguage();
   const [orders, setOrders] = useState<SalesOrder[]>([]);
   const [backorderCount, setBackorderCount] = useState(0);
+  const [devis, setDevis] = useState<Devis[]>([]);
+  const [invoices, setInvoices] = useState<CustomerInvoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [period, setPeriod] = useState<Period>("30");
+  const [exporting, setExporting] = useState<string | null>(null);
+  const [exportLog, setExportLog] = useState<ExportEntry[]>([]);
 
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
         setError("");
-        const [orderData, boData] = await Promise.all([
+        const [orderData, boData, devisData, invoiceData] = await Promise.all([
           salesOrderService.getAll(),
           backorderService.getAll(),
+          devisService.getAll(),
+          customerInvoiceService.getAll(),
         ]);
         setOrders(orderData);
         setBackorderCount(boData.length);
-      } catch (err: any) {
-        setError(err.response?.data?.message || "Failed to load report data");
+        setDevis(devisData);
+        setInvoices(invoiceData);
+      } catch (err: unknown) {
+        setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed to load report data");
       } finally {
         setLoading(false);
       }
     })();
   }, []);
+
+  const logExport = (label: string, filename: string) => {
+    setExportLog((prev) => [
+      { label, filename, at: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) },
+      ...prev.slice(0, 19),
+    ]);
+  };
+
+  const makeDevisPdf = async () => {
+    setExporting("devis-pdf");
+    const cols = ["N° Devis", "Client", "Statut", "Date", "Total TTC (TND)"];
+    const rows = devis.map((d) => [d.devisNo, d.customerName, d.status, fmt(d.issueDate), tnd(d.totalTtc)]);
+    const filename = `devis-${new Date().toISOString().slice(0, 10)}.pdf`;
+    await exportToPdf("Liste des Devis", `${devis.length} devis exportés`, cols, rows, filename);
+    logExport("Devis PDF", filename);
+    setExporting(null);
+  };
+
+  const makeDevisCsv = () => {
+    const cols = ["N° Devis", "Client", "Statut", "Date", "Total TTC (TND)"];
+    const rows = devis.map((d) => [d.devisNo, d.customerName, d.status, fmt(d.issueDate), tnd(d.totalTtc)]);
+    const filename = `devis-${new Date().toISOString().slice(0, 10)}.csv`;
+    exportToCsv(cols, rows, filename);
+    logExport("Devis CSV", filename);
+  };
+
+  const makeCommandesPdf = async () => {
+    setExporting("cmd-pdf");
+    const cols = ["N° Commande", "Client", "Statut", "Total (TND)"];
+    const rows = orders.map((o) => [
+      o.orderNo,
+      o.customerName,
+      o.status,
+      tnd(o.lines.reduce((s, l) => s + l.quantity * (l.unitPrice || 0), 0)),
+    ]);
+    const filename = `commandes-${new Date().toISOString().slice(0, 10)}.pdf`;
+    await exportToPdf("Liste des Commandes", `${orders.length} commandes exportées`, cols, rows, filename);
+    logExport("Commandes PDF", filename);
+    setExporting(null);
+  };
+
+  const makeCommandesCsv = () => {
+    const cols = ["N° Commande", "Client", "Statut", "Total (TND)"];
+    const rows = orders.map((o) => [
+      o.orderNo,
+      o.customerName,
+      o.status,
+      tnd(o.lines.reduce((s, l) => s + l.quantity * (l.unitPrice || 0), 0)),
+    ]);
+    const filename = `commandes-${new Date().toISOString().slice(0, 10)}.csv`;
+    exportToCsv(cols, rows, filename);
+    logExport("Commandes CSV", filename);
+  };
+
+  const makeFacturesPdf = async () => {
+    setExporting("fac-pdf");
+    const cols = ["N° Facture", "Client", "Statut paiement", "Date", "Total TTC (TND)"];
+    const rows = invoices.map((i) => [i.invoiceNo, i.customerName, i.paymentStatus, fmt(i.issueDate), tnd(i.totalTtc)]);
+    const filename = `factures-${new Date().toISOString().slice(0, 10)}.pdf`;
+    await exportToPdf("Liste des Factures", `${invoices.length} factures exportées`, cols, rows, filename);
+    logExport("Factures PDF", filename);
+    setExporting(null);
+  };
+
+  const makeFacturesCsv = () => {
+    const cols = ["N° Facture", "Client", "Statut paiement", "Date", "Total TTC (TND)"];
+    const rows = invoices.map((i) => [i.invoiceNo, i.customerName, i.paymentStatus, fmt(i.issueDate), tnd(i.totalTtc)]);
+    const filename = `factures-${new Date().toISOString().slice(0, 10)}.csv`;
+    exportToCsv(cols, rows, filename);
+    logExport("Factures CSV", filename);
+  };
+
+  const printInvoice = (inv: CustomerInvoice) => {
+    openClientDocument({
+      invoiceNo: inv.invoiceNo,
+      orderNo: inv.salesOrderId?.orderNo ?? null,
+      customerName: inv.customerName,
+      customerMf: (inv as { customerMf?: string }).customerMf,
+      invoiceDate: inv.issueDate,
+      dueDate: inv.dueDate,
+      paymentStatus: inv.paymentStatus,
+      paymentMethod: inv.paymentMethod,
+      company: undefined,
+      lines: inv.lines.map((l) => ({
+        ref: l.productId?.sku,
+        description: l.productId?.name ?? "—",
+        qty: l.quantity,
+        unitPrice: l.inputUnitPrice,
+        totalHt: l.subtotalHt,
+      })),
+      subtotalHt: inv.subtotalHt,
+      fodecRate: inv.fodecRate,
+      totalFodec: inv.totalFodec,
+      tvaRate: inv.tvaRate,
+      totalVat: inv.totalVat,
+      totalBeforeStamp: inv.totalBeforeStamp,
+      timbreFiscal: inv.timbreFiscal,
+      totalTtc: inv.totalTtc,
+      amountPaid: inv.amountPaid,
+    });
+    logExport(`Facture ${inv.invoiceNo}`, `facture-${inv.invoiceNo}.pdf`);
+  };
+
+  const reportCards = [
+    {
+      key: "devis",
+      icon: <FileText size={18} />,
+      iconBg: "bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400",
+      badge: `${devis.length} devis`,
+      title: "Devis",
+      description: "Exporter la liste complète des devis avec statuts et montants",
+      pdfKey: "devis-pdf",
+      onPdf: makeDevisPdf,
+      onCsv: makeDevisCsv,
+    },
+    {
+      key: "commandes",
+      icon: <Package size={18} />,
+      iconBg: "bg-violet-50 text-violet-600 dark:bg-violet-950/30 dark:text-violet-400",
+      badge: `${orders.length} commandes`,
+      title: "Commandes",
+      description: "Exporter la liste des commandes avec statuts et totaux",
+      pdfKey: "cmd-pdf",
+      onPdf: makeCommandesPdf,
+      onCsv: makeCommandesCsv,
+    },
+    {
+      key: "factures",
+      icon: <DollarSign size={18} />,
+      iconBg: "bg-teal-50 text-teal-600 dark:bg-teal-950/30 dark:text-teal-400",
+      badge: `${invoices.length} factures`,
+      title: "Factures",
+      description: "Exporter la liste des factures clients avec statuts de paiement",
+      pdfKey: "fac-pdf",
+      onPdf: makeFacturesPdf,
+      onCsv: makeFacturesCsv,
+    },
+  ];
 
   const filtered = useMemo(() => filterByPeriod(orders, period), [orders, period]);
 
@@ -544,9 +705,95 @@ export default function CommercialReportsPage() {
                 </div>
               </div>
             ) : null}
-          </>
-        )}
-      </div>
-    </ProtectedRoute>
+
+          {/* ── Export report cards ── */}
+          <div>
+            <h2 className="mb-4 font-semibold text-slate-950 dark:text-white">Rapports &amp; Exports</h2>
+            <div className="grid gap-4 md:grid-cols-3">
+              {reportCards.map((card) => (
+                <div key={card.key} className={`${surface} p-5`}>
+                  <div className="mb-4 flex items-start justify-between">
+                    <div className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl ${card.iconBg}`}>
+                      {card.icon}
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                      {card.badge}
+                    </span>
+                  </div>
+                  <p className="font-semibold text-slate-950 dark:text-white">{card.title}</p>
+                  <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{card.description}</p>
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      onClick={() => void card.onPdf()}
+                      disabled={exporting === card.pdfKey}
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-slate-950 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"
+                    >
+                      {exporting === card.pdfKey
+                        ? <Loader2 size={12} className="animate-spin" />
+                        : <Download size={12} />}
+                      PDF
+                    </button>
+                    <button
+                      onClick={card.onCsv}
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-200 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                    >
+                      <FileSpreadsheet size={12} />
+                      CSV
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Recent invoices ── */}
+          {invoices.length > 0 && (
+            <div className={`${surface}`}>
+              <div className="border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+                <p className="font-semibold text-slate-950 dark:text-white">Factures récentes</p>
+                <p className="mt-0.5 text-xs text-slate-400">Imprimer une facture individuelle</p>
+              </div>
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {invoices.slice(0, 10).map((inv) => (
+                  <div key={inv._id} className="flex items-center gap-3 px-5 py-3 transition hover:bg-slate-50 dark:hover:bg-slate-800/20">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{inv.invoiceNo}</p>
+                      <p className="text-xs text-slate-400">{inv.customerName} · {fmt(inv.issueDate)} · {tnd(inv.totalTtc)} TND</p>
+                    </div>
+                    <button
+                      onClick={() => printInvoice(inv)}
+                      title="Imprimer"
+                      className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                    >
+                      <Printer size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Export log ── */}
+          {exportLog.length > 0 && (
+            <div className={`${surface} p-5`}>
+              <div className="mb-3 flex items-center gap-2">
+                <History size={14} className="text-slate-400" />
+                <p className="text-sm font-semibold text-slate-950 dark:text-white">Journal des exports</p>
+              </div>
+              <div className="space-y-1.5">
+                {exportLog.map((entry, i) => (
+                  <div key={i} className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+                    <span className="w-10 shrink-0 font-mono text-slate-400">{entry.at}</span>
+                    <span className="flex-1 truncate">{entry.label}</span>
+                    <span className="truncate text-slate-400 dark:text-slate-500">{entry.filename}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  </ProtectedRoute>
   );
 }

@@ -14,9 +14,12 @@ import {
   X,
   Loader2,
   Copy,
+  ShieldCheck,
+  RefreshCw,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { stockService } from "@/services/admin/stockService";
+import { documentService } from "@/services/stock/documentService";
 import CalendarPicker from "@/components/CalendarPicker";
 
 
@@ -113,6 +116,31 @@ export default function AdminStockPage() {
   };
 
   const [form, setForm] = useState<FormState>(emptyForm);
+
+  const [otp, setOtp]               = useState<{ code: string; expiresAt: string } | null>(null);
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpCopied, setOtpCopied]   = useState(false);
+  const [otpSecondsLeft, setOtpSecondsLeft] = useState(0);
+
+  const generateOtp = useCallback(async () => {
+    setOtpLoading(true);
+    try {
+      const result = await documentService.generateOtp();
+      setOtp(result);
+      setOtpSecondsLeft(Math.floor((new Date(result.expiresAt).getTime() - Date.now()) / 1000));
+    } catch { /* ignore */ }
+    finally { setOtpLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (!otp) return;
+    const timer = setInterval(() => {
+      const s = Math.max(0, Math.floor((new Date(otp.expiresAt).getTime() - Date.now()) / 1000));
+      setOtpSecondsLeft(s);
+      if (s === 0) { setOtp(null); clearInterval(timer); }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [otp]);
 
   const surface =
     "rounded-3xl border border-slate-200 bg-white shadow-sm transition-colors duration-200 dark:border-slate-800 dark:bg-slate-900";
@@ -314,6 +342,50 @@ export default function AdminStockPage() {
               </div>
             </motion.div>
           ))}
+        </div>
+
+        {/* Document deletion OTP */}
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400">
+                <ShieldCheck size={18} />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-slate-950 dark:text-white">Code OTP — Suppression de documents</p>
+                <p className="text-xs text-slate-400">Générez un code à usage unique valable 10 minutes</p>
+              </div>
+            </div>
+            <button
+              onClick={generateOtp}
+              disabled={otpLoading}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              {otpLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              {otp ? "Regénérer" : "Générer un code"}
+            </button>
+          </div>
+
+          {otp && (
+            <div className="mt-4 flex items-center gap-4 rounded-2xl border border-slate-100 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-950">
+              <p className="font-mono text-3xl font-bold tracking-[0.25em] text-slate-950 dark:text-white">
+                {otp.code}
+              </p>
+              <button
+                onClick={() => { void navigator.clipboard.writeText(otp.code); setOtpCopied(true); setTimeout(() => setOtpCopied(false), 1500); }}
+                className="rounded-xl border border-slate-200 p-2 text-slate-400 transition hover:bg-white hover:text-slate-700 dark:border-slate-700 dark:hover:bg-slate-800"
+              >
+                <Copy size={14} />
+              </button>
+              {otpCopied && <span className="text-xs text-teal-500">Copié !</span>}
+              <div className="ml-auto text-right">
+                <p className="text-xs text-slate-400">Expire dans</p>
+                <p className={`font-mono text-sm font-bold ${otpSecondsLeft < 60 ? "text-rose-500" : "text-slate-700 dark:text-slate-200"}`}>
+                  {String(Math.floor(otpSecondsLeft / 60)).padStart(2, "0")}:{String(otpSecondsLeft % 60).padStart(2, "0")}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Table */}

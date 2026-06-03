@@ -1,188 +1,142 @@
 "use client";
 
 import ProtectedRoute from "@/components/ProtectedRoute";
-import { devisService, type Devis } from "@/services/commercial/devisService";
-import { salesOrderService, type SalesOrder } from "@/services/commercial/salesOrderService";
-import { customerInvoiceService, type CustomerInvoice } from "@/services/commercial/customerInvoiceService";
-import { useEffect, useState } from "react";
+import { commercialDocumentService, type CommercialDocument, type DocumentStats } from "@/services/commercial/commercialDocumentService";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
-  FileText, Loader2, FileCheck, ShoppingBag, Receipt,
-  Download, Printer, DollarSign, FileSpreadsheet, Clock,
+  FileText, Loader2, Upload, Download, Trash2,
+  File, FileImage, FileSpreadsheet, Archive, HardDrive, CalendarDays, FolderOpen,
 } from "lucide-react";
-import { financeService, type CompanySettings } from "@/services/finance/financeService";
-import { exportToPdf, exportToCsv, openClientDocument } from "@/lib/pdfExport";
 
 const fmt = (v?: string | null) =>
   v ? new Date(v).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
-const tnd = (v: number) =>
-  v.toLocaleString("fr-TN", { minimumFractionDigits: 3 });
+const fmtSize = (bytes: number) => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
 
-const monthLabel = () =>
-  new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }).toUpperCase();
+function DocIcon({ mime }: { mime: string }) {
+  if (mime.startsWith("image/"))       return <FileImage size={16} className="text-violet-500" />;
+  if (mime.includes("spreadsheet") || mime.includes("excel") || mime.includes("csv"))
+                                        return <FileSpreadsheet size={16} className="text-emerald-500" />;
+  if (mime.includes("zip") || mime.includes("rar") || mime.includes("tar"))
+                                        return <Archive size={16} className="text-amber-500" />;
+  if (mime.includes("pdf"))             return <FileText size={16} className="text-rose-500" />;
+  return <File size={16} className="text-slate-400" />;
+}
 
-interface ExportEntry { label: string; filename: string; at: string }
-
-interface ReportCard {
-  key: string;
-  icon: React.ReactNode;
-  iconBg: string;
-  badge: string;
-  badgeColor: string;
-  title: string;
-  description: string;
-  pdfColor: string;
-  onPdf: () => Promise<void>;
-  onCsv: () => void;
+function MimeBadge({ mime }: { mime: string }) {
+  const ext = mime.split("/").pop()?.split(".").pop()?.toUpperCase().slice(0, 6) ?? "FILE";
+  const color =
+    mime.startsWith("image/")           ? "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300" :
+    mime.includes("pdf")                ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300" :
+    mime.includes("spreadsheet") || mime.includes("excel") || mime.includes("csv")
+                                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300" :
+    mime.includes("zip") || mime.includes("rar")
+                                        ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" :
+                                          "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400";
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${color}`}>{ext}</span>
+  );
 }
 
 export default function CommercialDocumentsPage() {
-  const [devis, setDevis]       = useState<Devis[]>([]);
-  const [orders, setOrders]     = useState<SalesOrder[]>([]);
-  const [invoices, setInvoices] = useState<CustomerInvoice[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState("");
-  const [settings, setSettings] = useState<CompanySettings | null>(null);
-  const [exporting, setExporting] = useState<string | null>(null);
-  const [exportLog, setExportLog] = useState<ExportEntry[]>([]);
+  const [docs, setDocs]       = useState<CommercialDocument[]>([]);
+  const [stats, setStats]     = useState<DocumentStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState("");
+  const [uploading, setUploading]     = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [deletingId, setDeletingId]   = useState<string | null>(null);
+  const [otpTarget, setOtpTarget]     = useState<string | null>(null);
+  const [otpInput, setOtpInput]       = useState("");
+  const [otpError, setOtpError]       = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    setLoading(true);
-    financeService.getSettings().then(setSettings).catch(() => {});
-    Promise.all([devisService.getAll(), salesOrderService.getAll(), customerInvoiceService.getAll()])
-      .then(([d, o, i]) => { setDevis(d); setOrders(o); setInvoices(i); })
-      .catch((e) => setError(e?.response?.data?.message || "Erreur de chargement"))
-      .finally(() => setLoading(false));
+  const load = useCallback(async () => {
+    try {
+      const [d, s] = await Promise.all([commercialDocumentService.getAll(), commercialDocumentService.getStats()]);
+      setDocs(d);
+      setStats(s);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setError(msg || "Erreur de chargement");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const logExport = (label: string, filename: string) => {
-    setExportLog((prev) => [
-      { label, filename, at: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) },
-      ...prev,
-    ]);
+  useEffect(() => { void load(); }, [load]);
+
+  const handleUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploadError("");
+    setUploading(true);
+    try {
+      await commercialDocumentService.upload(files[0]);
+      await load();
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setUploadError(msg || "Échec de l'upload");
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
   };
 
-  const totalRevenue = invoices.reduce((s, i) => s + (i.totalTtc ?? 0), 0);
-
-  const makeDevisPdf = async () => {
-    setExporting("devis-pdf");
-    const cols = ["N° Devis", "Client", "Statut", "Total TTC", "Date"];
-    const rows = devis.map((d) => [d.devisNo, d.customerName, d.status.replace(/_/g, " "), `${tnd(d.totalTtc)} TND`, fmt(d.issueDate)]);
-    const filename = `devis-${new Date().toISOString().slice(0, 10)}.pdf`;
-    try { await exportToPdf("Devis", `${devis.length} enregistrement(s)`, cols, rows, filename); logExport("Devis — PDF", filename); }
-    finally { setExporting(null); }
-  };
-  const makeDevisCsv = () => {
-    const cols = ["N° Devis", "Client", "Statut", "Total TTC", "Date"];
-    const rows = devis.map((d) => [d.devisNo, d.customerName, d.status.replace(/_/g, " "), `${tnd(d.totalTtc)} TND`, fmt(d.issueDate)]);
-    const filename = `devis-${new Date().toISOString().slice(0, 10)}.csv`;
-    exportToCsv(cols, rows, filename); logExport("Devis — CSV", filename);
+  const openDeleteModal = (id: string) => {
+    setOtpTarget(id);
+    setOtpInput("");
+    setOtpError("");
   };
 
-  const makeCommandesPdf = async () => {
-    setExporting("commandes-pdf");
-    const cols = ["N° Commande", "Client", "Statut", "Lignes", "Date"];
-    const rows = orders.map((o) => [o.orderNo, o.customerName ?? "—", o.status.replace(/_/g, " "), o.lines?.length ?? 0, fmt(o.createdAt)]);
-    const filename = `commandes-${new Date().toISOString().slice(0, 10)}.pdf`;
-    try { await exportToPdf("Commandes client", `${orders.length} enregistrement(s)`, cols, rows, filename); logExport("Commandes — PDF", filename); }
-    finally { setExporting(null); }
+  const confirmDelete = async () => {
+    if (!otpTarget) return;
+    setOtpError("");
+    setDeletingId(otpTarget);
+    try {
+      await commercialDocumentService.delete(otpTarget, otpInput);
+      setDocs((prev) => prev.filter((d) => d._id !== otpTarget));
+      void commercialDocumentService.getStats().then(setStats).catch(() => {});
+      setOtpTarget(null);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setOtpError(msg || "Code invalide");
+    } finally {
+      setDeletingId(null);
+    }
   };
-  const makeCommandesCsv = () => {
-    const cols = ["N° Commande", "Client", "Statut", "Lignes", "Date"];
-    const rows = orders.map((o) => [o.orderNo, o.customerName ?? "—", o.status.replace(/_/g, " "), o.lines?.length ?? 0, fmt(o.createdAt)]);
-    const filename = `commandes-${new Date().toISOString().slice(0, 10)}.csv`;
-    exportToCsv(cols, rows, filename); logExport("Commandes — CSV", filename);
-  };
-
-  const makeFacturesPdf = async () => {
-    setExporting("factures-pdf");
-    const cols = ["N° Facture", "Client", "Statut paiement", "Total TTC", "Date"];
-    const rows = invoices.map((i) => [i.invoiceNo, i.customerName, (i.paymentStatus ?? "NON_PAYEE").replace(/_/g, " "), `${tnd(i.totalTtc)} TND`, fmt(i.createdAt)]);
-    const filename = `factures-${new Date().toISOString().slice(0, 10)}.pdf`;
-    try { await exportToPdf("Factures client", `${invoices.length} enregistrement(s)`, cols, rows, filename); logExport("Factures — PDF", filename); }
-    finally { setExporting(null); }
-  };
-  const makeFacturesCsv = () => {
-    const cols = ["N° Facture", "Client", "Statut paiement", "Total TTC", "Date"];
-    const rows = invoices.map((i) => [i.invoiceNo, i.customerName, (i.paymentStatus ?? "NON_PAYEE").replace(/_/g, " "), `${tnd(i.totalTtc)} TND`, fmt(i.createdAt)]);
-    const filename = `factures-${new Date().toISOString().slice(0, 10)}.csv`;
-    exportToCsv(cols, rows, filename); logExport("Factures — CSV", filename);
-  };
-
-  const handlePrintInvoice = (i: CustomerInvoice) => {
-    openClientDocument({
-      invoiceNo: i.invoiceNo, invoiceDate: i.issueDate, dueDate: i.dueDate ?? null,
-      orderNo: i.salesOrderId?.orderNo ?? null, paymentMethod: i.paymentMethod, paymentStatus: i.paymentStatus,
-      company: settings ? { name: settings.companyName, address: settings.address, phone: settings.phone, email: settings.email, mf: settings.mf, rne: settings.rne, rib: settings.rib, iban: settings.iban, bank: settings.bank, agence: settings.agence } : undefined,
-      customerName: i.customerName, customerMf: i.customerMf, customerAddress: i.customerAddress,
-      lines: i.lines?.map((l) => ({ ref: l.productId?.sku, description: l.productId?.name ?? "—", qty: l.quantity, unitPrice: l.inputUnitPrice, totalHt: l.subtotalHt })),
-      subtotalHt: i.subtotalHt, fodecRate: i.fodecRate, totalFodec: i.totalFodec,
-      tvaRate: i.tvaRate, totalVat: i.totalVat, totalBeforeStamp: i.totalBeforeStamp,
-      timbreFiscal: i.timbreFiscal, totalTtc: i.totalTtc, amountPaid: i.amountPaid,
-    });
-    logExport(`Facture ${i.invoiceNo} — PDF`, `${i.invoiceNo}.pdf`);
-  };
-
-  const exportAllCsv = () => { makeDevisCsv(); makeCommandesCsv(); makeFacturesCsv(); };
-
-  const reports: ReportCard[] = [
-    {
-      key: "devis",
-      icon: <FileCheck size={20} />,
-      iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400",
-      badge: "Tous les devis",
-      badgeColor: "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300",
-      title: "Rapport Devis",
-      description: "Tous les devis avec détails client, montants, remises et statuts.",
-      pdfColor: "bg-teal-600 hover:bg-teal-700",
-      onPdf: makeDevisPdf,
-      onCsv: makeDevisCsv,
-    },
-    {
-      key: "commandes",
-      icon: <ShoppingBag size={20} />,
-      iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400",
-      badge: "Tous statuts",
-      badgeColor: "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300",
-      title: "Rapport Commandes",
-      description: "Commandes clients avec lignes, dates de livraison promise et progression.",
-      pdfColor: "bg-teal-600 hover:bg-teal-700",
-      onPdf: makeCommandesPdf,
-      onCsv: makeCommandesCsv,
-    },
-    {
-      key: "factures",
-      icon: <Receipt size={20} />,
-      iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400",
-      badge: "Tous statuts paiement",
-      badgeColor: "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300",
-      title: "Rapport Factures",
-      description: "Factures clients avec FODEC, TVA, timbre fiscal et totaux TTC.",
-      pdfColor: "bg-teal-600 hover:bg-teal-700",
-      onPdf: makeFacturesPdf,
-      onCsv: makeFacturesCsv,
-    },
-  ];
 
   const statCards = [
     {
-      label: "TOTAL RAPPORTS", value: "3", sub: "Disponibles",
-      icon: <FileText size={18} />,
+      label: "TOTAL DOCUMENTS",
+      value: String(stats?.total ?? 0),
+      sub: "Tous fichiers",
+      icon: <FolderOpen size={18} />,
       iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400",
     },
     {
-      label: "GÉNÉRÉS", value: String(exportLog.length), sub: "Cette session",
-      icon: <Download size={18} />,
+      label: "CE MOIS",
+      value: String(stats?.monthCount ?? 0),
+      sub: "Uploadés ce mois",
+      icon: <CalendarDays size={18} />,
+      iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400",
+    },
+    {
+      label: "TAILLE TOTALE",
+      value: fmtSize(stats?.totalSize ?? 0),
+      sub: "Stockage utilisé",
+      icon: <HardDrive size={18} />,
       iconBg: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
+      large: true,
     },
     {
-      label: "TOTAL DOCUMENTS", value: String(devis.length + orders.length + invoices.length), sub: "Tous statuts",
-      icon: <ShoppingBag size={18} />,
-      iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400",
-    },
-    {
-      label: "TOTAL REVENUE", value: tnd(totalRevenue), sub: "TND — Factures",
-      icon: <DollarSign size={18} />,
+      label: "DERNIER UPLOAD",
+      value: docs[0] ? fmt(docs[0].createdAt) : "—",
+      sub: docs[0]?.originalName?.slice(0, 20) ?? "Aucun fichier",
+      icon: <FileText size={18} />,
       iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400",
       large: true,
     },
@@ -196,23 +150,31 @@ export default function CommercialDocumentsPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-950 dark:text-white">
-              Commercial <span className="text-teal-500">Reports</span>
+              Commercial <span className="text-teal-500">Documents</span>
             </h1>
             <p className="mt-1 text-xs font-medium uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
               EMM ERP · COMMERCIAL
             </p>
           </div>
           <button
-            onClick={exportAllCsv}
-            className="inline-flex items-center gap-2 rounded-2xl bg-teal-600 px-5 py-2.5 text-sm font-semibold uppercase tracking-wider text-white transition hover:bg-teal-700"
+            onClick={() => inputRef.current?.click()}
+            disabled={uploading}
+            className="inline-flex items-center gap-2 rounded-2xl bg-teal-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:opacity-50"
           >
-            <Download size={15} /> Export All CSV
+            {uploading ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
+            Importer un document
           </button>
+          <input ref={inputRef} type="file" className="hidden" onChange={(e) => void handleUpload(e.target.files)} />
         </div>
 
         {error && (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400">
             {error}
+          </div>
+        )}
+        {uploadError && (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400">
+            Upload échoué : {uploadError}
           </div>
         )}
 
@@ -231,119 +193,122 @@ export default function CommercialDocumentsPage() {
                   </div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">{card.label}</p>
                   {card.large ? (
-                    <p className="mt-1 text-xl font-bold leading-tight text-slate-950 dark:text-white">
-                      {card.value}<br /><span className="text-sm font-semibold text-slate-500">TND</span>
-                    </p>
+                    <p className="mt-1 text-lg font-bold leading-snug text-slate-950 dark:text-white">{card.value}</p>
                   ) : (
                     <p className="mt-1 text-3xl font-bold text-slate-950 dark:text-white">{card.value}</p>
                   )}
-                  <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{card.sub}</p>
+                  <p className="mt-1 truncate text-xs text-slate-400 dark:text-slate-500">{card.sub}</p>
                 </div>
               ))}
             </div>
 
-            {/* Report cards + export log */}
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-
-              <div className="lg:col-span-2 grid grid-cols-1 gap-4 sm:grid-cols-2 content-start">
-                {reports.map((r) => {
-                  const isPdfLoading = exporting === `${r.key}-pdf`;
-                  return (
-                    <div key={r.key} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                      <div className="flex items-start justify-between gap-2 mb-4">
-                        <div className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl ${r.iconBg}`}>{r.icon}</div>
-                        <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${r.badgeColor}`}>{r.badge}</span>
-                      </div>
-                      <h3 className="font-bold text-slate-950 dark:text-white">{r.title}</h3>
-                      <p className="mt-1.5 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{r.description}</p>
-                      <p className="mt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">{monthLabel()}</p>
-                      <div className="mt-4 flex gap-2">
-                        <button onClick={r.onPdf} disabled={!!exporting}
-                          className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold text-white transition disabled:opacity-50 ${r.pdfColor}`}
-                        >
-                          {isPdfLoading ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />} Export PDF
-                        </button>
-                        <button onClick={r.onCsv} disabled={!!exporting}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                        >
-                          <Download size={12} /> Export CSV
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* Per-invoice print card */}
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:col-span-2">
-                  <div className="flex items-start justify-between gap-2 mb-4">
-                    <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400">
-                      <Printer size={20} />
-                    </div>
-                    <span className="rounded-full bg-teal-100 px-2.5 py-1 text-[10px] font-semibold text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">
-                      Impression individuelle
-                    </span>
-                  </div>
-                  <h3 className="font-bold text-slate-950 dark:text-white">Imprimer une facture</h3>
-                  <p className="mt-1.5 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-                    Sélectionnez une facture pour générer le PDF Tunisien complet (FODEC · TVA · Timbre fiscal).
-                  </p>
-                  <div className="mt-4 max-h-48 overflow-y-auto rounded-xl border border-slate-100 divide-y divide-slate-100 dark:border-slate-800 dark:divide-slate-800">
-                    {invoices.length === 0 ? (
-                      <p className="py-6 text-center text-xs text-slate-400">Aucune facture</p>
-                    ) : invoices.map((i) => (
-                      <div key={i._id} className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition">
-                        <div>
-                          <p className="font-mono text-xs font-semibold text-slate-800 dark:text-slate-200">{i.invoiceNo}</p>
-                          <p className="text-[10px] text-slate-400">{i.customerName} · {tnd(i.totalTtc)} TND</p>
-                        </div>
-                        <button onClick={() => handlePrintInvoice(i)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[10px] font-semibold text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                        >
-                          <Printer size={10} /> PDF
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+            {/* Document list */}
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <div className="border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+                <p className="font-bold text-slate-950 dark:text-white">Documents</p>
+                <p className="mt-0.5 text-xs text-slate-400">{docs.length} fichier{docs.length !== 1 ? "s" : ""}</p>
               </div>
 
-              {/* Export log */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 h-fit">
-                <p className="text-base font-bold text-slate-950 dark:text-white">Export Log</p>
-                <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">Cette session</p>
-                <div className="mt-5">
-                  {exportLog.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-10 text-center">
-                      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800">
-                        <FileSpreadsheet size={16} className="text-slate-400" />
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {docs.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800">
+                      <FileText size={20} className="text-slate-400" />
+                    </div>
+                    <p className="text-sm font-medium text-slate-400 dark:text-slate-500">Aucun document</p>
+                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-600">Les documents importés apparaîtront ici</p>
+                  </div>
+                ) : docs.map((doc) => (
+                  <div key={doc._id} className="flex items-center gap-3 px-5 py-3.5 transition hover:bg-slate-50 dark:hover:bg-slate-800/20">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/60">
+                      <DocIcon mime={doc.mimeType} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-200">{doc.originalName}</p>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                        <MimeBadge mime={doc.mimeType} />
+                        <span className="text-[10px] text-slate-400">{fmtSize(doc.size)}</span>
+                        <span className="text-[10px] text-slate-400">{fmt(doc.createdAt)}</span>
+                        {doc.uploadedBy && (
+                          <span className="text-[10px] text-slate-400">{doc.uploadedBy.name}</span>
+                        )}
                       </div>
-                      <p className="text-sm font-medium text-slate-400 dark:text-slate-500">No exports yet</p>
-                      <p className="mt-1 text-xs text-slate-400 dark:text-slate-600">Files appear here after download</p>
+                      {doc.description && (
+                        <p className="mt-0.5 truncate text-[11px] italic text-slate-400">{doc.description}</p>
+                      )}
                     </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {exportLog.map((entry, i) => (
-                        <div key={i} className="flex items-start gap-2.5 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950">
-                          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-slate-200 dark:bg-slate-700">
-                            <Download size={11} className="text-slate-500 dark:text-slate-400" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-300">{entry.label}</p>
-                            <p className="truncate text-[10px] text-slate-400 dark:text-slate-500">{entry.filename}</p>
-                          </div>
-                          <div className="ml-auto flex shrink-0 items-center gap-1 text-[10px] text-slate-400">
-                            <Clock size={9} /> {entry.at}
-                          </div>
-                        </div>
-                      ))}
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        onClick={() => commercialDocumentService.download(doc._id, doc.originalName)}
+                        title="Télécharger"
+                        className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-teal-600 dark:hover:bg-slate-700 dark:hover:text-teal-400"
+                      >
+                        <Download size={14} />
+                      </button>
+                      <button
+                        onClick={() => openDeleteModal(doc._id)}
+                        disabled={deletingId === doc._id}
+                        title="Supprimer"
+                        className="rounded-lg p-1.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-500 disabled:opacity-40 dark:hover:bg-rose-950/20 dark:hover:text-rose-400"
+                      >
+                        {deletingId === doc._id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                      </button>
                     </div>
-                  )}
-                </div>
+                  </div>
+                ))}
               </div>
             </div>
           </>
         )}
       </div>
+
+      {/* OTP delete modal */}
+      {otpTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+            <div className="mb-5 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400">
+                <Trash2 size={18} />
+              </div>
+              <div>
+                <p className="font-bold text-slate-950 dark:text-white">Confirmer la suppression</p>
+                <p className="text-xs text-slate-400">Entrez le code OTP généré par l'administrateur</p>
+              </div>
+            </div>
+
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              value={otpInput}
+              onChange={(e) => { setOtpInput(e.target.value.replace(/\D/g, "")); setOtpError(""); }}
+              placeholder="6 chiffres"
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-center font-mono text-2xl font-bold tracking-[0.3em] text-slate-950 outline-none transition focus:border-rose-400 focus:ring-4 focus:ring-rose-50 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+            />
+
+            {otpError && (
+              <p className="mt-2 text-center text-xs font-medium text-rose-500">{otpError}</p>
+            )}
+
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={() => setOtpTarget(null)}
+                className="flex-1 rounded-2xl border border-slate-200 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => void confirmDelete()}
+                disabled={otpInput.length !== 6 || !!deletingId}
+                className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-rose-600 py-2.5 text-sm font-medium text-white transition hover:bg-rose-700 disabled:opacity-50"
+              >
+                {deletingId ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                Supprimer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </ProtectedRoute>
   );
 }

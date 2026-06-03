@@ -21,6 +21,7 @@ export interface VehicleDelivery {
   status: string;
   zone: string;
   fuelAddedLiters?: number;
+  distanceKm?: number | null;
   orderIds: {
     _id: string;
     orderNo: string;

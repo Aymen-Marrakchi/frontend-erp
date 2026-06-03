@@ -22,6 +22,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
+  Gauge,
   Loader2,
   Plus,
   X,
@@ -83,16 +84,16 @@ const TUNISIA_GOVERNORATES = [
   "Tataouine","Tozeur","Tunis","Zaghouan",
 ];
 
-const emptyForm: CreateDeliveryPlanPayload = {
-  planDate: "",
+const emptyForm = (): CreateDeliveryPlanPayload => ({
+  planDate: new Date().toISOString().slice(0, 10),
   carrierId: "",
   zone: "",
-  startDate: "",
+  startDate: new Date().toISOString().slice(0, 10),
   fuelAddedLiters: 0,
   orderIds: [],
   notes: "",
   planType: "SHIPMENT",
-};
+});
 
 function planNoPreview(planDate: string) {
   if (!planDate) return "Auto: PLAN-1-03/2026, PLAN-2-03/2026...";
@@ -118,11 +119,13 @@ export default function PlanningPage() {
   const [actionId, setActionId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<CreateDeliveryPlanPayload>(emptyForm);
+  const [form, setForm] = useState<CreateDeliveryPlanPayload>(emptyForm());
   const [saving, setSaving] = useState(false);
   const [returnPlanId, setReturnPlanId] = useState<string | null>(null);
   const [returnOrderId, setReturnOrderId] = useState<string | null>(null);
   const [returnReason, setReturnReason] = useState("");
+  const [completePlanId, setCompletePlanId] = useState<string | null>(null);
+  const [completeKm, setCompleteKm] = useState<string>("");
 
   const fetchAll = async () => {
     try {
@@ -291,7 +294,7 @@ export default function PlanningPage() {
         vehicleId: form.vehicleId || undefined,
       });
       setShowForm(false);
-      setForm(emptyForm);
+      setForm(emptyForm());
       await fetchAll();
     } catch (err: unknown) {
       setError(getErrorMessage(err, "Failed to create plan"));
@@ -312,15 +315,17 @@ export default function PlanningPage() {
     }
   };
 
-  const handleComplete = async (id: string) => {
+  const handleComplete = async (id: string, km: number) => {
     try {
       setActionId(id);
-      await deliveryPlanService.complete(id);
+      await deliveryPlanService.complete(id, km);
       await fetchAll();
     } catch (err: unknown) {
       setError(getErrorMessage(err, "Failed to complete delivery"));
     } finally {
       setActionId(null);
+      setCompletePlanId(null);
+      setCompleteKm("");
     }
   };
 
@@ -376,7 +381,7 @@ export default function PlanningPage() {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => { setShowForm(true); setForm(emptyForm); }}
+              onClick={() => { setShowForm(true); setForm(emptyForm()); }}
               className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950"
             >
               <Plus size={15} />
@@ -440,6 +445,54 @@ export default function PlanningPage() {
                   className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
                 >
                   Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Complete delivery — km modal */}
+        {completePlanId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4">
+            <div className={`${surface} w-full max-w-sm p-6`}>
+              <div className="mb-5 flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400">
+                  <Gauge size={18} />
+                </div>
+                <div>
+                  <p className="font-bold text-slate-950 dark:text-white">Terminer la livraison</p>
+                  <p className="text-xs text-slate-400">Entrez les kilomètres parcourus</p>
+                </div>
+              </div>
+
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                Kilométrage (km)
+              </label>
+              <input
+                type="number"
+                min={0}
+                step="0.1"
+                value={completeKm}
+                onChange={(e) => setCompleteKm(e.target.value)}
+                placeholder="ex: 142.5"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-50 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                autoFocus
+              />
+
+              <div className="mt-5 flex gap-3">
+                <button
+                  onClick={() => { setCompletePlanId(null); setCompleteKm(""); }}
+                  className="flex-1 rounded-2xl border border-slate-200 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={() => void handleComplete(completePlanId, Number(completeKm) || 0)}
+                  disabled={!completeKm || Number(completeKm) < 0 || actionId === completePlanId}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-600 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {actionId === completePlanId ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                  Confirmer
                 </button>
               </div>
             </div>
@@ -845,6 +898,16 @@ export default function PlanningPage() {
                             })}{" "}
                             L
                           </span>
+                          {plan.distanceKm != null && (
+                            <span className="flex items-center gap-1">
+                              <Gauge size={10} />
+                              {Number(plan.distanceKm).toLocaleString("fr-TN", {
+                                minimumFractionDigits: 1,
+                                maximumFractionDigits: 1,
+                              })}{" "}
+                              km
+                            </span>
+                          )}
                           {plan.planType === "SHIPMENT" ? (
                             <span className="flex items-center gap-1">
                               <Package size={10} /> {plan.orderIds.length} orders
@@ -872,7 +935,7 @@ export default function PlanningPage() {
                         {plan.status === "IN_PROGRESS" && (
                           <>
                             <button
-                              onClick={() => handleComplete(plan._id)}
+                              onClick={() => { setCompletePlanId(plan._id); setCompleteKm(""); }}
                               disabled={busy}
                               className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
                             >
