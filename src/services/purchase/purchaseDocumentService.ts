@@ -45,12 +45,15 @@ export const purchaseDocumentService = {
 
   download: (id: string, filename: string) => {
     api.get(`/purchase/documents/${id}/download`, { responseType: "blob" }).then((res) => {
-      const url = URL.createObjectURL(new Blob([res.data]));
+      const url = URL.createObjectURL(res.data as Blob);
       const a = document.createElement("a");
+      a.style.display = "none";
       a.href = url;
       a.download = filename;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     });
   },
 

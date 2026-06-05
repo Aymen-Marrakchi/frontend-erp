@@ -7,6 +7,8 @@ import { BarChart3, Boxes, Loader2, Package, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { stockItemService } from "@/services/stock/stockItemService";
+import { stockDepotService } from "@/services/stock/stockDepotService";
+import { useAuth } from "@/context/AuthContext";
 
 const PAGE_SIZE = 20;
 
@@ -30,11 +32,22 @@ interface StockItem {
   updatedAt: string;
 }
 
+function depotScopeToTypes(scope?: string): string[] {
+  if (scope === "MP")  return ["MATIERE_PREMIERE"];
+  if (scope === "PF")  return ["PRODUIT_FINI"];
+  return ["PRODUIT_FINI", "SOUS_ENSEMBLE", "COMPOSANT", "MATIERE_PREMIERE"];
+}
+
 export default function StockItemsPage() {
   const { t } = useLanguage();
+  const { user } = useAuth();
 
   const [items, setItems] = useState<StockItem[]>([]);
   const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("PRODUIT_FINI");
+  const [depotScope, setDepotScope]   = useState<string | null>(null);
+  const [myDepotId, setMyDepotId]     = useState<string | null>(null);
+  const [depotQtyMap, setDepotQtyMap] = useState<Record<string, { onHand: number; reserved: number; available: number }>>({});
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -43,8 +56,8 @@ export default function StockItemsPage() {
     "rounded-3xl border border-slate-200 bg-white shadow-sm transition-colors duration-200 dark:border-slate-800 dark:bg-slate-900";
 
   useEffect(() => {
-    fetchItems();
-  }, []);
+    if (user?.id) fetchItems();
+  }, [user?.id]);
 
   const fetchItems = async () => {
     try {
@@ -52,6 +65,33 @@ export default function StockItemsPage() {
       setError("");
       const data = await stockItemService.getAll();
       setItems(data);
+
+      if (user?.role === "DEPOT_MANAGER") {
+        const depots = await stockDepotService.getAll();
+        const myDepot = depots.find(
+          (d: any) => d.managerId?._id === user.id || d.managerId === user.id
+        );
+        if (myDepot) {
+          setDepotScope(myDepot.productTypeScope);
+          setMyDepotId(String(myDepot._id));
+          const scope = myDepot.productTypeScope;
+          setTypeFilter(scope === "MP" ? "MATIERE_PREMIERE" : "PRODUIT_FINI");
+
+          // Build per-depot quantity map
+          const availability = await stockItemService.getAvailabilityByDepot();
+          const map: Record<string, { onHand: number; reserved: number; available: number }> = {};
+          for (const row of availability.rows) {
+            if (String(row.depotId) === String(myDepot._id)) {
+              map[String(row.productId)] = {
+                onHand:    row.quantityOnHand,
+                reserved:  row.quantityReserved,
+                available: row.quantityAvailable,
+              };
+            }
+          }
+          setDepotQtyMap(map);
+        }
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to load stock items");
     } finally {
@@ -59,21 +99,20 @@ export default function StockItemsPage() {
     }
   };
 
+  const allowedTypes = depotScope ? depotScopeToTypes(depotScope) : null;
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    if (!q) {
-      return items;
-    }
     return items.filter((item) => {
       const product = item.productId;
-      return (
-        product?.name?.toLowerCase().includes(q) ||
-        product?.sku?.toLowerCase().includes(q) ||
-        product?.type?.toLowerCase().includes(q) ||
-        product?.unit?.toLowerCase().includes(q)
-      );
+      // Depot managers only see items that exist in their depot
+      if (myDepotId && !(String(item.productId?._id) in depotQtyMap)) return false;
+      const matchScope  = !allowedTypes || allowedTypes.includes(product?.type);
+      const matchType   = typeFilter === "ALL" || product?.type === typeFilter;
+      const matchSearch = !q || product?.name?.toLowerCase().includes(q);
+      return matchScope && matchType && matchSearch;
     });
-  }, [items, search]);
+  }, [items, search, typeFilter, allowedTypes, myDepotId, depotQtyMap]);
 
   const totals = useMemo(() => {
     return filtered.reduce(
@@ -92,7 +131,7 @@ export default function StockItemsPage() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = useMemo(() => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filtered, page]);
 
-  useEffect(() => { setPage(1); }, [search]);
+  useEffect(() => { setPage(1); }, [search, typeFilter]);
 
   const formatDateTime = (value?: string | null) => {
     if (!value) return "—";
@@ -106,7 +145,7 @@ export default function StockItemsPage() {
   };
 
   return (
-    <ProtectedRoute allowedRoles={["ADMIN", "STOCK_MANAGER"]}>
+    <ProtectedRoute allowedRoles={["ADMIN", "STOCK_MANAGER", "DEPOT_MANAGER"]}>
       <div className="space-y-6">
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
           <div>
@@ -187,17 +226,32 @@ export default function StockItemsPage() {
               </p>
             </div>
 
-            <div className="relative w-full sm:w-72">
-              <Search
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-              />
-              <input
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100 dark:border-slate-800 dark:bg-slate-950 dark:text-white dark:focus:border-slate-600 dark:focus:ring-slate-800"
-                placeholder={t("searchStock")}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <select
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+                disabled={!!depotScope && depotScopeToTypes(depotScope).length === 1}
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+              >
+                {!depotScope && <option value="ALL">Tous les types</option>}
+                {(!depotScope || depotScopeToTypes(depotScope).includes("PRODUIT_FINI")) && <option value="PRODUIT_FINI">Produit Fini</option>}
+                {(!depotScope || depotScopeToTypes(depotScope).includes("SOUS_ENSEMBLE")) && <option value="SOUS_ENSEMBLE">Sous-ensemble</option>}
+                {(!depotScope || depotScopeToTypes(depotScope).includes("COMPOSANT")) && <option value="COMPOSANT">Composant</option>}
+                {(!depotScope || depotScopeToTypes(depotScope).includes("MATIERE_PREMIERE")) && <option value="MATIERE_PREMIERE">Matière Première</option>}
+              </select>
+
+              <div className="relative w-full sm:w-72">
+                <Search
+                  size={14}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+                <input
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100 dark:border-slate-800 dark:bg-slate-950 dark:text-white dark:focus:border-slate-600 dark:focus:ring-slate-800"
+                  placeholder={t("searchStock")}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
             </div>
           </div>
 
@@ -251,23 +305,28 @@ export default function StockItemsPage() {
                       </td>
 
                       <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
-                        {item.quantityOnHand}
+                        {myDepotId ? (depotQtyMap[String(item.productId?._id)]?.onHand ?? 0) : item.quantityOnHand}
                       </td>
 
                       <td className="px-6 py-4 text-amber-700 dark:text-amber-300">
-                        {item.quantityReserved}
+                        {myDepotId ? (depotQtyMap[String(item.productId?._id)]?.reserved ?? 0) : item.quantityReserved}
                       </td>
 
                       <td className="px-6 py-4">
-                        <span
-                          className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                            item.quantityAvailable > 0
-                              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-                              : "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
-                          }`}
-                        >
-                          {item.quantityAvailable}
-                        </span>
+                        {(() => {
+                          const qty = myDepotId
+                            ? (depotQtyMap[String(item.productId?._id)]?.available ?? 0)
+                            : item.quantityAvailable;
+                          return (
+                            <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                              qty > 0
+                                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                : "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
+                            }`}>
+                              {qty}
+                            </span>
+                          );
+                        })()}
                       </td>
 
                       <td className="px-6 py-4 text-slate-600 dark:text-slate-300">

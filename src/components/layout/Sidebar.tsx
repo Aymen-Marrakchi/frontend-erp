@@ -121,8 +121,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
     { href: "/dashboard/commercial/preparation", label: "Preparation", icon: Package },
     { href: "/dashboard/commercial/planning", label: t("deliveryPlanning") || "Delivery Planning", icon: CalendarDays },
     { href: "/dashboard/commercial/returns", label: t("returnsRefunds"), icon: RotateCcw },
-    { href: "/dashboard/commercial/invoices", label: "Invoices", icon: Receipt },
-    { href: "/dashboard/commercial/carriers", label: t("carriersTitle") || "Carriers", icon: Truck },
+{ href: "/dashboard/commercial/carriers", label: t("carriersTitle") || "Carriers", icon: Truck },
     { href: "/dashboard/commercial/vehicule", label: t("fleetTitle") || "Vehicles", icon: Car },
     { href: "/dashboard/commercial/regions", label: t("regionsTitle") || "Régions", icon: Globe },
     { href: "/dashboard/commercial/backorders", label: t("backorders") || "Backorders", icon: RotateCcw },
@@ -171,10 +170,12 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
   const depotItems: NavItem[] = [
     { href: "/dashboard/depot", label: t("dashboard"), icon: LayoutDashboard },
     { href: "/dashboard/depot/preparation", label: "Preparation", icon: Package },
+    { href: "/dashboard/stock/items", label: t("stockItems"), icon: BarChart3 },
     { href: "/dashboard/stock/movements", label: t("movements"), icon: FileText },
     { href: "/dashboard/stock/inventories", label: t("inventories"), icon: ClipboardList },
     { href: "/dashboard/stock/deliveries", label: "Réceptions", icon: Truck },
-    { href: "/dashboard/depot/documents", label: "Documents", icon: BookMarked },
+    { href: "/dashboard/depot/rapports", label: "Rapports", icon: BookMarked },
+    { href: "/dashboard/depot/documents", label: "Documents", icon: FolderOpen },
   ];
 
   const purchaseItems: NavItem[] = [

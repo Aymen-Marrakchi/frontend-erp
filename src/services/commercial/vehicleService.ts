@@ -6,7 +6,8 @@ export interface Vehicle {
   capacityKg: number;
   capacityPackets: number;
   purchaseDate: string;
-  lifeExpectancyDays: number;
+  fuelType?: string;
+  fuelCapacityLiters?: number;
   durabilityPercent: number;
   notes: string;
   active: boolean;

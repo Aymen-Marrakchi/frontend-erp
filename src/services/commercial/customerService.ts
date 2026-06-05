@@ -5,7 +5,6 @@ export interface Customer {
   name: string;
   email?: string;
   phone?: string;
-  company?: string;
   address?: string;
   city?: string;
   continent?: string;

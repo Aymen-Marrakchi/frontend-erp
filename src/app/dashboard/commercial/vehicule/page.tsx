@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLanguage } from "@/context/LanguageContext";
-import { vehicleService, Vehicle, VehicleDelivery } from "@/services/commercial/vehicleService";
+import { vehicleService, Vehicle } from "@/services/commercial/vehicleService";
 import { commercialSettingService } from "@/services/commercial/commercialSettingService";
+import { useRouter } from "next/navigation";
 import {
-  Car, Plus, Pencil, Power, ChevronDown, ChevronUp,
+  Car, Plus, Pencil, Power, ArrowRight,
   Weight, Package, CalendarDays, Clock, Loader2, Search, X, TrendingUp, Fuel,
 } from "lucide-react";
 
@@ -20,14 +21,15 @@ const labelClass =
   "mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400";
 
 // ─── Durability helpers ────────────────────────────────────────────────────────
-function calcDurabilityFromLifeDays(lifeExpectancyDays = 3650): number {
-  if (lifeExpectancyDays < 365) return 50;
-  if (lifeExpectancyDays <= 4 * 365) return 100;
-  return Math.max(0, 100 - 0.07 * (lifeExpectancyDays - 4 * 365));
+function calcDurabilityFromAgeDays(ageDays: number): number {
+  if (ageDays < 365) return 50;
+  if (ageDays <= 4 * 365) return 100;
+  return Math.max(0, 100 - 0.07 * (ageDays - 4 * 365));
 }
 
-function calcDurability(_purchaseDate: string, lifeExpectancyDays = 3650): number {
-  return calcDurabilityFromLifeDays(lifeExpectancyDays);
+function calcDurability(purchaseDate: string): number {
+  const ageDays = (Date.now() - new Date(purchaseDate).getTime()) / 86_400_000;
+  return calcDurabilityFromAgeDays(Math.max(0, ageDays));
 }
 
 function durColor(pct: number) {
@@ -43,21 +45,16 @@ function ageStr(purchaseDate: string) {
   return `${years.toFixed(1)} ans`;
 }
 
-function salesLineAmount(line: { quantity: number; unitPrice: number; discount?: number }) {
-  const subtotal = line.quantity * line.unitPrice;
-  const discountPct = Math.min(100, Math.max(0, line.discount || 0));
-  return subtotal * (1 - discountPct / 100);
-}
 
 // ─── SVG Durability Curve ─────────────────────────────────────────────────────
-function DurabilityCurve({ purchaseDate, lifeExpectancyDays = 3650 }: { purchaseDate: string; lifeExpectancyDays?: number }) {
+function DurabilityCurve({ purchaseDate }: { purchaseDate: string }) {
   const W = 320, H = 130, PX = 36, PY = 16;
   const plotW = W - PX - 12, plotH = H - PY - 24;
-  const maxDays = Math.max(1, lifeExpectancyDays, 4 * 365 + 30);
+  const maxDays = 10 * 365;
 
   const points: { x: number; y: number }[] = [];
   for (let d = 0; d <= maxDays; d += Math.max(1, Math.floor(maxDays / 200))) {
-    const pct = calcDurabilityFromLifeDays(d);
+    const pct = calcDurabilityFromAgeDays(d);
     points.push({
       x: PX + (d / maxDays) * plotW,
       y: PY + plotH - (pct / 100) * plotH,
@@ -65,8 +62,8 @@ function DurabilityCurve({ purchaseDate, lifeExpectancyDays = 3650 }: { purchase
   }
   const polyline = points.map((p) => `${p.x},${p.y}`).join(" ");
 
-  const ageDays = Math.min(lifeExpectancyDays, maxDays);
-  const curPct = calcDurability(purchaseDate, lifeExpectancyDays);
+  const ageDays = Math.min((Date.now() - new Date(purchaseDate).getTime()) / 86_400_000, maxDays);
+  const curPct = calcDurabilityFromAgeDays(Math.max(0, ageDays));
   const curX = PX + (ageDays / maxDays) * plotW;
   const curY = PY + plotH - (curPct / 100) * plotH;
   const c = durColor(curPct);
@@ -151,211 +148,125 @@ function VehicleCard({
   onEdit,
   onToggle,
   onAdjust,
-  fuelPricePerLiter,
-  fuelPer10Km,
 }: {
   vehicle: Vehicle;
   onEdit: (v: Vehicle) => void;
   onToggle: (v: Vehicle) => void;
   onAdjust: (v: Vehicle) => void;
-  fuelPricePerLiter: number;
-  fuelPer10Km: number;
 }) {
   const { t } = useLanguage();
-  const [open, setOpen] = useState(false);
-  const [deliveries, setDeliveries] = useState<VehicleDelivery[]>([]);
-  const [loadingDel, setLoadingDel] = useState(false);
-  const durPct = vehicle.durabilityPercent ?? calcDurability(vehicle.purchaseDate, vehicle.lifeExpectancyDays);
+  const router = useRouter();
+  const durPct = calcDurability(vehicle.purchaseDate);
   const c = durColor(durPct);
-  const history = useMemo(() => {
-    const completedDeliveries = deliveries.filter((delivery) => delivery.status === "COMPLETED");
-    const activeFuelDeliveries = deliveries.filter((delivery) => delivery.status !== "CANCELLED");
-    const orders = completedDeliveries.flatMap((delivery) => delivery.orderIds || []);
-    const revenueOrders = orders.filter(
-      (order) => !["RETURNED", "CANCELLED"].includes(String(order.status || "").toUpperCase())
-    );
-    const orderCount = orders.length;
-    const income = revenueOrders.reduce(
-      (sum, order) => sum + order.lines.reduce((lineSum, line) => lineSum + salesLineAmount(line), 0),
-      0
-    );
-    const fuelOutcome = activeFuelDeliveries.reduce(
-      (sum, delivery) => sum + Number(delivery.fuelAddedLiters || 0),
-      0
-    );
-    const totalKm = completedDeliveries.reduce(
-      (sum, delivery) => sum + Number(delivery.distanceKm || 0),
-      0
-    );
-    const fuelConsumed = fuelPer10Km > 0 ? (totalKm / 10) * fuelPer10Km : 0;
-    const fuelCost = fuelConsumed * fuelPricePerLiter;
 
-    return { orderCount, income, fuelOutcome, totalKm, fuelConsumed, fuelCost };
-  }, [deliveries, fuelPer10Km, fuelPricePerLiter]);
-
-  const toggleOpen = async () => {
-    if (!open && deliveries.length === 0) {
-      setLoadingDel(true);
-      try { setDeliveries(await vehicleService.getDeliveries(vehicle._id)); }
-      catch { /* ignore */ }
-      finally { setLoadingDel(false); }
-    }
-    setOpen((p) => !p);
-  };
+  const barGradient =
+    durPct >= 80 ? "from-emerald-400 to-emerald-500" :
+    durPct >= 50 ? "from-amber-400 to-amber-500" :
+                   "from-red-400 to-red-500";
 
   return (
-    <div className={`${surface} overflow-hidden transition-shadow hover:shadow-md`}>
-      {/* Card header */}
-      <div className="flex items-center gap-4 p-5">
-        <DurabilityRing pct={durPct} />
+    <div
+      className="group relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 dark:border-slate-800 dark:bg-slate-900 cursor-pointer"
+      onClick={() => router.push(`/dashboard/commercial/vehicule/${vehicle._id}`)}
+    >
+      {/* Colored top accent */}
+      <div className={`h-1.5 w-full bg-gradient-to-r ${barGradient}`} />
 
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-bold text-slate-900 dark:text-white text-base tracking-wide">
-              {vehicle.matricule}
-            </span>
-            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
-              vehicle.active
-                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
-                : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
-            }`}>
-              {vehicle.active ? t("activeLabel") : t("inactiveLabel")}
-            </span>
-          </div>
-          <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500 dark:text-slate-400 flex-wrap">
-            <span className="flex items-center gap-1"><Weight size={11} /> {vehicle.capacityKg} kg</span>
-            <span className="flex items-center gap-1"><Package size={11} /> {vehicle.capacityPackets} colis</span>
-            <span className="flex items-center gap-1"><Clock size={11} /> {ageStr(vehicle.purchaseDate)}</span>
-            <span className="flex items-center gap-1"><CalendarDays size={11} /> {vehicle.lifeExpectancyDays} {t("lifespanDaysLabel")}</span>
-          </div>
-          {/* Durability bar */}
-          <div className="mt-2.5 flex items-center gap-2">
-            <div className="flex-1 h-1.5 rounded-full bg-slate-200 dark:bg-slate-800">
-              <div
-                className={`h-1.5 rounded-full transition-all ${c.bar}`}
-                style={{ width: `${durPct}%` }}
-              />
+      {/* Main body */}
+      <div className="p-5">
+        {/* Header row */}
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div className="flex items-center gap-3">
+            <DurabilityRing pct={durPct} />
+            <div>
+              <p className="text-lg font-bold tracking-widest text-slate-900 dark:text-white">
+                {vehicle.matricule}
+              </p>
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                vehicle.active
+                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400"
+                  : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+              }`}>
+                {vehicle.active ? t("activeLabel") : t("inactiveLabel")}
+              </span>
             </div>
-            <span className={`text-[10px] font-semibold ${c.text}`}>{t("durabilityPct")} {durPct.toFixed(0)}%</span>
+          </div>
+          {/* Action buttons */}
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="p-1.5 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-slate-400 hover:text-indigo-600 transition-colors"
+              onClick={() => onAdjust(vehicle)}
+              title="Ajuster la durabilité"
+            >
+              <TrendingUp size={13} />
+            </button>
+            <button
+              className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
+              onClick={() => onEdit(vehicle)}
+              title={t("editAction")}
+            >
+              <Pencil size={13} />
+            </button>
+            <button
+              className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
+              onClick={() => onToggle(vehicle)}
+              title={vehicle.active ? t("deactivateAction") : t("activateAction")}
+            >
+              <Power size={13} />
+            </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            className="p-2 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-            onClick={(e) => { e.stopPropagation(); onAdjust(vehicle); }}
-            title="Ajuster la durabilité"
-          >
-            <TrendingUp size={14} />
-          </button>
-          <button
-            className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
-            onClick={(e) => { e.stopPropagation(); onEdit(vehicle); }}
-            title={t("editAction")}
-          >
-            <Pencil size={14} />
-          </button>
-          <button
-            className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
-            onClick={(e) => { e.stopPropagation(); onToggle(vehicle); }}
-            title={vehicle.active ? t("deactivateAction") : t("activateAction")}
-          >
-            <Power size={14} />
-          </button>
-          <button
-            className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
-            onClick={toggleOpen}
-          >
-            {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-          </button>
+        {/* Info chips */}
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          <div className="flex items-center gap-2 rounded-2xl bg-slate-50 dark:bg-slate-800/60 px-3 py-2">
+            <Weight size={12} className="text-slate-400 shrink-0" />
+            <span className="text-xs font-medium text-slate-600 dark:text-slate-300">{vehicle.capacityKg} <span className="text-slate-400">kg</span></span>
+          </div>
+          <div className="flex items-center gap-2 rounded-2xl bg-slate-50 dark:bg-slate-800/60 px-3 py-2">
+            <Package size={12} className="text-slate-400 shrink-0" />
+            <span className="text-xs font-medium text-slate-600 dark:text-slate-300">{vehicle.capacityPackets} <span className="text-slate-400">colis</span></span>
+          </div>
+          <div className="flex items-center gap-2 rounded-2xl bg-slate-50 dark:bg-slate-800/60 px-3 py-2">
+            <Clock size={12} className="text-slate-400 shrink-0" />
+            <span className="text-xs font-medium text-slate-600 dark:text-slate-300">{ageStr(vehicle.purchaseDate)}</span>
+          </div>
+          {vehicle.fuelType ? (
+            <div className="flex items-center gap-2 rounded-2xl bg-amber-50 dark:bg-amber-950/20 px-3 py-2">
+              <Fuel size={12} className="text-amber-500 shrink-0" />
+              <span className="text-xs font-medium text-amber-700 dark:text-amber-300 truncate">
+                {vehicle.fuelType}{vehicle.fuelCapacityLiters ? ` · ${vehicle.fuelCapacityLiters}L` : ""}
+              </span>
+            </div>
+          ) : (
+            <div className="rounded-2xl bg-slate-50 dark:bg-slate-800/60 px-3 py-2" />
+          )}
+        </div>
+
+        {/* Durability bar */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Durabilité</span>
+            <span className={`text-xs font-bold ${c.text}`}>{durPct.toFixed(0)}%</span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+            <div
+              className={`h-2 rounded-full bg-gradient-to-r transition-all duration-500 ${barGradient}`}
+              style={{ width: `${durPct}%` }}
+            />
+          </div>
         </div>
       </div>
 
-      {/* Expanded detail */}
-      {open && (
-        <div className="border-t border-slate-100 dark:border-slate-800 grid md:grid-cols-2 gap-0">
-          {/* Curve */}
-          <div className="p-5 border-b md:border-b-0 md:border-r border-slate-100 dark:border-slate-800">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 mb-3">
-              {t("durabilityCurveTitle")}
-            </p>
-            <DurabilityCurve purchaseDate={vehicle.purchaseDate} lifeExpectancyDays={vehicle.lifeExpectancyDays} />
-            {vehicle.notes && (
-              <p className="mt-3 text-xs text-slate-400 italic">{vehicle.notes}</p>
-            )}
-          </div>
-
-          {/* Delivery logs */}
-          <div className="p-5">
-            <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-              <div className="rounded-2xl border border-slate-100 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{t("orders")}</p>
-                <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">{history.orderCount}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-100 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{t("totalRevenue")}</p>
-                <p className="mt-2 text-lg font-bold text-emerald-600 dark:text-emerald-400">
-                  {history.income.toLocaleString("fr-TN", { minimumFractionDigits: 2 })} TND
-                </p>
-              </div>
-              <div className="rounded-2xl border border-slate-100 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{t("fuelLabel")}</p>
-                <p className="mt-2 text-lg font-bold text-rose-600 dark:text-rose-400">
-                  {history.fuelOutcome.toLocaleString("fr-TN", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} L
-                </p>
-              </div>
-              <div className="rounded-2xl border border-slate-100 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">KM parcourus</p>
-                <p className="mt-2 text-lg font-bold text-indigo-600 dark:text-indigo-400">
-                  {history.totalKm.toLocaleString("fr-TN", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km
-                </p>
-              </div>
-              <div className="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-3 dark:border-amber-900/30 dark:bg-amber-950/20">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-500 dark:text-amber-400 flex items-center gap-1">
-                  <Fuel size={9} /> Carburant consommé
-                </p>
-                <p className="mt-2 text-base font-bold text-amber-700 dark:text-amber-300">
-                  {history.fuelConsumed.toLocaleString("fr-TN", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} L
-                </p>
-                <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                  ≈ {history.fuelCost.toLocaleString("fr-TN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TND
-                </p>
-              </div>
-            </div>
-
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 mb-3">
-              {t("deliveryHistoryTitle")}
-            </p>
-            {loadingDel ? (
-              <div className="flex items-center gap-2 text-xs text-slate-400">
-                <Loader2 size={12} className="animate-spin" /> {t("loading")}
-              </div>
-            ) : deliveries.length === 0 ? (
-              <p className="text-xs text-slate-400">{t("noDeliveriesRecorded")}</p>
-            ) : (
-              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-                {deliveries.map((d) => (
-                  <div key={d._id} className="flex items-center justify-between text-xs rounded-2xl px-3 py-2 bg-slate-50 dark:bg-slate-800/60">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-slate-800 dark:text-white">{d.planNo}</span>
-                      {d.zone && <span className="text-slate-400">{d.zone}</span>}
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-slate-400">{d.orderIds.length} cmd</span>
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                        d.status === "COMPLETED" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" :
-                        d.status === "IN_PROGRESS" ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400" :
-                        d.status === "CANCELLED" ? "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400" :
-                        "bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300"
-                      }`}>{d.status}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Footer */}
+      <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800 px-5 py-2.5">
+        <span className="text-[10px] text-slate-400 dark:text-slate-500">
+          {new Date(vehicle.purchaseDate).toLocaleDateString("fr-FR", { month: "short", year: "numeric" })}
+        </span>
+        <span className="flex items-center gap-1 text-[10px] font-medium text-indigo-500 group-hover:text-indigo-600 dark:text-indigo-400 transition-colors">
+          Voir détails <ArrowRight size={11} />
+        </span>
+      </div>
     </div>
   );
 }
@@ -366,8 +277,8 @@ interface FormState {
   capacityKg: string;
   capacityPackets: string;
   purchaseDate: string;
-  lifeExpectancyDays: string;
-  durabilityPercent: string;
+  fuelType: string;
+  fuelCapacityLiters: string;
 }
 
 const EMPTY: FormState = {
@@ -375,8 +286,8 @@ const EMPTY: FormState = {
   capacityKg: "",
   capacityPackets: "",
   purchaseDate: "",
-  lifeExpectancyDays: "3650",
-  durabilityPercent: String(calcDurabilityFromLifeDays(3650)),
+  fuelType: "",
+  fuelCapacityLiters: "",
 };
 
 function splitMatricule(value: string) {
@@ -408,28 +319,23 @@ function VehicleModal({
           capacityKg: String(initial.capacityKg),
           capacityPackets: String(initial.capacityPackets),
           purchaseDate: initial.purchaseDate.split("T")[0],
-          lifeExpectancyDays: String(initial.lifeExpectancyDays ?? 3650),
-          durabilityPercent: String(initial.durabilityPercent ?? calcDurabilityFromLifeDays(initial.lifeExpectancyDays ?? 3650)),
+          fuelType: initial.fuelType || "",
+          fuelCapacityLiters: String(initial.fuelCapacityLiters ?? ""),
         }
       : EMPTY
   );
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  const [fuelTypes, setFuelTypes] = useState<{ name: string }[]>([]);
   const matriculeParts = splitMatricule(form.matricule);
 
+  useEffect(() => {
+    commercialSettingService.get().then((s) => setFuelTypes(s.fuelTypes ?? [])).catch(() => {});
+  }, []);
+
   const set = (field: keyof FormState) =>
-    (e: React.ChangeEvent<HTMLInputElement>) =>
-      setForm((p) => ({
-        ...p,
-        [field]: e.target.value,
-        ...(field === "lifeExpectancyDays"
-          ? {
-              durabilityPercent: String(
-                calcDurabilityFromLifeDays(Number(e.target.value) || 0)
-              ),
-            }
-          : {}),
-      }));
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setForm((p) => ({ ...p, [field]: e.target.value }));
 
   const setMatriculePart = (part: "left" | "right") =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -443,9 +349,6 @@ function VehicleModal({
       }));
     };
 
-  // Live durability preview
-  const previewPct = Number(form.durabilityPercent);
-  const previewColor = previewPct !== null ? durColor(previewPct) : null;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -514,46 +417,46 @@ function VehicleModal({
             </div>
           </div>
 
-          {/* Date + Life — side by side */}
+          {/* Purchase date */}
+          <div>
+            <label className={labelClass}>{t("purchaseDateLabel")}</label>
+            <input
+              type="date"
+              className={inputClass}
+              value={form.purchaseDate}
+              onChange={set("purchaseDate")}
+              required
+            />
+          </div>
+
+          {/* Fuel type + capacity */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelClass}>{t("purchaseDateLabel")}</label>
-              <input
-                type="date"
+              <label className={labelClass}>Type de carburant</label>
+              <select
                 className={inputClass}
-                value={form.purchaseDate}
-                onChange={set("purchaseDate")}
-                required
-              />
+                value={form.fuelType}
+                onChange={set("fuelType")}
+              >
+                <option value="">— Sélectionner —</option>
+                {fuelTypes.map((ft) => (
+                  <option key={ft.name} value={ft.name}>{ft.name}</option>
+                ))}
+              </select>
             </div>
             <div>
-              <label className={labelClass}>{t("lifespanDaysLabel")}</label>
+              <label className={labelClass}>Capacité réservoir (L)</label>
               <input
                 type="number"
-                min={1}
+                min={0}
+                step="0.1"
                 className={inputClass}
-                value={form.lifeExpectancyDays}
-                onChange={set("lifeExpectancyDays")}
-                required
+                value={form.fuelCapacityLiters}
+                onChange={set("fuelCapacityLiters")}
+                placeholder="ex: 60"
               />
             </div>
           </div>
-
-          {/* Live durability preview */}
-          {previewPct !== null && (
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 px-4 py-3 flex items-center gap-3">
-              <div className="flex-1">
-                <p className="text-xs text-slate-500 mb-1">{t("currentCalculatedDurability")}</p>
-                <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-800">
-                  <div
-                    className={`h-2 rounded-full transition-all ${previewColor!.bar}`}
-                    style={{ width: `${previewPct}%` }}
-                  />
-                </div>
-              </div>
-              <span className={`text-lg font-bold ${previewColor!.text}`}>{previewPct.toFixed(0)}%</span>
-            </div>
-          )}
 
           {err && <p className="text-xs text-red-500">{err}</p>}
 
@@ -589,7 +492,7 @@ function AdjustDurabilityModal({
   onClose: () => void;
   onSave: (addPct: number, reason: string) => Promise<void>;
 }) {
-  const currentPct = vehicle.durabilityPercent ?? calcDurabilityFromLifeDays(vehicle.lifeExpectancyDays);
+  const currentPct = calcDurability(vehicle.purchaseDate);
   const [addPct, setAddPct] = useState("10");
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
@@ -702,8 +605,6 @@ function AdjustDurabilityModal({
 export default function FleetPage() {
   const { t } = useLanguage();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [fuelPricePerLiter, setFuelPricePerLiter] = useState(0);
-  const [fuelPer10Km, setFuelPer10Km] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -712,10 +613,8 @@ export default function FleetPage() {
 
   const load = async () => {
     try {
-      const [v, s] = await Promise.all([vehicleService.getAll(), commercialSettingService.get()]);
+      const v = await vehicleService.getAll();
       setVehicles(v);
-      setFuelPricePerLiter(s.fuelPricePerLiter ?? 0);
-      setFuelPer10Km(s.fuelPer10Km ?? 0);
     }
     catch { /* ignore */ }
     finally { setLoading(false); }
@@ -729,9 +628,9 @@ export default function FleetPage() {
 
   const totalActive = vehicles.filter((v) => v.active).length;
   const avgDur = vehicles.length
-    ? Math.round(vehicles.reduce((s, v) => s + (v.durabilityPercent ?? calcDurability(v.purchaseDate, v.lifeExpectancyDays)), 0) / vehicles.length)
+    ? Math.round(vehicles.reduce((s, v) => s + calcDurability(v.purchaseDate), 0) / vehicles.length)
     : 0;
-  const atRisk = vehicles.filter((v) => (v.durabilityPercent ?? calcDurability(v.purchaseDate, v.lifeExpectancyDays)) < 50).length;
+  const atRisk = vehicles.filter((v) => calcDurability(v.purchaseDate) < 50).length;
 
   const openCreate = () => { setEditing(undefined); setShowModal(true); };
   const openEdit = (v: Vehicle) => { setEditing(v); setShowModal(true); };
@@ -742,8 +641,8 @@ export default function FleetPage() {
       capacityKg: Number(form.capacityKg),
       capacityPackets: Number(form.capacityPackets),
       purchaseDate: form.purchaseDate,
-      lifeExpectancyDays: Number(form.lifeExpectancyDays),
-      durabilityPercent: Number(form.durabilityPercent),
+      fuelType: form.fuelType,
+      fuelCapacityLiters: form.fuelCapacityLiters ? Number(form.fuelCapacityLiters) : 0,
     };
     if (editing) {
       const updated = await vehicleService.update(editing._id, payload);
@@ -761,7 +660,7 @@ export default function FleetPage() {
 
   const handleAdjust = async (addPct: number, reason: string) => {
     if (!adjusting) return;
-    const currentPct = adjusting.durabilityPercent ?? calcDurabilityFromLifeDays(adjusting.lifeExpectancyDays);
+    const currentPct = calcDurability(adjusting.purchaseDate);
     const newPct = Math.min(100, currentPct + addPct);
     const date = new Date().toLocaleDateString("fr-TN");
     const noteEntry = `[${date}] +${addPct}% — ${reason}`;
@@ -837,9 +736,9 @@ export default function FleetPage() {
           </button>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filtered.map((v) => (
-            <VehicleCard key={v._id} vehicle={v} onEdit={openEdit} onToggle={handleToggle} onAdjust={(veh) => setAdjusting(veh)} fuelPricePerLiter={fuelPricePerLiter} fuelPer10Km={fuelPer10Km} />
+            <VehicleCard key={v._id} vehicle={v} onEdit={openEdit} onToggle={handleToggle} onAdjust={(veh) => setAdjusting(veh)} />
           ))}
         </div>
       )}

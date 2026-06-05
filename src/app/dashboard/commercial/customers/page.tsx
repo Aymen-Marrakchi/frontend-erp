@@ -31,7 +31,6 @@ type CustomerForm = {
   name: string;
   email: string;
   phone: string;
-  company: string;
   address: string;
   city: string;
   continent: string;
@@ -45,7 +44,6 @@ const emptyForm: CustomerForm = {
   name: "",
   email: "",
   phone: "",
-  company: "",
   address: "",
   city: "",
   continent: "Africa",
@@ -80,7 +78,6 @@ function toForm(customer: Customer): CustomerForm {
     name: customer.name,
     email: customer.email || "",
     phone: customer.phone || "",
-    company: customer.company || "",
     address: customer.address || "",
     city: customer.city || "",
     continent: customer.continent || "Africa",
@@ -187,7 +184,6 @@ export default function CustomersPage() {
         const query = search.toLowerCase();
         return (
           customer.name.toLowerCase().includes(query) ||
-          (customer.company || "").toLowerCase().includes(query) ||
           (customer.email || "").toLowerCase().includes(query) ||
           getCustomerRegionLabel(customer).toLowerCase().includes(query)
         );
@@ -267,7 +263,7 @@ export default function CustomersPage() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder={t("search") || "Search by name, company, email or region..."}
+            placeholder={t("search") || "Search by name, email or region..."}
             className="flex-1 bg-transparent text-sm text-slate-900 placeholder-slate-400 outline-none dark:text-white"
           />
           {search && (
@@ -293,7 +289,6 @@ export default function CustomersPage() {
                 <thead className="bg-slate-50 dark:bg-slate-800/50">
                   <tr className="text-left text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
                     <th className="px-6 py-3 font-medium">{t("customerName") || "Customer"}</th>
-                    <th className="px-6 py-3 font-medium">{t("company") || "Company"}</th>
                     <th className="px-6 py-3 font-medium">{t("emailLabel2") || "Email"}</th>
                     <th className="px-6 py-3 font-medium">{t("phoneLabel") || "Phone"}</th>
                     <th className="px-6 py-3 font-medium">{t("regionLabel") || "Region"}</th>
@@ -306,7 +301,6 @@ export default function CustomersPage() {
                   {filtered.map((customer) => (
                     <tr key={customer._id} className={!customer.active ? "opacity-60" : ""}>
                       <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">{customer.name}</td>
-                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{customer.company || "—"}</td>
                       <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{customer.email || "—"}</td>
                       <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{customer.phone || "—"}</td>
                       <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{getCustomerRegionLabel(customer) || "—"}</td>
@@ -377,15 +371,9 @@ export default function CustomersPage() {
                   <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputClass} placeholder="John Doe" />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className={labelClass}>{t("company") || "Company"}</label>
-                    <input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} className={inputClass} placeholder="Acme Corp" />
-                  </div>
-                  <div>
-                    <label className={labelClass}>{t("phoneLabel") || "Phone"}</label>
-                    <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={inputClass} placeholder="+216 ..." />
-                  </div>
+                <div>
+                  <label className={labelClass}>{t("phoneLabel") || "Phone"}</label>
+                  <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={inputClass} placeholder="+216 ..." />
                 </div>
 
                 <div>

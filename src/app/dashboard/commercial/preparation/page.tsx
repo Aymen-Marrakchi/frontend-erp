@@ -2,10 +2,10 @@
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useLanguage } from "@/context/LanguageContext";
-import { customerInvoiceService, type CustomerInvoice } from "@/services/commercial/customerInvoiceService";
 import { salesOrderService, type SalesOrder } from "@/services/commercial/salesOrderService";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Loader2, Package, Printer, Search, ShoppingCart } from "lucide-react";
+import { commercialDocumentService } from "@/services/commercial/commercialDocumentService";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronDown, FileText, Loader2, Package, Printer, Save, Search, ShoppingCart, X } from "lucide-react";
 
 const surface =
   "rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900";
@@ -79,77 +79,265 @@ function groupByDepot(order: SalesOrder) {
   return Array.from(groups.values());
 }
 
-// ─── Montant en lettres (French, TND) ────────────────────────────────────────
-function numToWordsFR(n: number): string {
-  if (n === 0) return "zéro";
-  const ones = ["","un","deux","trois","quatre","cinq","six","sept","huit","neuf",
-    "dix","onze","douze","treize","quatorze","quinze","seize","dix-sept","dix-huit","dix-neuf"];
-  const tens = ["","","vingt","trente","quarante","cinquante","soixante","soixante","quatre-vingt","quatre-vingt"];
-  let r = "";
-  if (n >= 1000000) { r += numToWordsFR(Math.floor(n / 1000000)) + " million "; n %= 1000000; }
-  if (n >= 1000) {
-    if (Math.floor(n / 1000) === 1) r += "mille ";
-    else r += numToWordsFR(Math.floor(n / 1000)) + " mille ";
-    n %= 1000;
-  }
-  if (n >= 100) {
-    if (Math.floor(n / 100) === 1) r += "cent ";
-    else r += ones[Math.floor(n / 100)] + " cent ";
-    n %= 100;
-  }
-  if (n >= 20) {
-    const t = Math.floor(n / 10), o = n % 10;
-    if (t === 7 || t === 9) { r += tens[t] + "-" + ones[10 + o] + " "; }
-    else if (t === 8) { r += (o === 0 ? "quatre-vingts" : "quatre-vingt-" + ones[o]) + " "; }
-    else { r += tens[t] + (o === 1 ? "-et-un" : o > 0 ? "-" + ones[o] : "") + " "; }
-  } else if (n > 0) { r += ones[n] + " "; }
-  return r.trim();
+async function buildBLPdf(order: SalesOrder): Promise<Blob> {
+  const { jsPDF } = await import("jspdf");
+  const autoTable  = (await import("jspdf-autotable")).default;
+
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const W = 210, MARGIN = 14, PAGE_H = 297;
+  const r = (v: number) => Math.round((v + Number.EPSILON) * 1000) / 1000;
+
+  // ── Logo ──────────────────────────────────────────────────────────────────
+  let logoDataUrl: string | null = null;
+  try {
+    const res  = await fetch("/EMMlogo.png");
+    const blob = await res.blob();
+    logoDataUrl = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.readAsDataURL(blob);
+    });
+  } catch { /* optional */ }
+  if (logoDataUrl) doc.addImage(logoDataUrl, "PNG", MARGIN, 8, 28, 18);
+
+  // ── Company ───────────────────────────────────────────────────────────────
+  doc.setFontSize(8).setFont("helvetica", "normal").setTextColor(100, 116, 139);
+  doc.text("Route de Gabès Km 6, Sfax, Tunisie", MARGIN, 30);
+  doc.text("Tél : +(216) 98 241 790  ·  info@emmtn.com", MARGIN, 34);
+
+  // ── BL header (right) ─────────────────────────────────────────────────────
+  doc.setFontSize(20).setFont("helvetica", "bold").setTextColor(15, 23, 42);
+  doc.text("BON DE LIVRAISON", W - MARGIN, 14, { align: "right" });
+  doc.setFontSize(11).setFont("helvetica", "normal").setTextColor(51, 65, 85);
+  doc.text(order.orderNo, W - MARGIN, 21, { align: "right" });
+  doc.setFontSize(8).setTextColor(100, 116, 139);
+  const issueDate = new Date().toLocaleDateString("fr-FR");
+  doc.text(`Date : ${issueDate}`, W - MARGIN, 27, { align: "right" });
+  doc.text(`Client : ${order.customerName}`, W - MARGIN, 32, { align: "right" });
+
+  // ── Separator ─────────────────────────────────────────────────────────────
+  doc.setDrawColor(226, 232, 240);
+  doc.line(MARGIN, 40, W - MARGIN, 40);
+
+  // ── Emitter / Client boxes ────────────────────────────────────────────────
+  const boxY = 43, boxH = 20;
+  doc.setFillColor(248, 250, 252).setDrawColor(226, 232, 240);
+  doc.roundedRect(MARGIN, boxY, 85, boxH, 2, 2, "FD");
+  doc.roundedRect(W / 2 + 2, boxY, 85, boxH, 2, 2, "FD");
+
+  doc.setFontSize(7).setFont("helvetica", "bold").setTextColor(100, 116, 139);
+  doc.text("ÉMETTEUR", MARGIN + 3, boxY + 5);
+  doc.text("CLIENT / DESTINATAIRE", W / 2 + 5, boxY + 5);
+  doc.setFontSize(9).setFont("helvetica", "bold").setTextColor(15, 23, 42);
+  doc.text("EMM TN", MARGIN + 3, boxY + 11);
+  doc.text(order.customerName, W / 2 + 5, boxY + 11);
+  doc.setFontSize(7.5).setFont("helvetica", "normal").setTextColor(100, 116, 139);
+  doc.text("Route de Gabès Km 6, Sfax", MARGIN + 3, boxY + 16);
+
+  // ── Compute line totals ───────────────────────────────────────────────────
+  const lines = (order.lines || []) as any[];
+  const PDF_MIN_ROWS = 16;
+  const dataTableRows = lines.map((line: any) => {
+    const qty       = Number(line.quantity  || 0);
+    const unitPrice = Number(line.unitPrice || 0);
+    const disc      = Number(line.discount  || 0);
+    const brutHT    = r(qty * unitPrice);
+    const remiseAmt = r(brutHT * disc / 100);
+    const montantHT = r(brutHT - remiseAmt);
+    return [
+      line.productId?.sku  || "—",
+      line.productId?.name || "—",
+      qty.toString(),
+      r(unitPrice).toFixed(3),
+      disc > 0 ? `${disc}%` : "—",
+      montantHT.toFixed(3),
+    ];
+  });
+  const tableRows = [
+    ...dataTableRows,
+    ...Array.from({ length: Math.max(0, PDF_MIN_ROWS - dataTableRows.length) }, () => ["", "", "", "", "", ""]),
+  ];
+
+  const totalBrutHT  = r(lines.reduce((s, l) => s + Number(l.quantity||0)*Number(l.unitPrice||0), 0));
+  const totalRemise  = r(lines.reduce((s, l) => {
+    const b = Number(l.quantity||0)*Number(l.unitPrice||0);
+    return s + r(b * Number(l.discount||0) / 100);
+  }, 0));
+  const totalNetHT   = r(totalBrutHT - totalRemise);
+  const tvaRate      = 19;
+  const tvaAmt       = r(totalNetHT * tvaRate / 100);
+  const timbre       = 1;
+  const totalTTC     = r(totalNetHT + tvaAmt + timbre);
+
+  // ── Products table ────────────────────────────────────────────────────────
+  const tableStartY = boxY + boxH + 5;
+
+  autoTable(doc, {
+    startY: tableStartY,
+    margin: { left: MARGIN, right: MARGIN },
+    tableWidth: W - MARGIN * 2,
+    head: [["Référence", "Désignation", "Qté", "Prix HT", "Remise", "Montant HT"]],
+    body: tableRows,
+    styles: { fontSize: 8, cellPadding: 2.8, lineWidth: 0, minCellHeight: 8 },
+    headStyles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: "bold", fontSize: 8, lineWidth: 0 },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    tableLineColor: [226, 232, 240],
+    tableLineWidth: 0.3,
+    didDrawCell: (data: any) => {
+      const totalCols = 6;
+      if (data.column.index < totalCols - 1) {
+        const color = data.row.section === "head" ? [255, 255, 255] : [226, 232, 240];
+        doc.setDrawColor(color[0], color[1], color[2]);
+        doc.setLineWidth(0.2);
+        doc.line(
+          data.cell.x + data.cell.width,
+          data.cell.y,
+          data.cell.x + data.cell.width,
+          data.cell.y + data.cell.height
+        );
+      }
+    },
+    columnStyles: {
+      0: { cellWidth: 28 },
+      1: { cellWidth: "auto" },
+      2: { cellWidth: 16, halign: "center" },
+      3: { cellWidth: 24, halign: "right" },
+      4: { cellWidth: 18, halign: "center" },
+      5: { cellWidth: 26, halign: "right", fontStyle: "bold" },
+    },
+  });
+
+  const afterTable = (doc as any).lastAutoTable.finalY;
+
+  // ── Totals box (bottom-right) ─────────────────────────────────────────────
+  const totalsX   = W - MARGIN - 72;
+  const totalsY   = afterTable + 6;
+  const rowH      = 7;
+  const col1W     = 42, col2W = 30;
+
+  const totalsRows: [string, string, boolean, boolean][] = [
+    ["Total HT",           `${totalBrutHT.toFixed(3)} TND`,  false, false],
+    ["Remise",             `- ${totalRemise.toFixed(3)} TND`, false, false],
+    ["Total Net HT",       `${totalNetHT.toFixed(3)} TND`,   false, true],
+    [`TVA (${tvaRate}%)`,  `${tvaAmt.toFixed(3)} TND`,       false, false],
+    ["Timbre fiscal",      `${timbre.toFixed(3)} TND`,        false, false],
+    ["TOTAL TTC",          `${totalTTC.toFixed(3)} TND`,      true,  true],
+  ];
+
+  doc.setDrawColor(226, 232, 240).setLineWidth(0.2);
+
+  totalsRows.forEach(([label, value, isDark, isBold], i) => {
+    const y = totalsY + i * rowH;
+    if (isDark) {
+      doc.setFillColor(15, 23, 42);
+      doc.rect(totalsX, y, col1W + col2W, rowH, "F");
+      doc.setTextColor(255, 255, 255);
+    } else {
+      doc.setFillColor(i % 2 === 0 ? 248 : 255, i % 2 === 0 ? 250 : 255, i % 2 === 0 ? 252 : 255);
+      doc.rect(totalsX, y, col1W + col2W, rowH, "F");
+      doc.setTextColor(15, 23, 42);
+    }
+    doc.setDrawColor(226, 232, 240);
+    doc.rect(totalsX, y, col1W + col2W, rowH, "S");
+
+    const fontStyle = isBold ? "bold" : "normal";
+    doc.setFontSize(8).setFont("helvetica", fontStyle);
+    doc.text(label, totalsX + 3, y + rowH - 2);
+    doc.text(value, totalsX + col1W + col2W - 3, y + rowH - 2, { align: "right" });
+  });
+
+  // ── Single signature zone (right-aligned, below totals) ──────────────────
+  const sigY    = totalsY + totalsRows.length * rowH + 8;
+  const sigBoxW = 72;
+  const sigBoxH = 18;
+  const sigX    = totalsX;
+
+  doc.setFontSize(7.5).setFont("helvetica", "bold").setTextColor(100, 116, 139);
+  doc.text("SIGNATURE", sigX + sigBoxW / 2, sigY, { align: "center" });
+
+  doc.setDrawColor(203, 213, 225).setLineWidth(0.3).setLineDashPattern([1.5, 1.5], 0);
+  doc.roundedRect(sigX, sigY + 3, sigBoxW, sigBoxH, 1, 1);
+  doc.setLineDashPattern([], 0);
+
+  doc.setFontSize(7).setFont("helvetica", "normal").setTextColor(148, 163, 184);
+  doc.text("Signature & Cachet", sigX + sigBoxW / 2, sigY + 3 + sigBoxH + 4, { align: "center" });
+
+  // ── Footer ────────────────────────────────────────────────────────────────
+  doc.setDrawColor(226, 232, 240).setLineWidth(0.2);
+  doc.line(MARGIN, PAGE_H - 10, W - MARGIN, PAGE_H - 10);
+  doc.setFontSize(7).setFont("helvetica", "normal").setTextColor(148, 163, 184);
+  doc.text("EMM TN · Route de Gabès Km 6, Sfax · +(216) 98 241 790 · info@emmtn.com",
+    W / 2, PAGE_H - 6, { align: "center" });
+
+  return doc.output("blob");
 }
 
-function montantEnLettres(montant: number): string {
-  const totalMillimes = Math.round(montant * 1000);
-  const dinars = Math.floor(totalMillimes / 1000);
-  const millimes = totalMillimes % 1000;
-  let r = numToWordsFR(dinars) + (dinars > 1 ? " dinars" : " dinar");
-  if (millimes > 0) r += " et " + numToWordsFR(millimes) + (millimes > 1 ? " millimes" : " millime");
-  return r.charAt(0).toUpperCase() + r.slice(1);
+function printHtml(html: string) {
+  const win = window.open("", "_blank", "width=900,height=750");
+  if (win) {
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 400);
+  }
 }
 
-type InvoiceSettings = { companyName?: string; address?: string; phone?: string; email?: string; mf?: string; rne?: string; rib?: string; iban?: string; bank?: string; agence?: string } | null;
+function buildBLHtml(order: SalesOrder): string {
+  const companyName    = "EMM TN";
+  const companyAddress = "Route de Gabès Km 6, Sfax, Tunisie";
+  const companyPhone   = "+(216) 98 241 790";
+  const companyEmail   = "info@emmtn.com";
+  const issueDate = new Date().toLocaleDateString("fr-TN");
+  const r = (v: number) => Math.round((v + Number.EPSILON) * 1000) / 1000;
 
-function openInvoiceDocument(order: SalesOrder, invoice: CustomerInvoice, settings: InvoiceSettings) {
-  const tvaRate = invoice.applyTva ? (invoice.tvaRate ?? 19) : 0;
-  const fodecRate = invoice.applyFodec ? (invoice.fodecRate ?? 1) : 0;
-  const issueDate = new Date(invoice.issueDate || Date.now()).toLocaleDateString("fr-TN");
-  const dueDate = invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString("fr-TN") : "—";
+  const processedLines = order.lines.map((line) => {
+    const qty       = Number(line.quantity  || 0);
+    const unitPrice = Number((line as any).unitPrice || 0);
+    const disc      = Number((line as any).discount  || 0);
+    const brutHT    = r(qty * unitPrice);
+    const remiseAmt = r(brutHT * disc / 100);
+    const montantHT = r(brutHT - remiseAmt);
+    return { line, qty, unitPrice, disc, brutHT, remiseAmt, montantHT };
+  });
 
-  const s = settings;
-  const companyName = s?.companyName || "EMM TN";
-  const companyAddress = s?.address || "Route de Gabès Km 6, Sfax, Tunisie";
-  const companyPhone = s?.phone || "+(216) 98 241 790";
-  const companyEmail = s?.email || "info@emmtn.com";
-  const companyMf = s?.mf || "";
-  const companyRne = s?.rne || "";
-  const companyRib = s?.rib || "";
-  const companyIban = s?.iban || "";
-  const companyBank = s?.bank || "";
-  const companyAgence = s?.agence || "";
+  const totalBrutHT = r(processedLines.reduce((s, l) => s + l.brutHT, 0));
+  const totalRemise = r(processedLines.reduce((s, l) => s + l.remiseAmt, 0));
+  const totalNetHT  = r(totalBrutHT - totalRemise);
+  const tvaRate     = 19;
+  const tvaAmt      = r(totalNetHT * tvaRate / 100);
+  const timbre      = 1;
+  const totalTTC    = r(totalNetHT + tvaAmt + timbre);
 
-  const rows = invoice.lines.map((line, idx) => `
+  const MIN_ROWS = 16;
+  const dataRows = processedLines.map(({ line, qty, unitPrice, disc, montantHT }, idx) => `
     <tr style="background:${idx % 2 === 0 ? "#fff" : "#f8fafc"}">
-      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;color:#64748b;font-size:12px">${idx + 1}</td>
-      <td style="border:1px solid #e2e8f0;padding:7px 10px;font-size:11px;color:#64748b">${line.productId?.sku || "—"}</td>
-      <td style="border:1px solid #e2e8f0;padding:7px 10px;font-size:13px">${line.productId?.name || "—"}</td>
-      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;font-size:13px">${line.quantity}</td>
-      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:right;font-size:13px">${line.baseUnitHt.toFixed(3)}</td>
-      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:right;font-size:13px;font-weight:600">${line.subtotalHt.toFixed(3)}</td>
+      <td style="padding:7px 10px;font-size:11px;color:#64748b;border-right:1px solid #e2e8f0">${(line.productId as any)?.sku || "—"}</td>
+      <td style="padding:7px 10px;font-size:12px;border-right:1px solid #e2e8f0">${(line.productId as any)?.name || "—"}</td>
+      <td style="padding:7px 10px;text-align:center;font-size:12px;font-weight:600;border-right:1px solid #e2e8f0">${qty}</td>
+      <td style="padding:7px 10px;text-align:right;font-size:12px;border-right:1px solid #e2e8f0">${unitPrice.toFixed(3)}</td>
+      <td style="padding:7px 10px;text-align:center;font-size:12px;color:#64748b;border-right:1px solid #e2e8f0">${disc > 0 ? disc + "%" : "—"}</td>
+      <td style="padding:7px 10px;text-align:right;font-size:12px;font-weight:600">${montantHT.toFixed(3)}</td>
     </tr>`).join("");
+
+  const emptyRowsCount = Math.max(0, MIN_ROWS - processedLines.length);
+  const emptyRows = Array.from({ length: emptyRowsCount }).map((_, idx) => `
+    <tr style="height:28px;background:${(processedLines.length + idx) % 2 === 0 ? "#fff" : "#f8fafc"}">
+      <td style="border-right:1px solid #e2e8f0"></td>
+      <td style="border-right:1px solid #e2e8f0"></td>
+      <td style="border-right:1px solid #e2e8f0"></td>
+      <td style="border-right:1px solid #e2e8f0"></td>
+      <td style="border-right:1px solid #e2e8f0"></td>
+      <td></td>
+    </tr>`).join("");
+
+  const rows = dataRows + emptyRows;
 
   const html = `<!doctype html>
 <html lang="fr">
 <head>
   <meta charset="utf-8"/>
-  <title>Facture ${invoice.invoiceNo}</title>
+  <title>Bon de Livraison ${order.orderNo}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, sans-serif; font-size: 13px; color: #0f172a; background: #fff; }
@@ -163,42 +351,36 @@ function openInvoiceDocument(order: SalesOrder, invoice: CustomerInvoice, settin
 <body>
 <div class="page">
 
-  <!-- ═══ HEADER ═══ -->
-  <table style="margin-bottom:18px">
+  <!-- HEADER -->
+  <table style="margin-bottom:20px">
     <tr>
       <td style="vertical-align:top;width:55%">
         <img src="${window.location.origin}/EMMlogo.png" alt="${companyName}" style="height:60px;max-width:180px;object-fit:contain;display:block;margin-bottom:8px"/>
         <div style="font-size:11px;color:#64748b;margin-top:3px">${companyAddress}</div>
         <div style="font-size:11px;color:#64748b;margin-top:1px">Tél : ${companyPhone} &nbsp;·&nbsp; ${companyEmail}</div>
-        ${companyMf || companyRne ? `<div style="font-size:11px;color:#64748b;margin-top:4px">${companyMf ? `<strong>MF :</strong> ${companyMf}` : ""}${companyMf && companyRne ? " &nbsp;|&nbsp; " : ""}${companyRne ? `<strong>RNE :</strong> ${companyRne}` : ""}</div>` : ""}
-        ${companyRib ? `<div style="font-size:11px;color:#64748b;margin-top:1px"><strong>RIB :</strong> ${companyRib}${companyBank ? ` &nbsp;(${companyBank}${companyAgence ? " — " + companyAgence : ""})` : ""}</div>` : ""}
       </td>
       <td style="vertical-align:top;text-align:right;width:45%">
-        <div style="font-size:26px;font-weight:700;letter-spacing:-1px;color:#0f172a">FACTURE</div>
-        <div style="font-size:15px;font-weight:600;color:#334155;margin-top:2px">${invoice.invoiceNo}</div>
+        <div style="font-size:26px;font-weight:700;letter-spacing:-1px;color:#0f172a">BON DE LIVRAISON</div>
+        <div style="font-size:15px;font-weight:600;color:#334155;margin-top:2px">${order.orderNo}</div>
         <table style="margin-top:10px;margin-left:auto;width:auto">
           <tr>
             <td style="font-size:11px;color:#64748b;padding:2px 8px 2px 0;text-align:right">Date :</td>
             <td style="font-size:11px;font-weight:600;padding:2px 0">${issueDate}</td>
           </tr>
           <tr>
-            <td style="font-size:11px;color:#64748b;padding:2px 8px 2px 0;text-align:right">Échéance :</td>
-            <td style="font-size:11px;font-weight:600;padding:2px 0">${dueDate}</td>
+            <td style="font-size:11px;color:#64748b;padding:2px 8px 2px 0;text-align:right">Client :</td>
+            <td style="font-size:11px;font-weight:600;padding:2px 0">${order.customerName}</td>
           </tr>
           <tr>
-            <td style="font-size:11px;color:#64748b;padding:2px 8px 2px 0;text-align:right">Commande :</td>
-            <td style="font-size:11px;font-weight:600;padding:2px 0">${order.orderNo}</td>
-          </tr>
-          <tr>
-            <td style="font-size:11px;color:#64748b;padding:2px 8px 2px 0;text-align:right">Paiement :</td>
-            <td style="font-size:11px;font-weight:600;padding:2px 0">${invoice.paymentMethod}</td>
+            <td style="font-size:11px;color:#64748b;padding:2px 8px 2px 0;text-align:right">Statut :</td>
+            <td style="font-size:11px;font-weight:600;padding:2px 0">${order.status}</td>
           </tr>
         </table>
       </td>
     </tr>
   </table>
 
-  <!-- ═══ ÉMETTEUR / CLIENT ═══ -->
+  <!-- EMETTEUR / CLIENT -->
   <table style="margin-bottom:16px">
     <tr>
       <td style="width:48%;vertical-align:top;border:1px solid #e2e8f0;border-radius:6px;padding:10px 14px">
@@ -208,97 +390,75 @@ function openInvoiceDocument(order: SalesOrder, invoice: CustomerInvoice, settin
           ${companyName}
         </div>
         <div style="font-size:11px;color:#64748b;margin-top:3px">${companyAddress}</div>
-        ${companyMf ? `<div style="font-size:11px;color:#64748b;margin-top:1px">MF : ${companyMf}</div>` : ""}
       </td>
       <td style="width:4%"></td>
       <td style="width:48%;vertical-align:top;border:1px solid #e2e8f0;border-radius:6px;padding:10px 14px">
         <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:#64748b;font-weight:600;margin-bottom:6px">Client / Destinataire</div>
-        <div style="font-size:13px;font-weight:700">${invoice.customerName}</div>
-        ${invoice.customerAddress ? `<div style="font-size:11px;color:#64748b;margin-top:3px">Adresse : ${invoice.customerAddress}</div>` : ""}
-        ${invoice.customerMf ? `<div style="font-size:11px;color:#64748b;margin-top:1px">MF : ${invoice.customerMf}</div>` : ""}
+        <div style="font-size:13px;font-weight:700">${order.customerName}</div>
       </td>
     </tr>
   </table>
 
-  <!-- ═══ PRODUCT TABLE ═══ -->
-  <table style="margin-bottom:0;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden">
+  <!-- PRODUCT TABLE -->
+  <table style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-bottom:0">
     <thead>
       <tr style="background:#0f172a;color:#fff">
-        <th style="padding:9px 10px;text-align:center;font-size:11px;width:32px">N°</th>
-        <th style="padding:9px 10px;text-align:left;font-size:11px;width:70px">Réf.</th>
-        <th style="padding:9px 10px;text-align:left;font-size:11px">Désignation</th>
-        <th style="padding:9px 10px;text-align:center;font-size:11px;width:50px">Qté</th>
-        <th style="padding:9px 10px;text-align:right;font-size:11px;width:110px">P.U. HT (TND)</th>
-        <th style="padding:9px 10px;text-align:right;font-size:11px;width:110px">Montant HT (TND)</th>
+        <th style="padding:9px 10px;text-align:left;font-size:11px;width:90px;border-right:1px solid rgba(255,255,255,0.15)">Référence</th>
+        <th style="padding:9px 10px;text-align:left;font-size:11px;border-right:1px solid rgba(255,255,255,0.15)">Désignation</th>
+        <th style="padding:9px 10px;text-align:center;font-size:11px;width:50px;border-right:1px solid rgba(255,255,255,0.15)">Qté</th>
+        <th style="padding:9px 10px;text-align:right;font-size:11px;width:90px;border-right:1px solid rgba(255,255,255,0.15)">Prix HT (TND)</th>
+        <th style="padding:9px 10px;text-align:center;font-size:11px;width:60px;border-right:1px solid rgba(255,255,255,0.15)">Remise</th>
+        <th style="padding:9px 10px;text-align:right;font-size:11px;width:100px">Montant HT (TND)</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
   </table>
 
-  <!-- ═══ BOTTOM ANCHOR ═══ -->
+  <!-- BOTTOM ANCHOR -->
   <div style="margin-top:auto">
 
-  <!-- ═══ TAX SUMMARY ═══ -->
+  <!-- TOTALS -->
   <div style="display:flex;justify-content:flex-end;margin-top:16px;margin-bottom:16px">
-    <table style="width:280px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 6px 6px;overflow:hidden">
+    <table style="width:260px;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;border-collapse:collapse">
       <tr style="background:#f8fafc">
-        <td style="padding:6px 12px;font-size:12px;color:#64748b">Total brut HT</td>
-        <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:600">${invoice.subtotalHt.toFixed(3)} TND</td>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0">Total HT</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:600;border-bottom:1px solid #e2e8f0">${totalBrutHT.toFixed(3)} TND</td>
       </tr>
-      ${fodecRate > 0 ? `<tr>
-        <td style="padding:6px 12px;font-size:12px;color:#64748b">FODEC (${fodecRate}%)</td>
-        <td style="padding:6px 12px;text-align:right;font-size:12px">${invoice.totalFodec.toFixed(3)} TND</td>
-      </tr>` : ""}
-      ${tvaRate > 0 ? `<tr>
-        <td style="padding:6px 12px;font-size:12px;color:#64748b">TVA (${tvaRate}%)</td>
-        <td style="padding:6px 12px;text-align:right;font-size:12px">${invoice.totalVat.toFixed(3)} TND</td>
+      ${totalRemise > 0 ? `<tr>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0">Remise</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;border-bottom:1px solid #e2e8f0">- ${totalRemise.toFixed(3)} TND</td>
       </tr>` : ""}
       <tr style="background:#f8fafc">
-        <td style="padding:6px 12px;font-size:12px;color:#64748b">Avant timbre</td>
-        <td style="padding:6px 12px;text-align:right;font-size:12px">${invoice.totalBeforeStamp.toFixed(3)} TND</td>
+        <td style="padding:6px 12px;font-size:12px;font-weight:600;color:#0f172a;border-bottom:1px solid #e2e8f0">Total Net HT</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:600;border-bottom:1px solid #e2e8f0">${totalNetHT.toFixed(3)} TND</td>
       </tr>
       <tr>
-        <td style="padding:6px 12px;font-size:12px;color:#64748b">Timbre fiscal</td>
-        <td style="padding:6px 12px;text-align:right;font-size:12px">${invoice.timbreFiscal.toFixed(3)} TND</td>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0">TVA (${tvaRate}%)</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;border-bottom:1px solid #e2e8f0">${tvaAmt.toFixed(3)} TND</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0">Timbre fiscal</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;border-bottom:1px solid #e2e8f0">${timbre.toFixed(3)} TND</td>
       </tr>
       <tr style="background:#0f172a">
         <td style="padding:9px 12px;font-size:13px;font-weight:700;color:#fff">TOTAL TTC</td>
-        <td style="padding:9px 12px;text-align:right;font-size:13px;font-weight:700;color:#fff">${invoice.totalTtc.toFixed(3)} TND</td>
+        <td style="padding:9px 12px;text-align:right;font-size:13px;font-weight:700;color:#fff">${totalTTC.toFixed(3)} TND</td>
       </tr>
     </table>
   </div>
 
-  <!-- ═══ MONTANT EN LETTRES ═══ -->
-  <div style="border:1px solid #e2e8f0;border-radius:6px;padding:10px 14px;margin-bottom:16px;background:#f8fafc">
-    <span style="font-size:11px;color:#64748b">Arrêté la présente facture à la somme de : </span>
-    <strong style="font-size:12px">${montantEnLettres(invoice.totalTtc)}</strong>
-  </div>
-
-  <!-- ═══ FOOTER ═══ -->
-  <div style="border-top:1px solid #e2e8f0;padding-top:12px;display:flex;justify-content:space-between;align-items:flex-start">
-    <div style="font-size:10px;color:#64748b;max-width:55%">
-      <strong style="color:#0f172a">Signatures :</strong><br/>
-      <table style="margin-top:6px;width:220px">
-        <tr>
-          <td style="font-size:10px;border:1px solid #e2e8f0;padding:4px 8px;width:50%">Émetteur</td>
-          <td style="font-size:10px;border:1px solid #e2e8f0;padding:4px 8px;width:50%">Client</td>
-        </tr>
-        <tr>
-          <td style="border:1px solid #e2e8f0;padding:24px 8px"></td>
-          <td style="border:1px solid #e2e8f0;padding:24px 8px"></td>
-        </tr>
-      </table>
-    </div>
-    <div style="font-size:10px;color:#64748b;text-align:right">
-      <strong style="color:#0f172a">Coordonnées bancaires</strong><br/>
-      ${companyRib ? `RIB : ${companyRib}<br/>` : ""}
-      ${companyIban ? `IBAN : ${companyIban}<br/>` : ""}
-      ${companyBank ? `Banque : ${companyBank}${companyAgence ? " · Agence : " + companyAgence : ""}` : ""}
+  <!-- SIGNATURE -->
+  <div style="display:flex;justify-content:flex-end;margin-top:10px">
+    <div style="width:260px;text-align:center">
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#64748b;margin-bottom:8px">Signature</div>
+      <div style="height:52px;border:1px dashed #cbd5e1;border-radius:4px"></div>
+      <div style="font-size:9px;color:#94a3b8;margin-top:6px">Signature &amp; Cachet</div>
     </div>
   </div>
 
-  <div style="margin-top:14px;text-align:center;font-size:9px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:10px">
-    ${companyName}${companyMf ? " · MF : " + companyMf : ""}${companyRne ? " · RNE : " + companyRne : ""} · ${companyAddress} · ${companyPhone} · ${companyEmail}
+  <!-- FOOTER -->
+  <div style="margin-top:20px;border-top:1px solid #e2e8f0;padding-top:10px;text-align:center;font-size:9px;color:#94a3b8">
+    ${companyName} · ${companyAddress} · ${companyPhone} · ${companyEmail}
   </div>
 
   </div><!-- end bottom anchor -->
@@ -307,14 +467,7 @@ function openInvoiceDocument(order: SalesOrder, invoice: CustomerInvoice, settin
 </body>
 </html>`;
 
-  const win = window.open("", "_blank", "width=900,height=750");
-  if (win) {
-    win.document.open();
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    setTimeout(() => win.print(), 400);
-  }
+  return html;
 }
 
 export default function CommercialPreparationPage() {
@@ -326,7 +479,9 @@ export default function CommercialPreparationPage() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const settingsRef = useRef<InvoiceSettings>(null);
+  const [blPrompt, setBlPrompt]     = useState<{ order: SalesOrder; html: string } | null>(null);
+  const [savingDoc, setSavingDoc]   = useState(false);
+  const [saveMsg, setSaveMsg]       = useState("");
 
   const fetchOrders = async () => {
     try {
@@ -357,17 +512,31 @@ export default function CommercialPreparationPage() {
     }
   };
 
-  const handlePrintInvoice = async (order: SalesOrder) => {
-    try {
-      setActionId(order._id);
-      setError("");
-      const invoice = await customerInvoiceService.getByOrderId(order._id);
-      openInvoiceDocument(order, invoice, settingsRef.current);
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, "Failed to print invoice"));
-    } finally {
-      setActionId(null);
+  const handlePrintBL = (order: SalesOrder) => {
+    const html = buildBLHtml(order);
+    setSaveMsg("");
+    setBlPrompt({ order, html });
+  };
+
+  const handleBlAction = async (save: boolean) => {
+    if (!blPrompt) return;
+    if (save) {
+      setSavingDoc(true);
+      try {
+        const { order } = blPrompt;
+        const pdfBlob = await buildBLPdf(order);
+        const date    = new Date().toISOString().slice(0, 10);
+        const file    = new File([pdfBlob], `BL-${order.orderNo}-${date}.pdf`, { type: "application/pdf" });
+        await commercialDocumentService.upload(file, `Bon de Livraison - ${order.orderNo}`);
+        setSaveMsg("Sauvegardé dans les documents.");
+      } catch {
+        setSaveMsg("Échec de la sauvegarde.");
+      } finally {
+        setSavingDoc(false);
+      }
     }
+    printHtml(blPrompt.html);
+    if (!save) setBlPrompt(null);
   };
 
   const preparationOrders = useMemo(
@@ -529,12 +698,11 @@ export default function CommercialPreparationPage() {
                         {order.packingValidatedAt ? (
                           <>
                             <button
-                              onClick={() => handlePrintInvoice(order)}
-                              disabled={busy}
-                              className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                              onClick={() => handlePrintBL(order)}
+                              className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                             >
-                              {busy ? <Loader2 size={12} className="animate-spin" /> : <Printer size={12} />}
-                              Print invoice
+                              <Printer size={12} />
+                              Imprimer BL
                             </button>
                             <span className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
                               <Package size={12} />
@@ -544,12 +712,11 @@ export default function CommercialPreparationPage() {
                         ) : canValidatePicking ? (
                           <>
                             <button
-                              onClick={() => handlePrintInvoice(order)}
-                              disabled={busy}
-                              className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                              onClick={() => handlePrintBL(order)}
+                              className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                             >
-                              {busy ? <Loader2 size={12} className="animate-spin" /> : <Printer size={12} />}
-                              Print invoice
+                              <Printer size={12} />
+                              Imprimer BL
                             </button>
                             <button
                               onClick={() => handleValidatePicking(order._id)}
@@ -632,6 +799,72 @@ export default function CommercialPreparationPage() {
           )}
         </div>
       </div>
+
+      {/* BL save/print confirmation modal */}
+      {blPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+            <div className="mb-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-teal-50 text-teal-600 dark:bg-teal-950/30 dark:text-teal-400">
+                  <FileText size={18} />
+                </div>
+                <div>
+                  <p className="font-bold text-slate-950 dark:text-white">Bon de Livraison</p>
+                  <p className="text-xs text-slate-400">{blPrompt.order.orderNo} · {blPrompt.order.customerName}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setBlPrompt(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 transition"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <p className="mb-5 text-sm text-slate-600 dark:text-slate-300">
+              Voulez-vous sauvegarder ce BL dans la page Documents avant d'imprimer ?
+            </p>
+
+            {saveMsg && (
+              <p className={`mb-4 rounded-2xl px-4 py-2.5 text-sm font-medium ${
+                saveMsg.startsWith("Sauvegardé")
+                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300"
+                  : "bg-rose-50 text-rose-600 dark:bg-rose-950/20 dark:text-rose-400"
+              }`}>
+                {saveMsg}
+              </p>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => handleBlAction(false)}
+                disabled={savingDoc}
+                className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-slate-200 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                <Printer size={14} /> Imprimer seulement
+              </button>
+              <button
+                onClick={() => handleBlAction(true)}
+                disabled={savingDoc}
+                className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-teal-600 py-2.5 text-sm font-medium text-white transition hover:bg-teal-700 disabled:opacity-50"
+              >
+                {savingDoc ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                Sauvegarder et imprimer
+              </button>
+            </div>
+
+            {saveMsg.startsWith("Sauvegardé") && (
+              <button
+                onClick={() => setBlPrompt(null)}
+                className="mt-3 w-full rounded-2xl py-2 text-xs text-slate-400 hover:text-slate-600 transition"
+              >
+                Fermer
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </ProtectedRoute>
   );
 }

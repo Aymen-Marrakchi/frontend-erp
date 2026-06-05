@@ -9,16 +9,19 @@ export type DeliveryPlanType = "SHIPMENT" | "DISCOVER";
 export interface DeliveryPlan {
   _id: string;
   planNo: string;
+  blNo?: string;
   planDate: string;
   vehicleId?: Vehicle | null;
   carrierId?: Carrier | null;
   zone?: string;
   startDate?: string | null;
+  livreurName?: string;
   fuelAddedLiters?: number;
   distanceKm?: number | null;
   orderIds: SalesOrder[];
   status: DeliveryPlanStatus;
   planType: DeliveryPlanType;
+  livreurName?: string;
   notes?: string;
   startedAt?: string;
   completedAt?: string;
@@ -38,6 +41,7 @@ export interface CreateDeliveryPlanPayload {
   startDate?: string;
   fuelAddedLiters?: number;
   orderIds?: string[];
+  livreurName?: string;
   notes?: string;
   planType?: DeliveryPlanType;
 }

@@ -1,186 +1,186 @@
 "use client";
 
 import ProtectedRoute from "@/components/ProtectedRoute";
-import { stockInventoryService } from "@/services/stock/stockInventoryService";
-import { purchaseReceiptService, type PurchaseReceipt } from "@/services/purchase/purchaseReceiptService";
-import { financeService, type CompanySettings } from "@/services/finance/financeService";
-import { useEffect, useState } from "react";
+import { documentService, type StockDocument, type DocumentStats } from "@/services/stock/documentService";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
-  FileText, Loader2, ClipboardList, Truck,
-  Download, Printer, FileSpreadsheet, Clock, Package, BarChart3,
+  FileText, Loader2, Upload, Download, Trash2,
+  File, FileImage, FileSpreadsheet, Archive, HardDrive, CalendarDays, FolderOpen,
 } from "lucide-react";
-import { exportToPdf, exportToCsv, openBonReceptionDocument } from "@/lib/pdfExport";
-
-interface InventorySession {
-  _id: string;
-  code: string;
-  type: "PERIODIC" | "PERMANENT";
-  status: "IN_PROGRESS" | "SENT_TO_DEPOT" | "PENDING_APPROVAL" | "CLOSED";
-  depotId?: { _id: string; name: string } | null;
-  startedBy?: { _id: string; name: string } | null;
-  createdAt: string;
-  closedAt?: string | null;
-}
 
 const fmt = (v?: string | null) =>
   v ? new Date(v).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
-const monthLabel = () =>
-  new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" }).toUpperCase();
+const fmtSize = (bytes: number) => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
 
-interface ExportEntry { label: string; filename: string; at: string }
+function DocIcon({ mime }: { mime: string }) {
+  if (mime.startsWith("image/"))       return <FileImage size={16} className="text-violet-500" />;
+  if (mime.includes("spreadsheet") || mime.includes("excel") || mime.includes("csv"))
+                                        return <FileSpreadsheet size={16} className="text-emerald-500" />;
+  if (mime.includes("zip") || mime.includes("rar") || mime.includes("tar"))
+                                        return <Archive size={16} className="text-amber-500" />;
+  if (mime.includes("pdf"))             return <FileText size={16} className="text-rose-500" />;
+  return <File size={16} className="text-slate-400" />;
+}
+
+function MimeBadge({ mime }: { mime: string }) {
+  const ext = mime.split("/").pop()?.split(".").pop()?.toUpperCase().slice(0, 6) ?? "FILE";
+  const color =
+    mime.startsWith("image/")           ? "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300" :
+    mime.includes("pdf")                ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300" :
+    mime.includes("spreadsheet") || mime.includes("excel") || mime.includes("csv")
+                                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300" :
+    mime.includes("zip") || mime.includes("rar")
+                                        ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" :
+                                          "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400";
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${color}`}>{ext}</span>
+  );
+}
 
 export default function DepotDocumentsPage() {
-  const [inventories, setInventories] = useState<InventorySession[]>([]);
-  const [receipts, setReceipts]       = useState<PurchaseReceipt[]>([]);
-  const [settings, setSettings]       = useState<CompanySettings | null>(null);
-  const [loading, setLoading]         = useState(true);
-  const [error, setError]             = useState("");
-  const [exporting, setExporting]     = useState<string | null>(null);
-  const [exportLog, setExportLog]     = useState<ExportEntry[]>([]);
+  const [docs, setDocs]       = useState<StockDocument[]>([]);
+  const [stats, setStats]     = useState<DocumentStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState("");
+  const [uploading, setUploading]   = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [otpTarget, setOtpTarget]   = useState<string | null>(null);
+  const [otpInput, setOtpInput]     = useState("");
+  const [otpError, setOtpError]     = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    setLoading(true);
-    financeService.getSettings().then(setSettings).catch(() => {});
-    Promise.all([
-      stockInventoryService.getAll(),
-      purchaseReceiptService.getMine(),
-    ])
-      .then(([inv, rec]) => { setInventories(inv); setReceipts(rec); })
-      .catch((e) => setError(e?.response?.data?.message || "Erreur de chargement"))
-      .finally(() => setLoading(false));
+  const load = useCallback(async () => {
+    try {
+      const [d, s] = await Promise.all([documentService.getAll(), documentService.getStats()]);
+      setDocs(d);
+      setStats(s);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setError(msg || "Erreur de chargement");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const logExport = (label: string, filename: string) => {
-    setExportLog((prev) => [
-      { label, filename, at: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) },
-      ...prev,
-    ]);
+  useEffect(() => { void load(); }, [load]);
+
+  const handleUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    setUploadError("");
+    setUploading(true);
+    try {
+      await documentService.upload(file);
+      await load();
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setUploadError(msg || "Échec de l'upload");
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
   };
 
-  const makeInventairesPdf = async () => {
-    setExporting("inv-pdf");
-    const cols = ["Code", "Type", "Dépôt", "Statut", "Créé par", "Date création", "Clôturé le"];
-    const rows = inventories.map((i) => [
-      i.code, i.type, i.depotId?.name ?? "—",
-      i.status.replace(/_/g, " "), i.startedBy?.name ?? "—",
-      fmt(i.createdAt), fmt(i.closedAt),
-    ]);
-    const filename = `inventaires-depot-${new Date().toISOString().slice(0, 10)}.pdf`;
-    try { await exportToPdf("Inventaires Dépôt", `${inventories.length} enregistrement(s)`, cols, rows, filename); logExport("Inventaires — PDF", filename); }
-    finally { setExporting(null); }
-  };
-  const makeInventairesCsv = () => {
-    const cols = ["Code", "Type", "Dépôt", "Statut", "Créé par", "Date création", "Clôturé le"];
-    const rows = inventories.map((i) => [
-      i.code, i.type, i.depotId?.name ?? "—",
-      i.status.replace(/_/g, " "), i.startedBy?.name ?? "—",
-      fmt(i.createdAt), fmt(i.closedAt),
-    ]);
-    const filename = `inventaires-depot-${new Date().toISOString().slice(0, 10)}.csv`;
-    exportToCsv(cols, rows, filename); logExport("Inventaires — CSV", filename);
+  const openDeleteModal = (id: string) => {
+    setOtpTarget(id);
+    setOtpInput("");
+    setOtpError("");
   };
 
-  const makeReceptionsPdf = async () => {
-    setExporting("rec-pdf");
-    const cols = ["N° Bon", "Fournisseur", "N° Commande", "Dépôt", "Statut", "Lignes", "Date"];
-    const rows = receipts.map((r) => [
-      r.receiptNo, r.supplierId?.name ?? "—",
-      r.purchaseOrderId?.orderNo ?? "—", r.depotId?.name ?? "—",
-      r.receiptStatus.replace(/_/g, " "), r.lines?.length ?? 0, fmt(r.createdAt),
-    ]);
-    const filename = `receptions-depot-${new Date().toISOString().slice(0, 10)}.pdf`;
-    try { await exportToPdf("Bons de Réception", `${receipts.length} enregistrement(s)`, cols, rows, filename); logExport("Réceptions — PDF", filename); }
-    finally { setExporting(null); }
+  const confirmDelete = async () => {
+    if (!otpTarget) return;
+    setOtpError("");
+    setDeletingId(otpTarget);
+    try {
+      await documentService.delete(otpTarget, otpInput);
+      setDocs((prev) => prev.filter((d) => d._id !== otpTarget));
+      void documentService.getStats().then(setStats).catch(() => {});
+      setOtpTarget(null);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setOtpError(msg || "Code invalide");
+    } finally {
+      setDeletingId(null);
+    }
   };
-  const makeReceptionsCsv = () => {
-    const cols = ["N° Bon", "Fournisseur", "N° Commande", "Dépôt", "Statut", "Lignes", "Date"];
-    const rows = receipts.map((r) => [
-      r.receiptNo, r.supplierId?.name ?? "—",
-      r.purchaseOrderId?.orderNo ?? "—", r.depotId?.name ?? "—",
-      r.receiptStatus.replace(/_/g, " "), r.lines?.length ?? 0, fmt(r.createdAt),
-    ]);
-    const filename = `receptions-depot-${new Date().toISOString().slice(0, 10)}.csv`;
-    exportToCsv(cols, rows, filename); logExport("Réceptions — CSV", filename);
-  };
-
-  const handlePrintReceipt = (r: PurchaseReceipt) => {
-    openBonReceptionDocument({
-      receiptNo: r.receiptNo,
-      supplierName: r.supplierId?.name ?? "—",
-      orderNo: r.purchaseOrderId?.orderNo ?? null,
-      depotName: r.depotId?.name ?? null,
-      receiptStatus: r.receiptStatus,
-      invoiceDate: r.createdAt,
-      notes: r.notes,
-      company: settings ? {
-        name: settings.companyName, address: settings.address, phone: settings.phone,
-        email: settings.email, mf: settings.mf, rne: settings.rne,
-        rib: settings.rib, iban: settings.iban, bank: settings.bank, agence: settings.agence,
-      } : undefined,
-      lines: r.lines?.map((l) => ({
-        sku: l.productId?.sku,
-        name: l.productId?.name ?? "—",
-        orderedQty: l.orderedQuantity,
-        receivedQty: l.receivedQuantity,
-        acceptedQty: l.acceptedQuantity,
-        qualityStatus: l.qualityStatus,
-        lotRef: l.lotRef,
-      })),
-    });
-    logExport(`Bon ${r.receiptNo} — PDF`, `${r.receiptNo}.pdf`);
-  };
-
-  const exportAllCsv = () => { makeInventairesCsv(); makeReceptionsCsv(); };
 
   const statCards = [
     {
-      label: "TOTAL RAPPORTS", value: "2", sub: "Disponibles",
+      label: "TOTAL DOCUMENTS",
+      value: String(stats?.total ?? 0),
+      sub: "Tous fichiers",
+      icon: <FolderOpen size={18} />,
+      iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400",
+    },
+    {
+      label: "CE MOIS",
+      value: String(stats?.monthCount ?? 0),
+      sub: "Uploadés ce mois",
+      icon: <CalendarDays size={18} />,
+      iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400",
+    },
+    {
+      label: "TAILLE TOTALE",
+      value: fmtSize(stats?.totalSize ?? 0),
+      sub: "Stockage utilisé",
+      icon: <HardDrive size={18} />,
+      iconBg: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
+      large: true,
+    },
+    {
+      label: "DERNIER UPLOAD",
+      value: docs[0] ? fmt(docs[0].createdAt) : "—",
+      sub: docs[0]?.originalName?.slice(0, 20) ?? "Aucun fichier",
       icon: <FileText size={18} />,
       iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400",
-    },
-    {
-      label: "GÉNÉRÉS", value: String(exportLog.length), sub: "Cette session",
-      icon: <Download size={18} />,
-      iconBg: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
-    },
-    {
-      label: "INVENTAIRES", value: String(inventories.length), sub: "Tous statuts",
-      icon: <ClipboardList size={18} />,
-      iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400",
-    },
-    {
-      label: "BONS DE RÉCEPTION", value: String(receipts.length), sub: "Tous statuts",
-      icon: <Truck size={18} />,
-      iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400",
+      large: true,
     },
   ];
 
   return (
-    <ProtectedRoute allowedRoles={["ADMIN", "DEPOT_MANAGER", "STOCK_MANAGER"]}>
+    <ProtectedRoute allowedRoles={["ADMIN", "STOCK_MANAGER", "DEPOT_MANAGER"]}>
       <div className="space-y-6">
 
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-950 dark:text-white">
-              Dépôt <span className="text-teal-500">Reports</span>
+              Dépôt <span className="text-teal-500">Documents</span>
             </h1>
             <p className="mt-1 text-xs font-medium uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
               EMM ERP · DÉPÔT
             </p>
           </div>
           <button
-            onClick={exportAllCsv}
-            className="inline-flex items-center gap-2 rounded-2xl bg-teal-600 px-5 py-2.5 text-sm font-semibold uppercase tracking-wider text-white transition hover:bg-teal-700"
+            onClick={() => inputRef.current?.click()}
+            disabled={uploading}
+            className="inline-flex items-center gap-2 rounded-2xl bg-teal-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:opacity-50"
           >
-            <Download size={15} /> Export All CSV
+            {uploading ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
+            Importer un document
           </button>
+          <input
+            ref={inputRef}
+            type="file"
+            className="hidden"
+            onChange={(e) => void handleUpload(e.target.files)}
+          />
         </div>
 
         {error && (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400">
             {error}
+          </div>
+        )}
+        {uploadError && (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400">
+            Upload échoué : {uploadError}
           </div>
         )}
 
@@ -198,194 +198,122 @@ export default function DepotDocumentsPage() {
                     {card.icon}
                   </div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">{card.label}</p>
-                  <p className="mt-1 text-3xl font-bold text-slate-950 dark:text-white">{card.value}</p>
-                  <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{card.sub}</p>
+                  {card.large ? (
+                    <p className="mt-1 text-lg font-bold leading-snug text-slate-950 dark:text-white">{card.value}</p>
+                  ) : (
+                    <p className="mt-1 text-3xl font-bold text-slate-950 dark:text-white">{card.value}</p>
+                  )}
+                  <p className="mt-1 text-xs text-slate-400 dark:text-slate-500 truncate">{card.sub}</p>
                 </div>
               ))}
             </div>
 
-            {/* Report cards + export log */}
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-
-              <div className="lg:col-span-2 grid grid-cols-1 gap-4 sm:grid-cols-2 content-start">
-
-                {/* Inventaires report card */}
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                  <div className="flex items-start justify-between gap-2 mb-4">
-                    <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400">
-                      <ClipboardList size={20} />
-                    </div>
-                    <span className="rounded-full bg-teal-100 px-2.5 py-1 text-[10px] font-semibold text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">Tous statuts</span>
-                  </div>
-                  <h3 className="font-bold text-slate-950 dark:text-white">Rapport Inventaires</h3>
-                  <p className="mt-1.5 text-xs leading-relaxed text-slate-500 dark:text-slate-400">Sessions d'inventaire avec dépôt, type, statut et responsable.</p>
-                  <p className="mt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">{monthLabel()}</p>
-                  <div className="mt-4 flex gap-2">
-                    <button onClick={makeInventairesPdf} disabled={!!exporting}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-teal-700 disabled:opacity-50"
-                    >
-                      {exporting === "inv-pdf" ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />} Export PDF
-                    </button>
-                    <button onClick={makeInventairesCsv} disabled={!!exporting}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                    >
-                      <Download size={12} /> Export CSV
-                    </button>
-                  </div>
-                </div>
-
-                {/* Bons de réception report card */}
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                  <div className="flex items-start justify-between gap-2 mb-4">
-                    <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400">
-                      <Truck size={20} />
-                    </div>
-                    <span className="rounded-full bg-teal-100 px-2.5 py-1 text-[10px] font-semibold text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">Tous statuts</span>
-                  </div>
-                  <h3 className="font-bold text-slate-950 dark:text-white">Rapport Réceptions</h3>
-                  <p className="mt-1.5 text-xs leading-relaxed text-slate-500 dark:text-slate-400">Bons de réception avec fournisseur, dépôt, lignes et statut qualité.</p>
-                  <p className="mt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">{monthLabel()}</p>
-                  <div className="mt-4 flex gap-2">
-                    <button onClick={makeReceptionsPdf} disabled={!!exporting}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-teal-700 disabled:opacity-50"
-                    >
-                      {exporting === "rec-pdf" ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />} Export PDF
-                    </button>
-                    <button onClick={makeReceptionsCsv} disabled={!!exporting}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                    >
-                      <Download size={12} /> Export CSV
-                    </button>
-                  </div>
-                </div>
-
-                {/* Per-receipt print card */}
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:col-span-2">
-                  <div className="flex items-start justify-between gap-2 mb-4">
-                    <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400">
-                      <Printer size={20} />
-                    </div>
-                    <span className="rounded-full bg-teal-100 px-2.5 py-1 text-[10px] font-semibold text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">
-                      Impression individuelle
-                    </span>
-                  </div>
-                  <h3 className="font-bold text-slate-950 dark:text-white">Imprimer un bon de réception</h3>
-                  <p className="mt-1.5 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-                    Sélectionnez un bon pour générer le document avec lignes, quantités reçues et statuts qualité.
-                  </p>
-                  <div className="mt-4 max-h-52 overflow-y-auto rounded-xl border border-slate-100 divide-y divide-slate-100 dark:border-slate-800 dark:divide-slate-800">
-                    {receipts.length === 0 ? (
-                      <p className="py-6 text-center text-xs text-slate-400">Aucun bon de réception</p>
-                    ) : receipts.map((r) => (
-                      <div key={r._id} className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition">
-                        <div>
-                          <p className="font-mono text-xs font-semibold text-slate-800 dark:text-slate-200">{r.receiptNo}</p>
-                          <p className="text-[10px] text-slate-400">{r.supplierId?.name ?? "—"} · {r.lines?.length ?? 0} ligne{(r.lines?.length ?? 0) !== 1 ? "s" : ""} · {fmt(r.createdAt)}</p>
-                        </div>
-                        <button
-                          onClick={() => handlePrintReceipt(r)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[10px] font-semibold text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                        >
-                          <Printer size={10} /> PDF
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Inventaires quick list */}
-                  <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                        <BarChart3 size={14} />
-                      </div>
-                      <p className="text-xs font-bold text-slate-700 dark:text-slate-300">Inventaires récents</p>
-                    </div>
-                    <div className="max-h-36 overflow-y-auto rounded-xl border border-slate-100 divide-y divide-slate-100 dark:border-slate-800 dark:divide-slate-800">
-                      {inventories.length === 0 ? (
-                        <p className="py-4 text-center text-xs text-slate-400">Aucun inventaire</p>
-                      ) : inventories.slice(0, 10).map((inv) => (
-                        <div key={inv._id} className="flex items-center justify-between gap-3 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition">
-                          <div>
-                            <p className="font-mono text-xs font-semibold text-slate-800 dark:text-slate-200">{inv.code}</p>
-                            <p className="text-[10px] text-slate-400">{inv.depotId?.name ?? "—"} · {inv.type} · {fmt(inv.createdAt)}</p>
-                          </div>
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                            inv.status === "CLOSED" ? "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400" :
-                            inv.status === "PENDING_APPROVAL" ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" :
-                            inv.status === "SENT_TO_DEPOT" ? "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300" :
-                            "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
-                          }`}>
-                            {inv.status.replace(/_/g, " ")}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+            {/* Document list */}
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <div className="border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+                <p className="font-bold text-slate-950 dark:text-white">Documents</p>
+                <p className="mt-0.5 text-xs text-slate-400">{docs.length} fichier{docs.length !== 1 ? "s" : ""}</p>
               </div>
 
-              {/* Export log */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 h-fit">
-                <p className="text-base font-bold text-slate-950 dark:text-white">Export Log</p>
-                <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">Cette session</p>
-                <div className="mt-5">
-                  {exportLog.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-10 text-center">
-                      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800">
-                        <FileSpreadsheet size={16} className="text-slate-400" />
-                      </div>
-                      <p className="text-sm font-medium text-slate-400 dark:text-slate-500">No exports yet</p>
-                      <p className="mt-1 text-xs text-slate-400 dark:text-slate-600">Files appear here after download</p>
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {docs.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800">
+                      <FileText size={20} className="text-slate-400" />
                     </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {exportLog.map((entry, i) => (
-                        <div key={i} className="flex items-start gap-2.5 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950">
-                          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-slate-200 dark:bg-slate-700">
-                            <Download size={11} className="text-slate-500 dark:text-slate-400" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-300">{entry.label}</p>
-                            <p className="truncate text-[10px] text-slate-400 dark:text-slate-500">{entry.filename}</p>
-                          </div>
-                          <div className="ml-auto flex shrink-0 items-center gap-1 text-[10px] text-slate-400">
-                            <Clock size={9} /> {entry.at}
-                          </div>
-                        </div>
-                      ))}
+                    <p className="text-sm font-medium text-slate-400 dark:text-slate-500">Aucun document</p>
+                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-600">Les documents importés apparaîtront ici</p>
+                  </div>
+                ) : docs.map((doc) => (
+                  <div key={doc._id} className="flex items-center gap-3 px-5 py-3.5 transition hover:bg-slate-50 dark:hover:bg-slate-800/20">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/60">
+                      <DocIcon mime={doc.mimeType} />
                     </div>
-                  )}
-                </div>
-
-                {/* Quick stats */}
-                <div className="mt-6 border-t border-slate-100 pt-4 dark:border-slate-800">
-                  <p className="mb-3 text-xs font-bold text-slate-700 dark:text-slate-300">Résumé</p>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 dark:bg-slate-950">
-                      <div className="flex items-center gap-2">
-                        <Package size={13} className="text-teal-500" />
-                        <span className="text-xs text-slate-600 dark:text-slate-400">Réceptions complètes</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-200">{doc.originalName}</p>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                        <MimeBadge mime={doc.mimeType} />
+                        <span className="text-[10px] text-slate-400">{fmtSize(doc.size)}</span>
+                        <span className="text-[10px] text-slate-400">{fmt(doc.createdAt)}</span>
+                        {doc.uploadedBy && (
+                          <span className="text-[10px] text-slate-400">{doc.uploadedBy.name}</span>
+                        )}
                       </div>
-                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                        {receipts.filter((r) => r.receiptStatus === "FULL").length}
-                      </span>
+                      {doc.description && (
+                        <p className="mt-0.5 truncate text-[11px] text-slate-400 italic">{doc.description}</p>
+                      )}
                     </div>
-                    <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 dark:bg-slate-950">
-                      <div className="flex items-center gap-2">
-                        <ClipboardList size={13} className="text-teal-500" />
-                        <span className="text-xs text-slate-600 dark:text-slate-400">Inventaires clôturés</span>
-                      </div>
-                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                        {inventories.filter((i) => i.status === "CLOSED").length}
-                      </span>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        onClick={() => documentService.download(doc._id, doc.originalName)}
+                        title="Télécharger"
+                        className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-teal-600 dark:hover:bg-slate-700 dark:hover:text-teal-400"
+                      >
+                        <Download size={14} />
+                      </button>
+                      <button
+                        onClick={() => openDeleteModal(doc._id)}
+                        disabled={deletingId === doc._id}
+                        title="Supprimer"
+                        className="rounded-lg p-1.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-500 disabled:opacity-40 dark:hover:bg-rose-950/20 dark:hover:text-rose-400"
+                      >
+                        {deletingId === doc._id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                      </button>
                     </div>
                   </div>
-                </div>
+                ))}
               </div>
             </div>
           </>
         )}
       </div>
+      {/* OTP delete modal */}
+      {otpTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+            <div className="mb-5 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400">
+                <Trash2 size={18} />
+              </div>
+              <div>
+                <p className="font-bold text-slate-950 dark:text-white">Confirmer la suppression</p>
+                <p className="text-xs text-slate-400">Entrez le code OTP généré par l'administrateur</p>
+              </div>
+            </div>
+
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              value={otpInput}
+              onChange={(e) => { setOtpInput(e.target.value.replace(/\D/g, "")); setOtpError(""); }}
+              placeholder="6 chiffres"
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-center font-mono text-2xl font-bold tracking-[0.3em] text-slate-950 outline-none transition focus:border-rose-400 focus:ring-4 focus:ring-rose-50 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+            />
+
+            {otpError && (
+              <p className="mt-2 text-center text-xs font-medium text-rose-500">{otpError}</p>
+            )}
+
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={() => setOtpTarget(null)}
+                className="flex-1 rounded-2xl border border-slate-200 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => void confirmDelete()}
+                disabled={otpInput.length !== 6 || !!deletingId}
+                className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-rose-600 py-2.5 text-sm font-medium text-white transition hover:bg-rose-700 disabled:opacity-50"
+              >
+                {deletingId ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                Supprimer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </ProtectedRoute>
   );
 }
