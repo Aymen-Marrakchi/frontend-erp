@@ -3,12 +3,27 @@
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { stockInventoryService } from "@/services/stock/stockInventoryService";
 import { purchaseReceiptService, type PurchaseReceipt } from "@/services/purchase/purchaseReceiptService";
+import { stockMovementService } from "@/services/stock/stockMovementService";
 import { useEffect, useState } from "react";
 import {
   FileText, Loader2, ClipboardList, Truck,
-  Download, FileSpreadsheet, Clock, Package, BarChart3,
+  Download, FileSpreadsheet, Clock, Package, BarChart3, ArrowLeftRight,
 } from "lucide-react";
 import { exportToPdf, exportToCsv } from "@/lib/pdfExport";
+
+interface Movement {
+  _id: string;
+  productId?: { _id: string; name: string; sku: string } | null;
+  type: string;
+  quantity: number;
+  previousOnHand: number;
+  newOnHand: number;
+  depotId?: { _id: string; name: string } | null;
+  sourceModule?: string;
+  reason?: string;
+  createdAt: string;
+  createdBy?: { _id: string; name: string } | null;
+}
 
 interface InventorySession {
   _id: string;
@@ -32,21 +47,87 @@ interface ExportEntry { label: string; filename: string; at: string }
 export default function DepotRapportsPage() {
   const [inventories, setInventories] = useState<InventorySession[]>([]);
   const [receipts, setReceipts]       = useState<PurchaseReceipt[]>([]);
+  const [movements, setMovements]     = useState<Movement[]>([]);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState("");
   const [exporting, setExporting]     = useState<string | null>(null);
   const [exportLog, setExportLog]     = useState<ExportEntry[]>([]);
+
+  // Period for movement export — defaults to current month
+  const firstOfMonth = (() => {
+    const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10);
+  })();
+  const today = new Date().toISOString().slice(0, 10);
+  const [movFrom, setMovFrom] = useState(firstOfMonth);
+  const [movTo, setMovTo]     = useState(today);
 
   useEffect(() => {
     setLoading(true);
     Promise.all([
       stockInventoryService.getAll(),
       purchaseReceiptService.getMine(),
+      stockMovementService.getAll(),
     ])
-      .then(([inv, rec]) => { setInventories(inv); setReceipts(rec); })
+      .then(([inv, rec, mov]) => { setInventories(inv); setReceipts(rec); setMovements(mov); })
       .catch((e) => setError(e?.response?.data?.message || "Erreur de chargement"))
       .finally(() => setLoading(false));
   }, []);
+
+  const filteredMovements = () => {
+    const fromTs = new Date(movFrom + "T00:00:00").getTime();
+    const toTs   = new Date(movTo   + "T23:59:59").getTime();
+    return movements.filter((m) => {
+      const t = new Date(m.createdAt).getTime();
+      return t >= fromTs && t <= toTs;
+    });
+  };
+
+  const formatMovementQty = (m: Movement) => {
+    if (m.type === "ENTRY") return `+${m.quantity}`;
+    if (m.type === "EXIT" || m.type === "DEDUCTION") return `-${m.quantity}`;
+    return String(m.quantity);
+  };
+
+  const makeMovementsPdf = async () => {
+    setExporting("mov-pdf");
+    const rows = filteredMovements().map((m) => [
+      new Date(m.createdAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }),
+      m.productId?.sku ?? "—",
+      m.productId?.name ?? "—",
+      m.type,
+      formatMovementQty(m),
+      String(m.newOnHand),
+      m.depotId?.name ?? m.sourceModule ?? "—",
+      m.reason ?? "—",
+    ]);
+    const cols = ["Date", "Réf.", "Produit", "Type", "Qté", "Stock après", "Source", "Raison"];
+    const filename = `mouvements-${movFrom}_${movTo}.pdf`;
+    try {
+      await exportToPdf(
+        "Mouvements de stock",
+        `Période : ${fmt(movFrom)} → ${fmt(movTo)}  ·  ${rows.length} mouvement(s)`,
+        cols, rows, filename
+      );
+      logExport(`Mouvements ${movFrom} → ${movTo} — PDF`, filename);
+    } finally { setExporting(null); }
+  };
+
+  const makeMovementsCsv = () => {
+    const rows = filteredMovements().map((m) => [
+      new Date(m.createdAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }),
+      m.productId?.sku ?? "—",
+      m.productId?.name ?? "—",
+      m.type,
+      formatMovementQty(m),
+      String(m.newOnHand),
+      m.depotId?.name ?? m.sourceModule ?? "—",
+      m.reason ?? "—",
+    ]);
+    const cols = ["Date", "Réf.", "Produit", "Type", "Qté", "Stock après", "Source", "Raison"];
+    const filename = `mouvements-${movFrom}_${movTo}.csv`;
+    exportToCsv(cols, rows, filename);
+    logExport(`Mouvements ${movFrom} → ${movTo} — CSV`, filename);
+  };
 
   const logExport = (label: string, filename: string) => {
     setExportLog((prev) => [
@@ -105,11 +186,6 @@ export default function DepotRapportsPage() {
 
   const statCards = [
     {
-      label: "TOTAL RAPPORTS", value: "2", sub: "Disponibles",
-      icon: <FileText size={18} />,
-      iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400",
-    },
-    {
       label: "GÉNÉRÉS", value: String(exportLog.length), sub: "Cette session",
       icon: <Download size={18} />,
       iconBg: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
@@ -122,6 +198,11 @@ export default function DepotRapportsPage() {
     {
       label: "BONS DE RÉCEPTION", value: String(receipts.length), sub: "Tous statuts",
       icon: <Truck size={18} />,
+      iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400",
+    },
+    {
+      label: "MOUVEMENTS", value: String(movements.length), sub: "Total enregistré",
+      icon: <ArrowLeftRight size={18} />,
       iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400",
     },
   ];
@@ -222,6 +303,63 @@ export default function DepotRapportsPage() {
                       {exporting === "rec-pdf" ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />} Export PDF
                     </button>
                     <button onClick={makeReceptionsCsv} disabled={!!exporting}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                    >
+                      <Download size={12} /> Export CSV
+                    </button>
+                  </div>
+                </div>
+
+                {/* Movements export card (with period selection) */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:col-span-2">
+                  <div className="flex items-start justify-between gap-2 mb-4">
+                    <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400">
+                      <ArrowLeftRight size={20} />
+                    </div>
+                    <span className="rounded-full bg-teal-100 px-2.5 py-1 text-[10px] font-semibold text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">
+                      {filteredMovements().length} dans la période
+                    </span>
+                  </div>
+                  <h3 className="font-bold text-slate-950 dark:text-white">Rapport Mouvements</h3>
+                  <p className="mt-1.5 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                    Sélectionnez une période pour exporter les mouvements de stock du dépôt (entrées, sorties, ajustements...).
+                  </p>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Du
+                      </label>
+                      <input
+                        type="date"
+                        value={movFrom}
+                        max={movTo}
+                        onChange={(e) => setMovFrom(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Au
+                      </label>
+                      <input
+                        type="date"
+                        value={movTo}
+                        min={movFrom}
+                        max={today}
+                        onChange={(e) => setMovTo(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex gap-2">
+                    <button onClick={makeMovementsPdf} disabled={!!exporting || filteredMovements().length === 0}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-teal-700 disabled:opacity-50"
+                    >
+                      {exporting === "mov-pdf" ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />} Export PDF
+                    </button>
+                    <button onClick={makeMovementsCsv} disabled={!!exporting || filteredMovements().length === 0}
                       className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                     >
                       <Download size={12} /> Export CSV

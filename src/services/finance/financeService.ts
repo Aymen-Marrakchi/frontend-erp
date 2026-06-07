@@ -35,6 +35,8 @@ export interface FinanceDashboardResponse {
     recognizedRevenue: number;
     netExpectedCash: number;
     overduePayables: number;
+    totalSalary: number;
+    salariedEmployees: number;
   };
   recentEntries: FinanceEntry[];
 }
@@ -114,6 +116,7 @@ export interface AccountingJournalEntry {
   entryType: FinanceEntryType;
   sourceModule: "PURCHASE" | "COMMERCIAL" | "FINANCE";
   counterpartyName: string;
+  direction: "INFLOW" | "OUTFLOW" | "NONE";
   occurredAt: string;
   notes: string;
   currency: string;
@@ -127,6 +130,7 @@ export interface AccountLedgerMovement {
   occurredAt: string;
   side: "DEBIT" | "CREDIT";
   amount: number;
+  direction: "INFLOW" | "OUTFLOW" | "NONE";
   counterpartyName: string;
 }
 
@@ -136,6 +140,9 @@ export interface AccountingAccount {
   debit: number;
   credit: number;
   balance: number;
+  inflow: number;
+  outflow: number;
+  netFlow: number;
   entries: AccountLedgerMovement[];
 }
 
@@ -326,8 +333,10 @@ export const financeService = {
     const { data } = await api.get<AccountingJournalEntry[]>("/finance/journal");
     return data;
   },
-  async getAccounts() {
-    const { data } = await api.get<AccountingAccount[]>("/finance/accounts");
+  async getAccounts(filters?: { year?: number; month?: number }) {
+    const { data } = await api.get<{ accounts: AccountingAccount[]; totals: { inflow: number; outflow: number; netFlow: number } }>("/finance/accounts", {
+      params: filters,
+    });
     return data;
   },
   async getAccountLedger(code: string) {

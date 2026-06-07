@@ -68,7 +68,7 @@ function fmtDate(d?: string | null) {
   });
 }
 
-// ─── Print Document ───────────────────────────────────────────────────────────
+// ─── Print Document (BL-style layout) ────────────────────────────────────────
 
 function PrintDocument({
   order,
@@ -76,127 +76,189 @@ function PrintDocument({
   order: PurchaseOrder;
   settings: PurchaseSettings | null;
 }) {
+  const companyName    = "EMM TN";
+  const companyAddress = "Route de Gabès Km 6, Sfax, Tunisie";
+  const companyPhone   = "+(216) 98 241 790";
+  const companyEmail   = "info@emmtn.com";
+  const issueDate      = new Date(order.createdAt || Date.now()).toLocaleDateString("fr-TN");
+  const r = (v: number) => Math.round((v + Number.EPSILON) * 1000) / 1000;
+
+  const processedLines = order.lines.map((line) => {
+    const qty       = Number(line.quantity || 0);
+    const unitPrice = Number(line.unitPrice || 0);
+    const disc      = Number(line.discountRate || 0);
+    const brutHT    = r(qty * unitPrice);
+    const remiseAmt = r(brutHT * disc / 100);
+    const montantHT = r(brutHT - remiseAmt);
+    return { line, qty, unitPrice, disc, brutHT, remiseAmt, montantHT };
+  });
+
+  const totalBrutHT = r(processedLines.reduce((s, l) => s + l.brutHT, 0));
+  const totalRemise = r(processedLines.reduce((s, l) => s + l.remiseAmt, 0));
+  const totalNetHT  = order.subtotalHt ?? r(totalBrutHT - totalRemise);
+  const fodecRate   = order.fodecRate ?? 1;
+  const tvaRate     = order.vatRate ?? 19;
+  const totalFodec  = order.totalFodec ?? 0;
+  const totalVat    = order.totalVat ?? 0;
+  const timbre      = order.timbreFiscal ?? 1;
+  const totalTTC    = order.totalTtc;
+
+  const MIN_ROWS = 16;
+  const emptyRowsCount = Math.max(0, MIN_ROWS - processedLines.length);
+
+  const logoSrc = typeof window !== "undefined" ? `${window.location.origin}/EMMlogo.png` : "/EMMlogo.png";
+
   return (
-    <div id="bc-print-area" style={{ fontFamily: "Arial, sans-serif", background: "#fff", color: "#0f172a", padding: "40px 48px", fontSize: "13px", lineHeight: "1.5" }}>
+    <div id="bc-print-area" style={{ fontFamily: "Arial, sans-serif", fontSize: 13, color: "#0f172a", background: "#fff", maxWidth: 794, margin: "0 auto", padding: "24px 28px", display: "flex", flexDirection: "column", minHeight: "261mm" }}>
 
-      {/* ── Top bar ── */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "32px", paddingBottom: "20px", borderBottom: "2px solid #0f172a" }}>
-        {/* Company */}
-        <div>
-          <div style={{ fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", color: "#0f172a" }}>EMM TN</div>
-          <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>Zone industrielle · Tunis, Tunisie</div>
-          <div style={{ fontSize: "11px", color: "#64748b" }}>MF : 0000000/A/A/M/000</div>
-        </div>
-        {/* Document title + number */}
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: "11px", fontWeight: "700", letterSpacing: "0.18em", textTransform: "uppercase", color: "#64748b", marginBottom: "4px" }}>Bon de Commande</div>
-          <div style={{ fontSize: "28px", fontWeight: "900", color: "#0f172a", letterSpacing: "-1px" }}>{order.orderNo}</div>
-          <div style={{ fontSize: "11px", color: "#64748b", marginTop: "4px" }}>Date : {fmtDate(order.createdAt)}</div>
-          {order.tenderId && <div style={{ fontSize: "11px", color: "#94a3b8" }}>AO : {order.tenderId.tenderNo}</div>}
-          {order.purchaseRequestId && <div style={{ fontSize: "11px", color: "#94a3b8" }}>DA : {order.purchaseRequestId.requestNo}</div>}
-        </div>
-      </div>
-
-      {/* ── Parties ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "28px" }}>
-        {/* Buyer */}
-        <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "14px 16px" }}>
-          <div style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.16em", color: "#94a3b8", marginBottom: "8px" }}>Acheteur</div>
-          <div style={{ fontWeight: "700", fontSize: "14px" }}>EMM TN</div>
-          <div style={{ color: "#64748b", fontSize: "12px" }}>Service Achats</div>
-          <div style={{ color: "#64748b", fontSize: "12px" }}>Zone industrielle · Tunis</div>
-        </div>
-        {/* Supplier */}
-        <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "14px 16px" }}>
-          <div style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.16em", color: "#94a3b8", marginBottom: "8px" }}>Fournisseur</div>
-          <div style={{ fontWeight: "700", fontSize: "14px" }}>{order.supplierId.name}</div>
-          <div style={{ color: "#64748b", fontSize: "12px" }}>{order.supplierId.supplierNo}</div>
-          {order.supplierId.category && <div style={{ color: "#94a3b8", fontSize: "11px" }}>Catégorie : {order.supplierId.category}</div>}
-          {order.supplierId.paymentTerms && <div style={{ color: "#94a3b8", fontSize: "11px" }}>Conditions : {order.supplierId.paymentTerms}</div>}
-        </div>
-      </div>
-
-      {/* ── Lines table ── */}
-      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "24px", fontSize: "12px" }}>
-        <thead>
-          <tr style={{ background: "#0f172a", color: "#fff" }}>
-            <th style={{ padding: "9px 12px", textAlign: "left", fontWeight: "600", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.12em" }}>Désignation</th>
-            <th style={{ padding: "9px 12px", textAlign: "center", fontWeight: "600", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.12em" }}>Qté</th>
-            <th style={{ padding: "9px 12px", textAlign: "right", fontWeight: "600", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.12em" }}>PU HT (TND)</th>
-            <th style={{ padding: "9px 12px", textAlign: "center", fontWeight: "600", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.12em" }}>Remise</th>
-            <th style={{ padding: "9px 12px", textAlign: "right", fontWeight: "600", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.12em" }}>Total HT (TND)</th>
-          </tr>
-        </thead>
+      {/* HEADER */}
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 20 }}>
         <tbody>
-          {order.lines.map((l, i) => {
-            const ht = l.quantity * l.unitPrice * (1 - (l.discountRate || 0) / 100);
-            return (
-              <tr key={l._id} style={{ background: i % 2 === 0 ? "#fff" : "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>
-                <td style={{ padding: "10px 12px" }}>
-                  <div style={{ fontWeight: "600" }}>{l.productId?.name ?? l.description ?? "—"}</div>
-                  {l.productId && l.description && <div style={{ fontSize: "11px", color: "#94a3b8" }}>{l.description}</div>}
-                  {l.productId?.sku && <div style={{ fontSize: "10px", color: "#cbd5e1", fontFamily: "monospace" }}>{l.productId.sku}</div>}
-                </td>
-                <td style={{ padding: "10px 12px", textAlign: "center" }}>{l.quantity}</td>
-                <td style={{ padding: "10px 12px", textAlign: "right" }}>{fmt(l.unitPrice)}</td>
-                <td style={{ padding: "10px 12px", textAlign: "center", color: "#64748b" }}>{l.discountRate ? `${l.discountRate}%` : "—"}</td>
-                <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: "700" }}>{fmt(ht)}</td>
-              </tr>
-            );
-          })}
+          <tr>
+            <td style={{ verticalAlign: "top", width: "55%" }}>
+              <img src={logoSrc} alt={companyName} style={{ height: 60, maxWidth: 180, objectFit: "contain", display: "block", marginBottom: 8 }} />
+              <div style={{ fontSize: 11, color: "#64748b", marginTop: 3 }}>{companyAddress}</div>
+              <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>Tél : {companyPhone} &nbsp;·&nbsp; {companyEmail}</div>
+            </td>
+            <td style={{ verticalAlign: "top", textAlign: "right", width: "45%" }}>
+              <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-1px", color: "#0f172a" }}>BON DE COMMANDE</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: "#334155", marginTop: 2 }}>{order.orderNo}</div>
+              <table style={{ marginTop: 10, marginLeft: "auto", width: "auto", borderCollapse: "collapse" }}>
+                <tbody>
+                  <tr>
+                    <td style={{ fontSize: 11, color: "#64748b", padding: "2px 8px 2px 0", textAlign: "right" }}>Date :</td>
+                    <td style={{ fontSize: 11, fontWeight: 600, padding: "2px 0" }}>{issueDate}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ fontSize: 11, color: "#64748b", padding: "2px 8px 2px 0", textAlign: "right" }}>Fournisseur :</td>
+                    <td style={{ fontSize: 11, fontWeight: 600, padding: "2px 0" }}>{order.supplierId.name}</td>
+                  </tr>
+                  {order.tenderId && (
+                    <tr>
+                      <td style={{ fontSize: 11, color: "#64748b", padding: "2px 8px 2px 0", textAlign: "right" }}>AO :</td>
+                      <td style={{ fontSize: 11, fontWeight: 600, padding: "2px 0" }}>{order.tenderId.tenderNo}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </td>
+          </tr>
         </tbody>
       </table>
 
-      {/* ── Totals + Conditions ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "24px", alignItems: "start", marginBottom: "32px" }}>
-        {/* Conditions */}
-        <div style={{ fontSize: "12px" }}>
-          {order.deliveryTerms && (
-            <div style={{ marginBottom: "10px" }}>
-              <div style={{ fontWeight: "700", textTransform: "uppercase", fontSize: "10px", letterSpacing: "0.14em", color: "#64748b", marginBottom: "3px" }}>Conditions de livraison</div>
-              <div style={{ color: "#334155" }}>{order.deliveryTerms}</div>
-            </div>
-          )}
-          {order.paymentTerms && (
-            <div>
-              <div style={{ fontWeight: "700", textTransform: "uppercase", fontSize: "10px", letterSpacing: "0.14em", color: "#64748b", marginBottom: "3px" }}>Conditions de paiement</div>
-              <div style={{ color: "#334155" }}>{order.paymentTerms}</div>
-            </div>
-          )}
-        </div>
-        {/* Totals box */}
-        <div style={{ minWidth: "260px", border: "1px solid #e2e8f0", borderRadius: "8px", overflow: "hidden" }}>
-          {[
-            { label: "Total HT", value: fmt(order.subtotalHt) },
-            { label: `FODEC (${order.fodecRate ?? 1}%)`, value: fmt(order.totalFodec ?? 0) },
-            { label: `TVA (${order.vatRate ?? 19}%)`, value: fmt(order.totalVat) },
-            { label: "Timbre fiscal", value: fmt(order.timbreFiscal ?? 1) },
-          ].map(({ label, value }) => (
-            <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 14px", borderBottom: "1px solid #f1f5f9", fontSize: "12px" }}>
-              <span style={{ color: "#64748b" }}>{label}</span>
-              <span style={{ fontWeight: "600" }}>{value} TND</span>
-            </div>
+      {/* EMETTEUR / FOURNISSEUR */}
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 16 }}>
+        <tbody>
+          <tr>
+            <td style={{ width: "48%", verticalAlign: "top", border: "1px solid #e2e8f0", borderRadius: 6, padding: "10px 14px" }}>
+              <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.12em", color: "#64748b", fontWeight: 600, marginBottom: 6 }}>Émetteur</div>
+              <div style={{ fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+                <img src={logoSrc} alt={companyName} style={{ height: 22, objectFit: "contain" }} />
+                {companyName}
+              </div>
+              <div style={{ fontSize: 11, color: "#64748b", marginTop: 3 }}>{companyAddress}</div>
+            </td>
+            <td style={{ width: "4%" }}></td>
+            <td style={{ width: "48%", verticalAlign: "top", border: "1px solid #e2e8f0", borderRadius: 6, padding: "10px 14px" }}>
+              <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.12em", color: "#64748b", fontWeight: 600, marginBottom: 6 }}>Fournisseur</div>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{order.supplierId.name}</div>
+              {order.supplierId.supplierNo && <div style={{ fontSize: 11, color: "#64748b", marginTop: 3 }}>N° : {order.supplierId.supplierNo}</div>}
+              {order.supplierId.paymentTerms && <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>Conditions : {order.supplierId.paymentTerms}</div>}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* PRODUCT TABLE */}
+      <table style={{ width: "100%", border: "1px solid #e2e8f0", borderRadius: 6, overflow: "hidden", borderCollapse: "collapse", marginBottom: 0 }}>
+        <thead>
+          <tr style={{ background: "#0f172a", color: "#fff" }}>
+            <th style={{ padding: "9px 10px", textAlign: "left", fontSize: 11, width: 90, borderRight: "1px solid rgba(255,255,255,0.15)" }}>Référence</th>
+            <th style={{ padding: "9px 10px", textAlign: "left", fontSize: 11, borderRight: "1px solid rgba(255,255,255,0.15)" }}>Désignation</th>
+            <th style={{ padding: "9px 10px", textAlign: "center", fontSize: 11, width: 50, borderRight: "1px solid rgba(255,255,255,0.15)" }}>Qté</th>
+            <th style={{ padding: "9px 10px", textAlign: "right", fontSize: 11, width: 90, borderRight: "1px solid rgba(255,255,255,0.15)" }}>Prix HT (TND)</th>
+            <th style={{ padding: "9px 10px", textAlign: "center", fontSize: 11, width: 60, borderRight: "1px solid rgba(255,255,255,0.15)" }}>Remise</th>
+            <th style={{ padding: "9px 10px", textAlign: "right", fontSize: 11, width: 100 }}>Montant HT (TND)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {processedLines.map(({ line, qty, unitPrice, disc, montantHT }, idx) => (
+            <tr key={line._id} style={{ background: idx % 2 === 0 ? "#fff" : "#f8fafc" }}>
+              <td style={{ padding: "7px 10px", fontSize: 11, color: "#64748b", borderRight: "1px solid #e2e8f0" }}>{line.productId?.sku || "—"}</td>
+              <td style={{ padding: "7px 10px", fontSize: 12, borderRight: "1px solid #e2e8f0" }}>{line.productId?.name || line.description || "—"}</td>
+              <td style={{ padding: "7px 10px", textAlign: "center", fontSize: 12, fontWeight: 600, borderRight: "1px solid #e2e8f0" }}>{qty}</td>
+              <td style={{ padding: "7px 10px", textAlign: "right", fontSize: 12, borderRight: "1px solid #e2e8f0" }}>{unitPrice.toFixed(3)}</td>
+              <td style={{ padding: "7px 10px", textAlign: "center", fontSize: 12, color: "#64748b", borderRight: "1px solid #e2e8f0" }}>{disc > 0 ? `${disc}%` : "—"}</td>
+              <td style={{ padding: "7px 10px", textAlign: "right", fontSize: 12, fontWeight: 600 }}>{montantHT.toFixed(3)}</td>
+            </tr>
           ))}
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "#0f172a", color: "#fff", fontSize: "13px", fontWeight: "900" }}>
-            <span>TOTAL TTC</span>
-            <span>{fmt(order.totalTtc)} TND</span>
+          {Array.from({ length: emptyRowsCount }).map((_, idx) => (
+            <tr key={`empty-${idx}`} style={{ height: 28, background: (processedLines.length + idx) % 2 === 0 ? "#fff" : "#f8fafc" }}>
+              <td style={{ borderRight: "1px solid #e2e8f0" }}></td>
+              <td style={{ borderRight: "1px solid #e2e8f0" }}></td>
+              <td style={{ borderRight: "1px solid #e2e8f0" }}></td>
+              <td style={{ borderRight: "1px solid #e2e8f0" }}></td>
+              <td style={{ borderRight: "1px solid #e2e8f0" }}></td>
+              <td></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* BOTTOM ANCHOR */}
+      <div style={{ marginTop: "auto" }}>
+
+        {/* TOTALS */}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16, marginBottom: 16 }}>
+          <table style={{ width: 260, border: "1px solid #e2e8f0", borderRadius: 6, overflow: "hidden", borderCollapse: "collapse" }}>
+            <tbody>
+              <tr style={{ background: "#f8fafc" }}>
+                <td style={{ padding: "6px 12px", fontSize: 12, color: "#64748b", borderBottom: "1px solid #e2e8f0" }}>Total HT</td>
+                <td style={{ padding: "6px 12px", textAlign: "right", fontSize: 12, fontWeight: 600, borderBottom: "1px solid #e2e8f0" }}>{totalBrutHT.toFixed(3)} TND</td>
+              </tr>
+              {totalRemise > 0 && (
+                <tr>
+                  <td style={{ padding: "6px 12px", fontSize: 12, color: "#64748b", borderBottom: "1px solid #e2e8f0" }}>Remise</td>
+                  <td style={{ padding: "6px 12px", textAlign: "right", fontSize: 12, borderBottom: "1px solid #e2e8f0" }}>- {totalRemise.toFixed(3)} TND</td>
+                </tr>
+              )}
+              <tr style={{ background: "#f8fafc" }}>
+                <td style={{ padding: "6px 12px", fontSize: 12, fontWeight: 600, color: "#0f172a", borderBottom: "1px solid #e2e8f0" }}>Total Net HT</td>
+                <td style={{ padding: "6px 12px", textAlign: "right", fontSize: 12, fontWeight: 600, borderBottom: "1px solid #e2e8f0" }}>{(totalNetHT ?? 0).toFixed(3)} TND</td>
+              </tr>
+              <tr>
+                <td style={{ padding: "6px 12px", fontSize: 12, color: "#64748b", borderBottom: "1px solid #e2e8f0" }}>FODEC ({fodecRate}%)</td>
+                <td style={{ padding: "6px 12px", textAlign: "right", fontSize: 12, borderBottom: "1px solid #e2e8f0" }}>{totalFodec.toFixed(3)} TND</td>
+              </tr>
+              <tr>
+                <td style={{ padding: "6px 12px", fontSize: 12, color: "#64748b", borderBottom: "1px solid #e2e8f0" }}>TVA ({tvaRate}%)</td>
+                <td style={{ padding: "6px 12px", textAlign: "right", fontSize: 12, borderBottom: "1px solid #e2e8f0" }}>{totalVat.toFixed(3)} TND</td>
+              </tr>
+              <tr>
+                <td style={{ padding: "6px 12px", fontSize: 12, color: "#64748b", borderBottom: "1px solid #e2e8f0" }}>Timbre fiscal</td>
+                <td style={{ padding: "6px 12px", textAlign: "right", fontSize: 12, borderBottom: "1px solid #e2e8f0" }}>{timbre.toFixed(3)} TND</td>
+              </tr>
+              <tr style={{ background: "#0f172a" }}>
+                <td style={{ padding: "9px 12px", fontSize: 13, fontWeight: 700, color: "#fff" }}>TOTAL TTC</td>
+                <td style={{ padding: "9px 12px", textAlign: "right", fontSize: 13, fontWeight: 700, color: "#fff" }}>{totalTTC.toFixed(3)} TND</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* SIGNATURE */}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
+          <div style={{ width: 260, textAlign: "center" }}>
+            <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "#64748b", marginBottom: 8 }}>Signature</div>
+            <div style={{ height: 52, border: "1px dashed #cbd5e1", borderRadius: 4 }}></div>
+            <div style={{ fontSize: 9, color: "#94a3b8", marginTop: 6 }}>Signature &amp; Cachet</div>
           </div>
         </div>
-      </div>
 
-      {/* ── Signatures ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "32px", marginTop: "40px", paddingTop: "20px", borderTop: "1px solid #e2e8f0" }}>
-        {["Visa & Cachet Acheteur", "Visa & Cachet Fournisseur"].map((label) => (
-          <div key={label}>
-            <div style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.14em", color: "#94a3b8", marginBottom: "48px" }}>{label}</div>
-            <div style={{ borderTop: "1px solid #cbd5e1", paddingTop: "6px", fontSize: "11px", color: "#cbd5e1" }}>Signature / Date</div>
-          </div>
-        ))}
-      </div>
-
-      {/* ── Footer ── */}
-      <div style={{ marginTop: "32px", paddingTop: "12px", borderTop: "1px solid #f1f5f9", textAlign: "center", fontSize: "10px", color: "#94a3b8" }}>
-        EMM TN · Zone industrielle, Tunis · Tél : +216 XX XXX XXX · MF : 0000000/A/A/M/000
+        {/* FOOTER */}
+        <div style={{ marginTop: 20, borderTop: "1px solid #e2e8f0", paddingTop: 10, textAlign: "center", fontSize: 9, color: "#94a3b8" }}>
+          {companyName} · {companyAddress} · {companyPhone} · {companyEmail}
+        </div>
       </div>
     </div>
   );

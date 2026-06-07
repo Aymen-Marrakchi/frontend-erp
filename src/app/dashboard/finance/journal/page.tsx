@@ -3,8 +3,8 @@
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { financeService, AccountingJournalEntry } from "@/services/finance/financeService";
 import { useLanguage } from "@/context/LanguageContext";
-import { useEffect, useState } from "react";
-import { BookOpen, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { BookOpen, Loader2, Search } from "lucide-react";
 
 function getErrorMessage(err: unknown) {
   if (
@@ -35,6 +35,7 @@ export default function FinanceJournalPage() {
   const [entries, setEntries] = useState<AccountingJournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
 
   const entryTypeLabel: Record<string, string> = {
     INVOICE_ISSUED: t("fin_entryInvoiceIssued"),
@@ -60,20 +61,55 @@ export default function FinanceJournalPage() {
     run();
   }, []);
 
+  const filteredEntries = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return entries;
+    return entries.filter((e) => {
+      const typeLabel = (entryTypeLabel[e.entryType] || e.entryType).toLowerCase();
+      const modLabel  = (moduleLabel[e.sourceModule] || e.sourceModule).toLowerCase();
+      const dateStr   = new Date(e.occurredAt).toLocaleDateString("fr-TN").toLowerCase();
+      const lineMatch = e.lines.some((l) =>
+        String(l.accountCode).toLowerCase().includes(q) ||
+        String(l.accountName).toLowerCase().includes(q)
+      );
+      return (
+        (e.reference || "").toLowerCase().includes(q) ||
+        (e.counterpartyName || "").toLowerCase().includes(q) ||
+        typeLabel.includes(q) ||
+        modLabel.includes(q) ||
+        dateStr.includes(q) ||
+        lineMatch
+      );
+    });
+  }, [entries, search, entryTypeLabel]);
+
   return (
     <ProtectedRoute allowedRoles={["ADMIN", "FINANCE_MANAGER"]}>
       <div className="space-y-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800">
-            <BookOpen size={18} className="text-slate-600 dark:text-slate-300" />
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800">
+              <BookOpen size={18} className="text-slate-600 dark:text-slate-300" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
+                {t("fin_journalTitle")}
+              </h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                {t("fin_journalSubtitle")}
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-              {t("fin_journalTitle")}
-            </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              {t("fin_journalSubtitle")}
-            </p>
+
+          <div className="relative w-full sm:w-80">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher référence, compte, contrepartie..."
+              className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-900 outline-none transition focus:border-teal-400 focus:ring-4 focus:ring-teal-50 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:ring-teal-950/30"
+            />
           </div>
         </div>
 
@@ -88,13 +124,17 @@ export default function FinanceJournalPage() {
             <Loader2 size={16} className="animate-spin" />
             {t("fin_loadingJournal")}
           </div>
-        ) : !entries.length ? (
+        ) : !filteredEntries.length ? (
           <div className="flex items-center justify-center rounded-3xl border border-slate-200 bg-white py-16 text-sm text-slate-400 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-500">
-            {t("fin_noJournalEntries")}
+            {search ? "Aucune écriture ne correspond à la recherche" : t("fin_noJournalEntries")}
           </div>
         ) : (
           <div className="space-y-4">
-            {entries.map((entry) => (
+            <p className="text-xs text-slate-400 dark:text-slate-500">
+              {filteredEntries.length} {filteredEntries.length !== 1 ? "écritures" : "écriture"}
+              {search && entries.length !== filteredEntries.length ? ` sur ${entries.length}` : ""}
+            </p>
+            {filteredEntries.map((entry) => (
               <div
                 key={entry._id}
                 className="rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900"

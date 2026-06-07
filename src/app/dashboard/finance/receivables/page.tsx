@@ -104,15 +104,47 @@ function openInvoiceDocument(invoice: CustomerInvoice, settings: CompanySettings
   const companyBank = s?.bank || "";
   const companyAgence = s?.agence || "";
 
-  const rows = invoice.lines.map((line, idx) => `
+  const r = (v: number) => Math.round((v + Number.EPSILON) * 1000) / 1000;
+  const processedLines = invoice.lines.map((line) => {
+    const qty       = Number(line.quantity || 0);
+    const unitPrice = Number(line.baseUnitHt || 0);
+    const disc      = Number((line as any).discount || 0);
+    const brutHT    = r(qty * unitPrice);
+    const remiseAmt = Number((line as any).discountAmount || 0) > 0
+      ? Number((line as any).discountAmount)
+      : r(brutHT * disc / 100);
+    const montantHT = r(brutHT - remiseAmt);
+    return { line, qty, unitPrice, disc, brutHT, remiseAmt, montantHT };
+  });
+
+  const totalBrutHT = r(processedLines.reduce((s, l) => s + l.brutHT, 0));
+  const totalRemise = r(processedLines.reduce((s, l) => s + l.remiseAmt, 0));
+  const totalNetHT  = invoice.subtotalHt ?? r(totalBrutHT - totalRemise);
+  const timbre      = invoice.timbreFiscal ?? 1;
+
+  const MIN_ROWS = 16;
+  const dataRows = processedLines.map(({ line, qty, unitPrice, disc, montantHT }, idx) => `
     <tr style="background:${idx % 2 === 0 ? "#fff" : "#f8fafc"}">
-      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;color:#64748b;font-size:12px">${idx + 1}</td>
-      <td style="border:1px solid #e2e8f0;padding:7px 10px;font-size:11px;color:#64748b">${line.productId?.sku || "—"}</td>
-      <td style="border:1px solid #e2e8f0;padding:7px 10px;font-size:13px">${line.productId?.name || "—"}</td>
-      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;font-size:13px">${line.quantity}</td>
-      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:right;font-size:13px">${line.baseUnitHt.toFixed(3)}</td>
-      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:right;font-size:13px;font-weight:600">${line.subtotalHt.toFixed(3)}</td>
+      <td style="padding:7px 10px;font-size:11px;color:#64748b;border-right:1px solid #e2e8f0">${line.productId?.sku || "—"}</td>
+      <td style="padding:7px 10px;font-size:12px;border-right:1px solid #e2e8f0">${line.productId?.name || "—"}</td>
+      <td style="padding:7px 10px;text-align:center;font-size:12px;font-weight:600;border-right:1px solid #e2e8f0">${qty}</td>
+      <td style="padding:7px 10px;text-align:right;font-size:12px;border-right:1px solid #e2e8f0">${unitPrice.toFixed(3)}</td>
+      <td style="padding:7px 10px;text-align:center;font-size:12px;color:#64748b;border-right:1px solid #e2e8f0">${disc > 0 ? disc + "%" : "—"}</td>
+      <td style="padding:7px 10px;text-align:right;font-size:12px;font-weight:600">${montantHT.toFixed(3)}</td>
     </tr>`).join("");
+
+  const emptyRowsCount = Math.max(0, MIN_ROWS - processedLines.length);
+  const emptyRows = Array.from({ length: emptyRowsCount }).map((_, idx) => `
+    <tr style="height:28px;background:${(processedLines.length + idx) % 2 === 0 ? "#fff" : "#f8fafc"}">
+      <td style="border-right:1px solid #e2e8f0"></td>
+      <td style="border-right:1px solid #e2e8f0"></td>
+      <td style="border-right:1px solid #e2e8f0"></td>
+      <td style="border-right:1px solid #e2e8f0"></td>
+      <td style="border-right:1px solid #e2e8f0"></td>
+      <td></td>
+    </tr>`).join("");
+
+  const rows = dataRows + emptyRows;
 
   const isSupplier = invoice.invoiceType === "SUPPLIER";
   const tejStatusLabel = TEJ_STATUS_LABELS[invoice.tejStatus || "NOT_SUBMITTED"] || invoice.tejStatus || "Non soumis";
@@ -213,46 +245,50 @@ function openInvoiceDocument(invoice: CustomerInvoice, settings: CompanySettings
     </tr>
   </table>
 
-  <!-- ═══ PRODUCT TABLE ═══ -->
-  <table style="margin-bottom:0;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden">
+  <!-- PRODUCT TABLE -->
+  <table style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-bottom:0;border-collapse:collapse">
     <thead>
       <tr style="background:#0f172a;color:#fff">
-        <th style="padding:9px 10px;text-align:center;font-size:11px;width:32px">N°</th>
-        <th style="padding:9px 10px;text-align:left;font-size:11px;width:70px">Réf.</th>
-        <th style="padding:9px 10px;text-align:left;font-size:11px">Désignation</th>
-        <th style="padding:9px 10px;text-align:center;font-size:11px;width:50px">Qté</th>
-        <th style="padding:9px 10px;text-align:right;font-size:11px;width:110px">P.U. HT (TND)</th>
-        <th style="padding:9px 10px;text-align:right;font-size:11px;width:110px">Montant HT (TND)</th>
+        <th style="padding:9px 10px;text-align:left;font-size:11px;width:90px;border-right:1px solid rgba(255,255,255,0.15)">Référence</th>
+        <th style="padding:9px 10px;text-align:left;font-size:11px;border-right:1px solid rgba(255,255,255,0.15)">Désignation</th>
+        <th style="padding:9px 10px;text-align:center;font-size:11px;width:50px;border-right:1px solid rgba(255,255,255,0.15)">Qté</th>
+        <th style="padding:9px 10px;text-align:right;font-size:11px;width:90px;border-right:1px solid rgba(255,255,255,0.15)">Prix HT (TND)</th>
+        <th style="padding:9px 10px;text-align:center;font-size:11px;width:60px;border-right:1px solid rgba(255,255,255,0.15)">Remise</th>
+        <th style="padding:9px 10px;text-align:right;font-size:11px;width:100px">Montant HT (TND)</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
   </table>
 
-  <!-- ═══ BOTTOM ANCHOR ═══ -->
+  <!-- BOTTOM ANCHOR -->
   <div style="margin-top:auto">
 
-  <!-- ═══ TAX SUMMARY ═══ -->
+  <!-- TOTALS -->
   <div style="display:flex;justify-content:flex-end;margin-top:16px;margin-bottom:16px">
-    <table style="width:280px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 6px 6px;overflow:hidden">
+    <table style="width:260px;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;border-collapse:collapse">
       <tr style="background:#f8fafc">
-        <td style="padding:6px 12px;font-size:12px;color:#64748b">Total brut HT</td>
-        <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:600">${invoice.subtotalHt.toFixed(3)} TND</td>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0">Total HT</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:600;border-bottom:1px solid #e2e8f0">${totalBrutHT.toFixed(3)} TND</td>
+      </tr>
+      ${totalRemise > 0 ? `<tr>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0">Remise</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;color:#dc2626;border-bottom:1px solid #e2e8f0">- ${totalRemise.toFixed(3)} TND</td>
+      </tr>` : ""}
+      <tr style="background:#f8fafc">
+        <td style="padding:6px 12px;font-size:12px;font-weight:600;color:#0f172a;border-bottom:1px solid #e2e8f0">Total Net HT</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:600;border-bottom:1px solid #e2e8f0">${(totalNetHT ?? 0).toFixed(3)} TND</td>
       </tr>
       ${fodecRate > 0 ? `<tr>
-        <td style="padding:6px 12px;font-size:12px;color:#64748b">FODEC (${fodecRate}%)</td>
-        <td style="padding:6px 12px;text-align:right;font-size:12px">${invoice.totalFodec.toFixed(3)} TND</td>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0">FODEC (${fodecRate}%)</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;border-bottom:1px solid #e2e8f0">${invoice.totalFodec.toFixed(3)} TND</td>
       </tr>` : ""}
       ${tvaRate > 0 ? `<tr>
-        <td style="padding:6px 12px;font-size:12px;color:#64748b">TVA (${tvaRate}%)</td>
-        <td style="padding:6px 12px;text-align:right;font-size:12px">${invoice.totalVat.toFixed(3)} TND</td>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0">TVA (${tvaRate}%)</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;border-bottom:1px solid #e2e8f0">${invoice.totalVat.toFixed(3)} TND</td>
       </tr>` : ""}
-      <tr style="background:#f8fafc">
-        <td style="padding:6px 12px;font-size:12px;color:#64748b">Avant timbre</td>
-        <td style="padding:6px 12px;text-align:right;font-size:12px">${invoice.totalBeforeStamp.toFixed(3)} TND</td>
-      </tr>
       <tr>
-        <td style="padding:6px 12px;font-size:12px;color:#64748b">Timbre fiscal</td>
-        <td style="padding:6px 12px;text-align:right;font-size:12px">${invoice.timbreFiscal.toFixed(3)} TND</td>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0">Timbre fiscal</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;border-bottom:1px solid #e2e8f0">${timbre.toFixed(3)} TND</td>
       </tr>
       <tr style="background:#0f172a">
         <td style="padding:9px 12px;font-size:13px;font-weight:700;color:#fff">NET À PAYER TTC</td>
@@ -261,28 +297,23 @@ function openInvoiceDocument(invoice: CustomerInvoice, settings: CompanySettings
     </table>
   </div>
 
-  <!-- ═══ MONTANT EN LETTRES ═══ -->
-  <div style="border:1px solid #e2e8f0;border-radius:6px;padding:10px 14px;margin-bottom:16px;background:#f8fafc">
+  <!-- MONTANT EN LETTRES -->
+  <div style="border:1px solid #e2e8f0;border-radius:6px;padding:10px 14px;margin-bottom:12px;background:#f8fafc">
     <span style="font-size:11px;color:#64748b">Arrêté la présente facture à la somme de : </span>
     <strong style="font-size:12px">${montantEnLettres(invoice.totalTtc)}</strong>
   </div>
 
-  <!-- ═══ FOOTER ═══ -->
-  <div style="border-top:1px solid #e2e8f0;padding-top:12px;display:flex;justify-content:space-between;align-items:flex-start">
-    <div style="font-size:10px;color:#64748b;max-width:55%">
-      <strong style="color:#0f172a">Conditions de règlement :</strong> ${PAYMENT_METHOD_LABELS[invoice.paymentMethod] || "—"}<br/>
-      Tout retard de paiement entraîne des pénalités au taux légal en vigueur.<br/>
-      En cas de litige, compétence exclusive du Tribunal de Commerce de Tunis.
-    </div>
-    <div style="font-size:10px;color:#64748b;text-align:right">
-      <strong style="color:#0f172a">Coordonnées bancaires</strong><br/>
-      ${companyRib ? `RIB : ${companyRib}<br/>` : ""}
-      ${companyIban ? `IBAN : ${companyIban}<br/>` : ""}
-      ${companyBank ? `Banque : ${companyBank}${companyAgence ? " · Agence : " + companyAgence : ""}` : ""}
+  <!-- SIGNATURE -->
+  <div style="display:flex;justify-content:flex-end;margin-top:10px">
+    <div style="width:260px;text-align:center">
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#64748b;margin-bottom:8px">Signature</div>
+      <div style="height:52px;border:1px dashed #cbd5e1;border-radius:4px"></div>
+      <div style="font-size:9px;color:#94a3b8;margin-top:6px">Signature &amp; Cachet</div>
     </div>
   </div>
 
-  <div style="margin-top:14px;text-align:center;font-size:9px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:10px">
+  <!-- FOOTER -->
+  <div style="margin-top:20px;border-top:1px solid #e2e8f0;padding-top:10px;text-align:center;font-size:9px;color:#94a3b8">
     ${companyName}${companyMf ? " · MF : " + companyMf : ""}${companyRne ? " · RNE : " + companyRne : ""} · ${companyAddress} · ${companyPhone} · ${companyEmail}
   </div>
 
@@ -308,6 +339,8 @@ export default function FinanceReceivablesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo]     = useState("");
 
   const [createOpen, setCreateOpen] = useState(false);
   const [acceptedDevis, setAcceptedDevis] = useState<Devis[]>([]);
@@ -345,14 +378,27 @@ export default function FinanceReceivablesPage() {
 
 
   const filteredInvoices = useMemo(() => {
-    const query = search.toLowerCase();
-    return invoices.filter((doc) =>
-      [doc.invoiceNo, doc.customerName, doc.salesOrderId?.orderNo || "", doc.salesOrderId?.status || ""]
-        .join(" ")
-        .toLowerCase()
-        .includes(query)
-    );
-  }, [invoices, search]);
+    const query  = search.toLowerCase();
+    const fromTs = dateFrom ? new Date(dateFrom + "T00:00:00").getTime() : null;
+    const toTs   = dateTo   ? new Date(dateTo   + "T23:59:59").getTime() : null;
+    return invoices.filter((doc) => {
+      const matchSearch = [
+        doc.invoiceNo,
+        doc.customerName,
+        doc.salesOrderId?.orderNo || "",
+        doc.salesOrderId?.status || "",
+      ].join(" ").toLowerCase().includes(query);
+      if (!matchSearch) return false;
+
+      if (fromTs || toTs) {
+        const issued = doc.issueDate ? new Date(doc.issueDate).getTime() : null;
+        if (issued == null) return false;
+        if (fromTs && issued < fromTs) return false;
+        if (toTs   && issued > toTs)   return false;
+      }
+      return true;
+    });
+  }, [invoices, search, dateFrom, dateTo]);
 
 
 
@@ -453,14 +499,44 @@ export default function FinanceReceivablesPage() {
           </div>
         ) : null}
 
-        <div className={`${surface} flex items-center gap-3 px-5 py-3.5`}>
-          <Search size={15} className="shrink-0 text-slate-400" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t("fin_searchReceivables")}
-            className="flex-1 bg-transparent text-sm text-slate-900 placeholder-slate-400 outline-none dark:text-white"
-          />
+        <div className={`${surface} flex flex-wrap items-center gap-3 px-5 py-3.5`}>
+          <div className="flex flex-1 items-center gap-3 min-w-[200px]">
+            <Search size={15} className="shrink-0 text-slate-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t("fin_searchReceivables")}
+              className="flex-1 bg-transparent text-sm text-slate-900 placeholder-slate-400 outline-none dark:text-white"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Du</label>
+            <input
+              type="date"
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-900 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+            />
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Au</label>
+            <input
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-900 outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+            />
+            {(dateFrom || dateTo) && (
+              <button
+                onClick={() => { setDateFrom(""); setDateTo(""); }}
+                className="rounded-xl p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
+                title="Réinitialiser les dates"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
         </div>
 
         {loading ? (

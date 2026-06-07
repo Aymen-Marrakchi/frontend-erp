@@ -18,6 +18,8 @@ export interface Supplier {
   blockedReason?: string;
   priceHt: number;
   leadTimeDays: number;
+  productIds?: string[];
+  productPrices?: { productId: string; priceHt: number }[];
   createdAt: string;
 }
 
@@ -35,6 +37,8 @@ export interface SupplierPayload {
   blockedReason?: string;
   priceHt?: number;
   leadTimeDays?: number;
+  productIds?: string[];
+  productPrices?: { productId: string; priceHt: number }[];
 }
 
 export const supplierService = {

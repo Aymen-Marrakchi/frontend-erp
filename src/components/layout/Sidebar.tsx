@@ -181,6 +181,7 @@ const dashboardPath = dashboardMap[user.role] || "/dashboard";
   const purchaseItems: NavItem[] = [
     { href: "/dashboard/achat", label: t("dashboard"), icon: LayoutDashboard },
     { href: "/dashboard/achat/suppliers", label: "Suppliers", icon: Building2 },
+    { href: "/dashboard/achat/products", label: "Produits", icon: Package },
     { href: "/dashboard/achat/requests", label: t("purchaseRequestsTitle"), icon: Truck },
     { href: "/dashboard/achat/tenders", label: "Tenders", icon: ClipboardList },
     { href: "/dashboard/achat/orders", label: "Purchase Orders", icon: FileText },

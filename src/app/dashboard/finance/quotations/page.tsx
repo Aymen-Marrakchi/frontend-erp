@@ -70,6 +70,7 @@ function openQuotationDocument(devis: Devis, settings: CompanySettings | null, s
   const fodecRate = devis.applyFodec ? (devis.fodecRate ?? 1) : 0;
   const issueDate = new Date(devis.issueDate || Date.now()).toLocaleDateString("fr-TN");
   const dueDate = devis.dueDate ? new Date(devis.dueDate).toLocaleDateString("fr-TN") : "—";
+  const r = (v: number) => Math.round((v + Number.EPSILON) * 1000) / 1000;
 
   const s = settings;
   const companyName = s?.companyName || "EMM TN";
@@ -87,15 +88,48 @@ function openQuotationDocument(devis: Devis, settings: CompanySettings | null, s
     : devis.status === "REJECTED" || devis.status === "CANCELLED" ? "#94a3b8"
     : "#0f172a";
 
-  const rows = devis.lines.map((line, idx) => `
+  // Process lines: compute brut, remise amount, and montant net per line
+  const processedLines = devis.lines.map((line) => {
+    const qty       = Number(line.quantity || 0);
+    const unitPrice = Number(line.baseUnitHt || 0);
+    const disc      = Number((line as any).discount || 0);
+    const brutHT    = r(qty * unitPrice);
+    const remiseAmt = Number((line as any).discountAmount || 0) > 0
+      ? Number((line as any).discountAmount)
+      : r(brutHT * disc / 100);
+    const montantHT = r(brutHT - remiseAmt);
+    return { line, qty, unitPrice, disc, brutHT, remiseAmt, montantHT };
+  });
+
+  const totalBrutHT = r(processedLines.reduce((s, l) => s + l.brutHT, 0));
+  const totalRemise = r(processedLines.reduce((s, l) => s + l.remiseAmt, 0));
+  const totalNetHT  = devis.subtotalHt ?? r(totalBrutHT - totalRemise);
+  const timbre      = devis.timbreFiscal ?? 1;
+
+  // Padded rows so the table always fills to a min height (BL style)
+  const MIN_ROWS = 16;
+  const dataRows = processedLines.map(({ line, qty, unitPrice, disc, montantHT }, idx) => `
     <tr style="background:${idx % 2 === 0 ? "#fff" : "#f8fafc"}">
-      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;color:#64748b;font-size:12px">${idx + 1}</td>
-      <td style="border:1px solid #e2e8f0;padding:7px 10px;font-size:11px;color:#64748b">${line.productId?.sku || "—"}</td>
-      <td style="border:1px solid #e2e8f0;padding:7px 10px;font-size:13px">${line.productId?.name || "—"}</td>
-      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;font-size:13px">${line.quantity}</td>
-      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:right;font-size:13px">${line.baseUnitHt.toFixed(3)}</td>
-      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:right;font-size:13px;font-weight:600">${line.subtotalHt.toFixed(3)}</td>
+      <td style="padding:7px 10px;font-size:11px;color:#64748b;border-right:1px solid #e2e8f0">${line.productId?.sku || "—"}</td>
+      <td style="padding:7px 10px;font-size:12px;border-right:1px solid #e2e8f0">${line.productId?.name || "—"}</td>
+      <td style="padding:7px 10px;text-align:center;font-size:12px;font-weight:600;border-right:1px solid #e2e8f0">${qty}</td>
+      <td style="padding:7px 10px;text-align:right;font-size:12px;border-right:1px solid #e2e8f0">${unitPrice.toFixed(3)}</td>
+      <td style="padding:7px 10px;text-align:center;font-size:12px;color:#64748b;border-right:1px solid #e2e8f0">${disc > 0 ? disc + "%" : "—"}</td>
+      <td style="padding:7px 10px;text-align:right;font-size:12px;font-weight:600">${montantHT.toFixed(3)}</td>
     </tr>`).join("");
+
+  const emptyRowsCount = Math.max(0, MIN_ROWS - processedLines.length);
+  const emptyRows = Array.from({ length: emptyRowsCount }).map((_, idx) => `
+    <tr style="height:28px;background:${(processedLines.length + idx) % 2 === 0 ? "#fff" : "#f8fafc"}">
+      <td style="border-right:1px solid #e2e8f0"></td>
+      <td style="border-right:1px solid #e2e8f0"></td>
+      <td style="border-right:1px solid #e2e8f0"></td>
+      <td style="border-right:1px solid #e2e8f0"></td>
+      <td style="border-right:1px solid #e2e8f0"></td>
+      <td></td>
+    </tr>`).join("");
+
+  const rows = dataRows + emptyRows;
 
   const html = `<!doctype html>
 <html lang="fr">
@@ -172,46 +206,50 @@ function openQuotationDocument(devis: Devis, settings: CompanySettings | null, s
     </tr>
   </table>
 
-  <!-- ═══ PRODUCT TABLE ═══ -->
-  <table style="margin-bottom:0;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden">
+  <!-- PRODUCT TABLE -->
+  <table style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-bottom:0;border-collapse:collapse">
     <thead>
       <tr style="background:#0f172a;color:#fff">
-        <th style="padding:9px 10px;text-align:center;font-size:11px;width:32px">N°</th>
-        <th style="padding:9px 10px;text-align:left;font-size:11px;width:70px">Réf.</th>
-        <th style="padding:9px 10px;text-align:left;font-size:11px">Désignation</th>
-        <th style="padding:9px 10px;text-align:center;font-size:11px;width:50px">Qté</th>
-        <th style="padding:9px 10px;text-align:right;font-size:11px;width:110px">P.U. HT (TND)</th>
-        <th style="padding:9px 10px;text-align:right;font-size:11px;width:110px">Montant HT (TND)</th>
+        <th style="padding:9px 10px;text-align:left;font-size:11px;width:90px;border-right:1px solid rgba(255,255,255,0.15)">Référence</th>
+        <th style="padding:9px 10px;text-align:left;font-size:11px;border-right:1px solid rgba(255,255,255,0.15)">Désignation</th>
+        <th style="padding:9px 10px;text-align:center;font-size:11px;width:50px;border-right:1px solid rgba(255,255,255,0.15)">Qté</th>
+        <th style="padding:9px 10px;text-align:right;font-size:11px;width:90px;border-right:1px solid rgba(255,255,255,0.15)">Prix HT (TND)</th>
+        <th style="padding:9px 10px;text-align:center;font-size:11px;width:60px;border-right:1px solid rgba(255,255,255,0.15)">Remise</th>
+        <th style="padding:9px 10px;text-align:right;font-size:11px;width:100px">Montant HT (TND)</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
   </table>
 
-  <!-- ═══ BOTTOM ANCHOR ═══ -->
+  <!-- BOTTOM ANCHOR -->
   <div style="margin-top:auto">
 
-  <!-- ═══ TAX SUMMARY ═══ -->
+  <!-- TOTALS -->
   <div style="display:flex;justify-content:flex-end;margin-top:16px;margin-bottom:16px">
-    <table style="width:280px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 6px 6px;overflow:hidden">
+    <table style="width:260px;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;border-collapse:collapse">
       <tr style="background:#f8fafc">
-        <td style="padding:6px 12px;font-size:12px;color:#64748b">Total brut HT</td>
-        <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:600">${devis.subtotalHt.toFixed(3)} TND</td>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0">Total HT</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:600;border-bottom:1px solid #e2e8f0">${totalBrutHT.toFixed(3)} TND</td>
+      </tr>
+      ${totalRemise > 0 ? `<tr>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0">Remise</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;color:#dc2626;border-bottom:1px solid #e2e8f0">- ${totalRemise.toFixed(3)} TND</td>
+      </tr>` : ""}
+      <tr style="background:#f8fafc">
+        <td style="padding:6px 12px;font-size:12px;font-weight:600;color:#0f172a;border-bottom:1px solid #e2e8f0">Total Net HT</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:600;border-bottom:1px solid #e2e8f0">${(totalNetHT ?? 0).toFixed(3)} TND</td>
       </tr>
       ${fodecRate > 0 ? `<tr>
-        <td style="padding:6px 12px;font-size:12px;color:#64748b">FODEC (${fodecRate}%)</td>
-        <td style="padding:6px 12px;text-align:right;font-size:12px">${devis.totalFodec.toFixed(3)} TND</td>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0">FODEC (${fodecRate}%)</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;border-bottom:1px solid #e2e8f0">${devis.totalFodec.toFixed(3)} TND</td>
       </tr>` : ""}
       ${tvaRate > 0 ? `<tr>
-        <td style="padding:6px 12px;font-size:12px;color:#64748b">TVA (${tvaRate}%)</td>
-        <td style="padding:6px 12px;text-align:right;font-size:12px">${devis.totalVat.toFixed(3)} TND</td>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0">TVA (${tvaRate}%)</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;border-bottom:1px solid #e2e8f0">${devis.totalVat.toFixed(3)} TND</td>
       </tr>` : ""}
-      <tr style="background:#f8fafc">
-        <td style="padding:6px 12px;font-size:12px;color:#64748b">Avant timbre</td>
-        <td style="padding:6px 12px;text-align:right;font-size:12px">${devis.totalBeforeStamp.toFixed(3)} TND</td>
-      </tr>
       <tr>
-        <td style="padding:6px 12px;font-size:12px;color:#64748b">Timbre fiscal</td>
-        <td style="padding:6px 12px;text-align:right;font-size:12px">${devis.timbreFiscal.toFixed(3)} TND</td>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0">Timbre fiscal</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;border-bottom:1px solid #e2e8f0">${timbre.toFixed(3)} TND</td>
       </tr>
       <tr style="background:#0f172a">
         <td style="padding:9px 12px;font-size:13px;font-weight:700;color:#fff">TOTAL TTC</td>
@@ -220,28 +258,23 @@ function openQuotationDocument(devis: Devis, settings: CompanySettings | null, s
     </table>
   </div>
 
-  <!-- ═══ MONTANT EN LETTRES ═══ -->
-  <div style="border:1px solid #e2e8f0;border-radius:6px;padding:10px 14px;margin-bottom:16px;background:#f8fafc">
+  <!-- MONTANT EN LETTRES -->
+  <div style="border:1px solid #e2e8f0;border-radius:6px;padding:10px 14px;margin-bottom:12px;background:#f8fafc">
     <span style="font-size:11px;color:#64748b">Arrêté le présent devis à la somme de : </span>
     <strong style="font-size:12px">${montantEnLettres(devis.totalTtc)}</strong>
   </div>
 
-  <!-- ═══ FOOTER ═══ -->
-  <div style="border-top:1px solid #e2e8f0;padding-top:12px;display:flex;justify-content:space-between;align-items:flex-start">
-    <div style="font-size:10px;color:#64748b;max-width:55%">
-      <strong style="color:#0f172a">Conditions de validité :</strong> Ce devis est valable jusqu'au ${dueDate}.<br/>
-      Toute commande passée après cette date devra faire l'objet d'un nouveau devis.<br/>
-      En cas de litige, compétence exclusive du Tribunal de Commerce de Tunis.
-    </div>
-    <div style="font-size:10px;color:#64748b;text-align:right">
-      <strong style="color:#0f172a">Coordonnées bancaires</strong><br/>
-      ${companyRib ? `RIB : ${companyRib}<br/>` : ""}
-      ${companyIban ? `IBAN : ${companyIban}<br/>` : ""}
-      ${companyBank ? `Banque : ${companyBank}${companyAgence ? " · Agence : " + companyAgence : ""}` : ""}
+  <!-- SIGNATURE -->
+  <div style="display:flex;justify-content:flex-end;margin-top:10px">
+    <div style="width:260px;text-align:center">
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#64748b;margin-bottom:8px">Signature</div>
+      <div style="height:52px;border:1px dashed #cbd5e1;border-radius:4px"></div>
+      <div style="font-size:9px;color:#94a3b8;margin-top:6px">Signature &amp; Cachet</div>
     </div>
   </div>
 
-  <div style="margin-top:14px;text-align:center;font-size:9px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:10px">
+  <!-- FOOTER -->
+  <div style="margin-top:20px;border-top:1px solid #e2e8f0;padding-top:10px;text-align:center;font-size:9px;color:#94a3b8">
     ${companyName}${companyMf ? " · MF : " + companyMf : ""}${companyRne ? " · RNE : " + companyRne : ""} · ${companyAddress} · ${companyPhone} · ${companyEmail}
   </div>
 

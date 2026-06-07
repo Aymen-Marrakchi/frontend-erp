@@ -92,10 +92,21 @@ function renderComparisonTable(
     );
   }
 
-  const prices = invited.map((supplier) => {
-    const live = allSuppliers.find((s) => s._id === supplier._id);
-    return live?.priceHt ?? tender.offers.find((o) => o.supplierId._id === supplier._id)?.amountHt ?? 0;
-  }).filter((p) => p > 0);
+  // Product-specific price lookup (uses supplier.productPrices for the tender's product)
+  const tenderProductId = tender.purchaseRequestId?.productId?._id;
+  const priceForSupplier = (supplierId: string): number | null => {
+    const live = allSuppliers.find((s) => s._id === supplierId);
+    if (tenderProductId && live?.productPrices) {
+      const pp = live.productPrices.find((x) => String(x.productId) === String(tenderProductId));
+      if (pp && pp.priceHt > 0) return Number(pp.priceHt);
+    }
+    const offer = tender.offers.find((o) => o.supplierId._id === supplierId);
+    return offer?.amountHt ?? null;
+  };
+
+  const prices = invited
+    .map((s) => priceForSupplier(s._id))
+    .filter((p): p is number => p !== null && p > 0);
   const bestPrice = prices.length ? Math.min(...prices) : null;
   const delays = invited.map((supplier) => {
     const live = allSuppliers.find((s) => s._id === supplier._id);
@@ -145,14 +156,13 @@ function renderComparisonTable(
         </thead>
 
         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-          {/* PU */}
+          {/* Prix produit */}
           <tr>
             <td className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
-              PU (TND)
+              Prix produit (TND)
             </td>
             {invited.map((supplier) => {
-              const live = allSuppliers.find((s) => s._id === supplier._id);
-              const price = live?.priceHt ?? tender.offers.find((o) => o.supplierId._id === supplier._id)?.amountHt ?? null;
+              const price = priceForSupplier(supplier._id);
               const isBest = price !== null && bestPrice !== null && price === bestPrice;
               return (
                 <td key={supplier._id} className="px-4 py-3 text-center">
@@ -731,30 +741,51 @@ export default function PurchaseTendersPage() {
                     setCreateDaId(daId);
                     const da = allApprovedDAs.find((d) => d._id === daId);
                     if (da) setCreateDaType(da.type);
-                    const cat = da?.category ?? "";
-                    const matched = cat ? suppliers.filter((s) => s.category === cat) : suppliers;
+                    // Stock DA → suppliers that sell this product
+                    // Supplementary DA → suppliers with products configured in same category
+                    let matched: Supplier[] = [];
+                    if (da?.type === "stock") {
+                      const stockReq = approvedRequests.find((r) => r._id === daId);
+                      const productId = stockReq?.productId?._id;
+                      matched = productId
+                        ? suppliers.filter((s) => (s.productIds ?? []).map(String).includes(String(productId)))
+                        : [];
+                    } else {
+                      const cat = da?.category ?? "";
+                      matched = suppliers.filter((s) =>
+                        (s.productIds ?? []).length > 0 && (!cat || s.category === cat)
+                      );
+                    }
                     setCreateSuppliers(matched.map((s) => s._id));
                   }}
                 >
                   <option value="">— Select an approved DA —</option>
-                  {approvedRequests.length > 0 && (
-                    <optgroup label="Stock Requests">
-                      {approvedRequests.map((r) => (
-                        <option key={r._id} value={r._id}>
-                          {r.requestNo} · {r.productId?.name ?? "Product"} · {r.requestedQuantity} units
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {approvedSupp.length > 0 && (
-                    <optgroup label="Supplementary Requests">
-                      {approvedSupp.map((r) => (
-                        <option key={r._id} value={r._id}>
-                          {r.requestNo} · {r.title} · {r.quantity} {r.unit}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
+                  {(() => {
+                    const availableStock = approvedRequests.filter((r) => !usedStockIds.has(r._id));
+                    const availableSupp  = approvedSupp.filter((r) => !usedSuppIds.has(r._id));
+                    return (
+                      <>
+                        {availableStock.length > 0 && (
+                          <optgroup label="Stock Requests">
+                            {availableStock.map((r) => (
+                              <option key={r._id} value={r._id}>
+                                {r.requestNo} · {r.productId?.name ?? "Product"} · {r.requestedQuantity} units
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {availableSupp.length > 0 && (
+                          <optgroup label="Supplementary Requests">
+                            {availableSupp.map((r) => (
+                              <option key={r._id} value={r._id}>
+                                {r.requestNo} · {r.title} · {r.quantity} {r.unit}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </>
+                    );
+                  })()}
                 </select>
               </div>
 
@@ -762,50 +793,95 @@ export default function PurchaseTendersPage() {
                 <label className={labelCls}>
                   Invited Suppliers
                   {createDaId && (() => {
-                    const cat = allApprovedDAs.find((d) => d._id === createDaId)?.category;
-                    return cat ? (
+                    const da = allApprovedDAs.find((d) => d._id === createDaId);
+                    if (da?.type === "stock") {
+                      const stockReq = approvedRequests.find((r) => r._id === createDaId);
+                      const productName = stockReq?.productId?.name;
+                      return productName ? (
+                        <span className="ml-2 rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-bold text-teal-700 dark:bg-teal-950/40 dark:text-teal-300">
+                          {productName}
+                        </span>
+                      ) : null;
+                    }
+                    return da?.category ? (
                       <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                        {cat}
+                        {da.category}
                       </span>
                     ) : null;
                   })()}
                 </label>
-                <div className="max-h-48 overflow-y-auto space-y-1 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
-                  {!createDaId ? (
-                    <p className="text-sm text-slate-400">Select a DA first</p>
-                  ) : suppliers.filter((s) => {
-                    const cat = allApprovedDAs.find((d) => d._id === createDaId)?.category ?? "";
-                    return cat ? s.category === cat : true;
-                  }).length === 0 ? (
-                    <p className="text-sm text-slate-400">No suppliers in this category</p>
-                  ) : (
-                    suppliers.filter((s) => {
-                      const cat = allApprovedDAs.find((d) => d._id === createDaId)?.category ?? "";
-                      return cat ? s.category === cat : true;
-                    }).map((s) => (
-                      <label
-                        key={s._id}
-                        className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-1.5 text-sm text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-                      >
-                        <input
-                          type="checkbox"
-                          className="accent-slate-700"
-                          checked={createSuppliers.includes(s._id)}
-                          onChange={(e) =>
-                            setCreateSuppliers((prev) =>
-                              e.target.checked
-                                ? [...prev, s._id]
-                                : prev.filter((id) => id !== s._id)
-                            )
+                {(() => {
+                  if (!createDaId) {
+                    return (
+                      <div className="max-h-48 overflow-y-auto space-y-1 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
+                        <p className="text-sm text-slate-400">Select a DA first</p>
+                      </div>
+                    );
+                  }
+                  const da = allApprovedDAs.find((d) => d._id === createDaId);
+                  let pool: Supplier[] = [];
+                  let emptyMsg = "No suppliers found";
+                  if (da?.type === "stock") {
+                    const stockReq = approvedRequests.find((r) => r._id === createDaId);
+                    const productId = stockReq?.productId?._id;
+                    pool = productId
+                      ? suppliers.filter((s) => (s.productIds ?? []).map(String).includes(String(productId)))
+                      : [];
+                    emptyMsg = "Aucun fournisseur ne vend ce produit";
+                  } else {
+                    const cat = da?.category ?? "";
+                    // Only show suppliers that have at least one product configured
+                    pool = suppliers.filter((s) =>
+                      (s.productIds ?? []).length > 0 && (!cat || s.category === cat)
+                    );
+                    emptyMsg = "Aucun fournisseur configuré pour cette catégorie";
+                  }
+                  return (
+                    <div className="max-h-48 overflow-y-auto space-y-1 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
+                      {pool.length === 0 ? (
+                        <p className="text-sm text-slate-400">{emptyMsg}</p>
+                      ) : (
+                        pool.map((s) => {
+                          let supplierPrice: number | null = null;
+                          if (da?.type === "stock") {
+                            const stockReq = approvedRequests.find((r) => r._id === createDaId);
+                            const productId = stockReq?.productId?._id;
+                            const pp = (s.productPrices ?? []).find(
+                              (x) => String(x.productId) === String(productId)
+                            );
+                            supplierPrice = pp ? Number(pp.priceHt) : null;
                           }
-                        />
-                        <Building2 size={13} className="text-slate-400" />
-                        <span className="font-medium">{s.name}</span>
-                        <span className="text-xs text-slate-400">{s.category}</span>
-                      </label>
-                    ))
-                  )}
-                </div>
+                          return (
+                            <label
+                              key={s._id}
+                              className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-1.5 text-sm text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                            >
+                              <input
+                                type="checkbox"
+                                className="accent-slate-700"
+                                checked={createSuppliers.includes(s._id)}
+                                onChange={(e) =>
+                                  setCreateSuppliers((prev) =>
+                                    e.target.checked
+                                      ? [...prev, s._id]
+                                      : prev.filter((id) => id !== s._id)
+                                  )
+                                }
+                              />
+                              <Building2 size={13} className="text-slate-400" />
+                              <span className="font-medium">{s.name}</span>
+                              {supplierPrice !== null && supplierPrice > 0 && (
+                                <span className="ml-auto rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-bold text-teal-700 dark:bg-teal-950/30 dark:text-teal-300">
+                                  {supplierPrice.toFixed(3)} TND
+                                </span>
+                              )}
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="flex gap-3 pt-1">
@@ -853,19 +929,34 @@ export default function PurchaseTendersPage() {
             </div>
 
             {(() => {
+              const productId = editTarget.purchaseRequestId?.productId?._id;
               const cat = editTarget.purchaseRequestId?.productId?.category
                 ?? editTarget.supplementaryRequestId?.category
                 ?? "";
-              const filteredForEdit = cat ? suppliers.filter((s) => s.category === cat) : suppliers;
+              let filteredForEdit: Supplier[];
+              if (productId) {
+                // Stock DA → only suppliers that sell this product
+                filteredForEdit = suppliers.filter((s) =>
+                  (s.productIds ?? []).map(String).includes(String(productId))
+                );
+              } else {
+                // Supplementary DA → only suppliers with products configured
+                filteredForEdit = suppliers.filter((s) =>
+                  (s.productIds ?? []).length > 0 && (!cat || s.category === cat)
+                );
+              }
+              const headerLabel = editTarget.purchaseRequestId?.productId?.name ?? cat;
               return (
             <div className="max-h-64 overflow-y-auto space-y-1 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
-              {cat && (
+              {headerLabel && (
                 <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-                  Category: {cat}
+                  {productId ? "Produit" : "Category"} : {headerLabel}
                 </p>
               )}
               {filteredForEdit.length === 0 ? (
-                <p className="text-sm text-slate-400">No suppliers in this category</p>
+                <p className="text-sm text-slate-400">
+                  {productId ? "Aucun fournisseur ne vend ce produit" : "Aucun fournisseur configuré pour cette catégorie"}
+                </p>
               ) : filteredForEdit.map((s) => (
                 <label
                   key={s._id}

@@ -4,6 +4,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import { useLanguage } from "@/context/LanguageContext";
 import { supplierService, Supplier } from "@/services/purchase/supplierService";
 import { supplementaryCategoryService, SupplementaryCategory } from "@/services/purchase/supplementaryCategoryService";
+import { purchaseProductCategoryService, type PurchaseProductCategoryEntry } from "@/services/purchase/purchaseProductCategoryService";
 import { useEffect, useMemo, useState } from "react";
 import {
   Building2,
@@ -15,6 +16,7 @@ import {
   Pencil,
   X,
   Loader2,
+  Package,
 } from "lucide-react";
 
 const surface =
@@ -107,17 +109,24 @@ export default function PurchaseSuppliersPage() {
   const [saving, setSaving] = useState(false);
   const [blockTarget, setBlockTarget] = useState<Supplier | null>(null);
   const [blockReason, setBlockReason] = useState("");
+  const [productEntries, setProductEntries] = useState<PurchaseProductCategoryEntry[]>([]);
+  const [productsViewSupplier, setProductsViewSupplier] = useState<Supplier | null>(null);
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [productPriceMap, setProductPriceMap] = useState<Record<string, string>>({});
+  const [savingProducts, setSavingProducts] = useState(false);
 
   const fetchSuppliers = async () => {
     try {
       setLoading(true);
       setError("");
-      const [supplierList, categoryList] = await Promise.all([
+      const [supplierList, categoryList, entries] = await Promise.all([
         supplierService.getAll(),
         supplementaryCategoryService.getActive(),
+        purchaseProductCategoryService.getAll(),
       ]);
       setSuppliers(supplierList);
       setPurchaseCategories(categoryList);
+      setProductEntries(entries);
     } catch (err: unknown) {
       setError(getErrorMessage(err, "Failed to load suppliers"));
     } finally {
@@ -369,6 +378,21 @@ export default function PurchaseSuppliersPage() {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           <button
+                            onClick={() => {
+                              setProductsViewSupplier(supplier);
+                              setSelectedProductIds(supplier.productIds ?? []);
+                              const initial: Record<string, string> = {};
+                              for (const pp of supplier.productPrices ?? []) {
+                                initial[String(pp.productId)] = String(pp.priceHt ?? "");
+                              }
+                              setProductPriceMap(initial);
+                            }}
+                            title="Voir les produits"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-2xl text-teal-600 transition hover:bg-teal-50 dark:text-teal-400 dark:hover:bg-teal-950/20"
+                          >
+                            <Package size={14} />
+                          </button>
+                          <button
                             onClick={() => openEdit(supplier)}
                             className="inline-flex h-9 w-9 items-center justify-center rounded-2xl text-blue-600 transition hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/20"
                           >
@@ -452,18 +476,20 @@ export default function PurchaseSuppliersPage() {
                     </p>
                   )}
                 </div>
-                <div>
-                  <label className={labelClass}>PU (TND)</label>
-                  <input
-                    className={inputClass}
-                    type="number"
-                    min={0}
-                    step={0.001}
-                    placeholder="0,000"
-                    value={form.priceHt}
-                    onChange={(e) => setForm((f) => ({ ...f, priceHt: Number(e.target.value) }))}
-                  />
-                </div>
+                {editing && (
+                  <div>
+                    <label className={labelClass}>PU (TND)</label>
+                    <input
+                      className={inputClass}
+                      type="number"
+                      min={0}
+                      step={0.001}
+                      placeholder="0,000"
+                      value={form.priceHt}
+                      onChange={(e) => setForm((f) => ({ ...f, priceHt: Number(e.target.value) }))}
+                    />
+                  </div>
+                )}
                 <div>
                   <label className={labelClass}>Délai livraison (jours)</label>
                   <input
@@ -574,6 +600,169 @@ export default function PurchaseSuppliersPage() {
             </div>
           </div>
         )}
+
+        {/* Products for supplier modal */}
+        {productsViewSupplier && (() => {
+          const supplierCategory = productsViewSupplier.category;
+          const matchingProducts = productEntries.filter(
+            (e) => e.categoryId?.name === supplierCategory
+          );
+          const categoryLabel =
+            purchaseCategories.find((c) => c.name === supplierCategory)?.label ?? supplierCategory ?? "—";
+
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
+              <div className="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+                {/* Header */}
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-6 py-5 dark:border-slate-800">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-teal-50 text-teal-600 dark:bg-teal-950/30 dark:text-teal-400">
+                      <Package size={18} />
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-950 dark:text-white">{productsViewSupplier.name}</p>
+                      <p className="text-xs text-slate-400">
+                        Catégorie : <span className="font-medium">{categoryLabel}</span> · {matchingProducts.length} produit{matchingProducts.length !== 1 ? "s" : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setProductsViewSupplier(null)}
+                    className="rounded-xl p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                {/* Body */}
+                <div className="max-h-[60vh] overflow-y-auto">
+                  {matchingProducts.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-center">
+                      <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800">
+                        <Package size={20} className="text-slate-400" />
+                      </div>
+                      <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                        Aucun produit dans cette catégorie
+                      </p>
+                      <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                        Catégorisez des produits dans la page Produits pour les voir ici.
+                      </p>
+                    </div>
+                  ) : (
+                    <table className="min-w-full text-sm">
+                      <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800/50">
+                        <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                          <th className="px-6 py-3 font-medium">Réf.</th>
+                          <th className="px-6 py-3 font-medium">Produit</th>
+                          <th className="px-6 py-3 font-medium">Unité</th>
+                          <th className="px-6 py-3 font-medium text-right">Prix HT (TND)</th>
+                          <th className="px-6 py-3 font-medium text-right">Vendu</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {matchingProducts.map((e) => {
+                          const pid = e.productId?._id;
+                          if (!pid) return null;
+                          const checked = selectedProductIds.includes(pid);
+                          return (
+                            <tr
+                              key={e._id}
+                              onClick={() => {
+                                setSelectedProductIds((prev) =>
+                                  prev.includes(pid) ? prev.filter((x) => x !== pid) : [...prev, pid]
+                                );
+                              }}
+                              className={`cursor-pointer transition ${
+                                checked
+                                  ? "bg-teal-50/60 dark:bg-teal-950/20"
+                                  : "hover:bg-slate-50 dark:hover:bg-slate-800/30"
+                              }`}
+                            >
+                              <td className="px-6 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">
+                                {e.productId?.sku || "—"}
+                              </td>
+                              <td className="px-6 py-3 font-medium text-slate-900 dark:text-white">
+                                {e.productId?.name || "—"}
+                              </td>
+                              <td className="px-6 py-3 text-xs text-slate-500 dark:text-slate-400">
+                                {e.productId?.unit || "—"}
+                              </td>
+                              <td className="px-6 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.001}
+                                  placeholder="0,000"
+                                  disabled={!checked}
+                                  value={productPriceMap[pid] ?? ""}
+                                  onChange={(e) => setProductPriceMap((prev) => ({ ...prev, [pid]: e.target.value }))}
+                                  className="w-24 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-right text-sm text-slate-900 outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:focus:ring-teal-950/30"
+                                />
+                              </td>
+                              <td className="px-6 py-3 text-right">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedProductIds((prev) =>
+                                      prev.includes(pid) ? prev.filter((x) => x !== pid) : [...prev, pid]
+                                    );
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="h-4 w-4 accent-teal-600"
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-6 py-3 dark:border-slate-800">
+                  <p className="text-xs text-slate-400">
+                    <span className="font-semibold text-teal-600 dark:text-teal-400">{selectedProductIds.length}</span> sélectionné{selectedProductIds.length !== 1 ? "s" : ""}
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setProductsViewSupplier(null)}
+                      className="rounded-2xl border border-slate-200 px-5 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!productsViewSupplier) return;
+                        setSavingProducts(true);
+                        try {
+                          const productPrices = selectedProductIds.map((pid) => ({
+                            productId: pid,
+                            priceHt: Number(productPriceMap[pid] || 0),
+                          }));
+                          const updated = await supplierService.update(
+                            productsViewSupplier._id,
+                            { productIds: selectedProductIds, productPrices }
+                          );
+                          setSuppliers((prev) => prev.map((s) => s._id === updated._id ? updated : s));
+                          setProductsViewSupplier(null);
+                        } catch { /* ignore */ }
+                        finally { setSavingProducts(false); }
+                      }}
+                      disabled={savingProducts}
+                      className="inline-flex items-center gap-2 rounded-2xl bg-teal-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-teal-700 disabled:opacity-50"
+                    >
+                      {savingProducts ? <Loader2 size={14} className="animate-spin" /> : null}
+                      Enregistrer
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </ProtectedRoute>
   );

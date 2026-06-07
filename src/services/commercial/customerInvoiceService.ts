@@ -75,6 +75,8 @@ export interface CustomerInvoice {
     quantity: number;
     inputUnitPrice: number;
     baseUnitHt: number;
+    discount?: number;
+    discountAmount?: number;
     subtotalHt: number;
     totalVat: number;
     totalFodec: number;

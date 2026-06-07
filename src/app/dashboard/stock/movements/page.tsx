@@ -21,7 +21,6 @@ import { useEffect, useMemo, useState } from "react";
 import { stockMovementService } from "@/services/stock/stockMovementService";
 import { stockProductService } from "@/services/stock/stockProductService";
 import { stockDepotService, type Depot } from "@/services/stock/stockDepotService";
-import { stockItemService } from "@/services/stock/stockItemService";
 
 interface Product {
   _id: string;
@@ -98,7 +97,6 @@ export default function StockMovementsPage() {
 
   const [movements, setMovements] = useState<Movement[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [stockMap, setStockMap] = useState<Record<string, number>>({});
   const [myDepot, setMyDepot] = useState<Depot | null>(null);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("ALL");
@@ -147,13 +145,6 @@ export default function StockMovementsPage() {
       }
       const [movementData, productData, depotData] = await Promise.all(fetches);
       setMovements(movementData);
-
-      const itemData = await stockItemService.getAll();
-      const map: Record<string, number> = {};
-      for (const item of itemData) {
-        map[item.productId?._id ?? item.productId] = item.quantityOnHand ?? 0;
-      }
-      setStockMap(map);
 
       if (user?.role === "DEPOT_MANAGER" && depotData) {
         const depot: Depot | undefined = (depotData as Depot[]).find(
@@ -310,10 +301,20 @@ export default function StockMovementsPage() {
     return "text-slate-900 dark:text-white";
   };
 
+  const fmtQty = (qty: number, unit?: string) => {
+    const u = (unit || "").toLowerCase();
+    const fractional = u === "kg" || u === "l" || u === "m";
+    return Number(qty || 0).toLocaleString("fr-FR", {
+      minimumFractionDigits: fractional ? 2 : 0,
+      maximumFractionDigits: fractional ? 2 : 0,
+    });
+  };
+
   const formatMovementQuantity = (movement: Movement) => {
-    if (movement.type === "ENTRY") return `+${movement.quantity}`;
-    if (movement.type === "EXIT" || movement.type === "DEDUCTION") return `-${movement.quantity}`;
-    return String(movement.quantity);
+    const v = fmtQty(movement.quantity, movement.productId?.unit);
+    if (movement.type === "ENTRY") return `+${v}`;
+    if (movement.type === "EXIT" || movement.type === "DEDUCTION") return `-${v}`;
+    return v;
   };
 
   const getSourceLabel = (movement: Movement) => movement.depotId?.name || movement.sourceModule || "—";
@@ -398,42 +399,6 @@ export default function StockMovementsPage() {
             </motion.div>
           ))}
         </div>
-
-        {/* Per-product stock cards */}
-        {Object.keys(stockMap).length > 0 && (
-          <div className="flex flex-wrap gap-3">
-            {products
-              .filter((p) => stockMap[p._id] !== undefined)
-              .map((p) => {
-                const qty = stockMap[p._id] ?? 0;
-                const low = qty <= 5;
-                return (
-                  <div
-                    key={p._id}
-                    className={`flex items-center gap-2.5 rounded-2xl border px-4 py-2.5 shadow-sm ${
-                      low
-                        ? "border-rose-200 bg-rose-50 dark:border-rose-900/40 dark:bg-rose-950/20"
-                        : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{p.name}</p>
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500">{p.sku}</p>
-                    </div>
-                    <span
-                      className={`shrink-0 rounded-xl px-2.5 py-1 text-sm font-bold tabular-nums ${
-                        low
-                          ? "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
-                          : "bg-teal-50 text-teal-700 dark:bg-teal-950/30 dark:text-teal-300"
-                      }`}
-                    >
-                      {qty} <span className="text-[10px] font-medium">{p.unit}</span>
-                    </span>
-                  </div>
-                );
-              })}
-          </div>
-        )}
 
         <div className={`${surface} overflow-hidden`}>
           <div className="flex flex-col justify-between gap-4 border-b border-slate-200 px-6 py-5 lg:flex-row lg:items-center dark:border-slate-800">
@@ -527,10 +492,10 @@ export default function StockMovementsPage() {
                       <td className={`px-6 py-4 font-semibold ${getMovementQuantityClass(m.type)}`}>
                         {formatMovementQuantity(m)}
                       </td>
-                      <td className="px-6 py-4">{m.previousOnHand}</td>
-                      <td className="px-6 py-4">{m.newOnHand}</td>
-                      <td className="px-6 py-4">{m.previousReserved}</td>
-                      <td className="px-6 py-4">{m.newReserved}</td>
+                      <td className="px-6 py-4">{fmtQty(m.previousOnHand, m.productId?.unit)}</td>
+                      <td className="px-6 py-4">{fmtQty(m.newOnHand,      m.productId?.unit)}</td>
+                      <td className="px-6 py-4">{fmtQty(m.previousReserved, m.productId?.unit)}</td>
+                      <td className="px-6 py-4">{fmtQty(m.newReserved,      m.productId?.unit)}</td>
                       <td className="px-6 py-4">{getSourceLabel(m)}</td>
                       <td className="px-6 py-4 text-slate-500 dark:text-slate-400">
                         {m.reason || "—"}

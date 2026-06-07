@@ -112,15 +112,29 @@ function openDevisDocument(devis: Devis, settings: CompanySettings | null) {
     : devis.status === "REJECTED" || devis.status === "CANCELLED" ? "#94a3b8"
     : "#0f172a";
 
-  const rows = devis.lines.map((line, idx) => `
+  const totalRemise = devis.lines.reduce(
+    (s, l) => s + (Number((l as any).discountAmount) || 0),
+    0
+  );
+  const totalBrutHt = devis.lines.reduce(
+    (s, l) => s + Number(l.baseUnitHt || 0) * Number(l.quantity || 0),
+    0
+  );
+
+  const rows = devis.lines.map((line, idx) => {
+    const brutHt = Number(line.baseUnitHt || 0) * Number(line.quantity || 0);
+    const disc   = Number((line as any).discount || 0);
+    return `
     <tr style="background:${idx % 2 === 0 ? "#fff" : "#f8fafc"}">
       <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;color:#64748b;font-size:12px">${idx + 1}</td>
       <td style="border:1px solid #e2e8f0;padding:7px 10px;font-size:11px;color:#64748b">${line.productId?.sku || "—"}</td>
       <td style="border:1px solid #e2e8f0;padding:7px 10px;font-size:13px">${line.productId?.name || "—"}</td>
       <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;font-size:13px">${line.quantity}</td>
       <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:right;font-size:13px">${line.baseUnitHt.toFixed(3)}</td>
+      <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:center;font-size:12px;color:#64748b">${disc > 0 ? `${disc}%` : "—"}</td>
       <td style="border:1px solid #e2e8f0;padding:7px 10px;text-align:right;font-size:13px;font-weight:600">${line.subtotalHt.toFixed(3)}</td>
-    </tr>`).join("");
+    </tr>`;
+  }).join("");
 
   const html = `<!doctype html>
 <html lang="fr">
@@ -205,7 +219,8 @@ function openDevisDocument(devis: Devis, settings: CompanySettings | null) {
         <th style="padding:9px 10px;text-align:left;font-size:11px;width:70px">Réf.</th>
         <th style="padding:9px 10px;text-align:left;font-size:11px">Désignation</th>
         <th style="padding:9px 10px;text-align:center;font-size:11px;width:50px">Qté</th>
-        <th style="padding:9px 10px;text-align:right;font-size:11px;width:110px">P.U. HT (TND)</th>
+        <th style="padding:9px 10px;text-align:right;font-size:11px;width:100px">P.U. HT (TND)</th>
+        <th style="padding:9px 10px;text-align:center;font-size:11px;width:60px">Remise</th>
         <th style="padding:9px 10px;text-align:right;font-size:11px;width:110px">Montant HT (TND)</th>
       </tr>
     </thead>
@@ -220,6 +235,14 @@ function openDevisDocument(devis: Devis, settings: CompanySettings | null) {
     <table style="width:280px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 6px 6px;overflow:hidden">
       <tr style="background:#f8fafc">
         <td style="padding:6px 12px;font-size:12px;color:#64748b">Total brut HT</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:600">${totalBrutHt.toFixed(3)} TND</td>
+      </tr>
+      ${totalRemise > 0 ? `<tr>
+        <td style="padding:6px 12px;font-size:12px;color:#64748b">Remise</td>
+        <td style="padding:6px 12px;text-align:right;font-size:12px;color:#dc2626">- ${totalRemise.toFixed(3)} TND</td>
+      </tr>` : ""}
+      <tr style="background:#f8fafc">
+        <td style="padding:6px 12px;font-size:12px;color:#0f172a;font-weight:600">Total Net HT</td>
         <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:600">${devis.subtotalHt.toFixed(3)} TND</td>
       </tr>
       ${fodecRate > 0 ? `<tr>

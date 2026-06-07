@@ -9,6 +9,8 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { stockItemService } from "@/services/stock/stockItemService";
 import { stockDepotService } from "@/services/stock/stockDepotService";
 import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
+import { Send } from "lucide-react";
 
 const PAGE_SIZE = 20;
 
@@ -38,6 +40,18 @@ function depotScopeToTypes(scope?: string): string[] {
   return ["PRODUIT_FINI", "SOUS_ENSEMBLE", "COMPOSANT", "MATIERE_PREMIERE"];
 }
 
+// Format quantity according to product unit:
+// - kg / l / m → 2 decimals with comma (e.g. 12,50)
+// - pcs (or any integer-like unit) → integer
+function fmtQty(qty: number, unit?: string): string {
+  const u = (unit || "").toLowerCase();
+  const fractional = u === "kg" || u === "l" || u === "m";
+  return Number(qty || 0).toLocaleString("fr-FR", {
+    minimumFractionDigits: fractional ? 2 : 0,
+    maximumFractionDigits: fractional ? 2 : 0,
+  });
+}
+
 export default function StockItemsPage() {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -48,6 +62,8 @@ export default function StockItemsPage() {
   const [depotScope, setDepotScope]   = useState<string | null>(null);
   const [myDepotId, setMyDepotId]     = useState<string | null>(null);
   const [depotQtyMap, setDepotQtyMap] = useState<Record<string, { onHand: number; reserved: number; available: number }>>({});
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; productId: string } | null>(null);
+  const router = useRouter();
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -132,6 +148,19 @@ export default function StockItemsPage() {
   const paginated = useMemo(() => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filtered, page]);
 
   useEffect(() => { setPage(1); }, [search, typeFilter]);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [ctxMenu]);
 
   const formatDateTime = (value?: string | null) => {
     if (!value) return "—";
@@ -290,7 +319,13 @@ export default function StockItemsPage() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       transition={{ delay: i * 0.03 }}
-                      className="transition hover:bg-slate-50 dark:hover:bg-slate-800/30"
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        const pid = item.productId?._id;
+                        if (!pid) return;
+                        setCtxMenu({ x: e.clientX, y: e.clientY, productId: pid });
+                      }}
+                      className="cursor-context-menu transition hover:bg-slate-50 dark:hover:bg-slate-800/30"
                     >
                       <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">
                         {item.productId?.sku || "—"}
@@ -305,11 +340,17 @@ export default function StockItemsPage() {
                       </td>
 
                       <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
-                        {myDepotId ? (depotQtyMap[String(item.productId?._id)]?.onHand ?? 0) : item.quantityOnHand}
+                        {fmtQty(
+                          myDepotId ? (depotQtyMap[String(item.productId?._id)]?.onHand ?? 0) : item.quantityOnHand,
+                          item.productId?.unit
+                        )}
                       </td>
 
                       <td className="px-6 py-4 text-amber-700 dark:text-amber-300">
-                        {myDepotId ? (depotQtyMap[String(item.productId?._id)]?.reserved ?? 0) : item.quantityReserved}
+                        {fmtQty(
+                          myDepotId ? (depotQtyMap[String(item.productId?._id)]?.reserved ?? 0) : item.quantityReserved,
+                          item.productId?.unit
+                        )}
                       </td>
 
                       <td className="px-6 py-4">
@@ -323,7 +364,7 @@ export default function StockItemsPage() {
                                 ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
                                 : "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
                             }`}>
-                              {qty}
+                              {fmtQty(qty, item.productId?.unit)}
                             </span>
                           );
                         })()}
@@ -404,6 +445,25 @@ export default function StockItemsPage() {
           )}
         </div>
       </div>
+
+      {/* Right-click context menu */}
+      {ctxMenu && (
+        <div
+          style={{ position: "fixed", top: ctxMenu.y, left: ctxMenu.x, zIndex: 100 }}
+          onClick={(e) => e.stopPropagation()}
+          className="min-w-[180px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+        >
+          <button
+            onClick={() => {
+              router.push(`/dashboard/stock/purchase-request?productId=${ctxMenu.productId}`);
+              setCtxMenu(null);
+            }}
+            className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-teal-50 hover:text-teal-700 dark:text-slate-200 dark:hover:bg-teal-950/30 dark:hover:text-teal-300"
+          >
+            <Send size={14} /> Request
+          </button>
+        </div>
+      )}
     </ProtectedRoute>
   );
 }

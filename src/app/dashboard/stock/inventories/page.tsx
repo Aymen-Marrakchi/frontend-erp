@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { stockInventoryService } from "@/services/stock/stockInventoryService";
 import { stockProductService } from "@/services/stock/stockProductService";
 import { stockDepotService, Depot } from "@/services/stock/stockDepotService";
+import { documentService } from "@/services/stock/documentService";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -120,6 +121,125 @@ function VariancePill({ v }: { v: number }) {
   if (v === 0) return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">0</span>;
   if (v > 0)   return <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">+{v}</span>;
   return <span className="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">{v}</span>;
+}
+
+// ─── Inventory PDF builder ────────────────────────────────────────────────────
+
+async function buildInventoryPdf(session: InventorySession, lines: InventoryLine[]): Promise<Blob> {
+  const { jsPDF } = await import("jspdf");
+  const autoTable = (await import("jspdf-autotable")).default;
+
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const W = 210, MARGIN = 14, PAGE_H = 297;
+
+  // Logo
+  let logoDataUrl: string | null = null;
+  try {
+    const res = await fetch("/EMMlogo.png");
+    const blob = await res.blob();
+    logoDataUrl = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.readAsDataURL(blob);
+    });
+  } catch { /* optional */ }
+  if (logoDataUrl) doc.addImage(logoDataUrl, "PNG", MARGIN, 8, 28, 18);
+
+  // Company / Title
+  doc.setFontSize(8).setFont("helvetica", "normal").setTextColor(100, 116, 139);
+  doc.text("Route de Gabès Km 6, Sfax, Tunisie", MARGIN, 30);
+  doc.text("Tél : +(216) 98 241 790  ·  info@emmtn.com", MARGIN, 34);
+
+  doc.setFontSize(20).setFont("helvetica", "bold").setTextColor(15, 23, 42);
+  doc.text("RAPPORT D'INVENTAIRE", W - MARGIN, 14, { align: "right" });
+  doc.setFontSize(11).setFont("helvetica", "normal").setTextColor(51, 65, 85);
+  doc.text(session.code, W - MARGIN, 21, { align: "right" });
+
+  doc.setFontSize(8).setTextColor(100, 116, 139);
+  doc.text(`Type : ${session.type}`, W - MARGIN, 27, { align: "right" });
+  doc.text(`Dépôt : ${session.depotId?.name || "—"}`, W - MARGIN, 32, { align: "right" });
+  doc.text(`Clôturé le : ${session.closedAt ? new Date(session.closedAt).toLocaleDateString("fr-FR") : "—"}`, W - MARGIN, 37, { align: "right" });
+
+  doc.setDrawColor(226, 232, 240);
+  doc.line(MARGIN, 42, W - MARGIN, 42);
+
+  // Info box
+  const boxY = 46, boxH = 22;
+  doc.setFillColor(248, 250, 252).setDrawColor(226, 232, 240);
+  doc.roundedRect(MARGIN, boxY, W - MARGIN * 2, boxH, 2, 2, "FD");
+
+  doc.setFontSize(7).setFont("helvetica", "bold").setTextColor(100, 116, 139);
+  doc.text("INFORMATIONS DE LA SESSION", MARGIN + 3, boxY + 5);
+
+  doc.setFontSize(9).setFont("helvetica", "normal").setTextColor(15, 23, 42);
+  doc.text(`Démarré par : ${session.startedBy?.name || "—"}`, MARGIN + 3, boxY + 11);
+  doc.text(`Approuvé par : ${session.approvedBy?.name || "—"}`, MARGIN + 3, boxY + 17);
+  doc.text(`Statut : ${session.status}`, W / 2 + 3, boxY + 11);
+  doc.text(`Lignes : ${lines.length}`, W / 2 + 3, boxY + 17);
+
+  // Stats
+  const totals = lines.reduce(
+    (acc, l) => {
+      acc.sys += l.systemQuantity;
+      acc.cnt += l.countedQuantity;
+      if (l.varianceQuantity > 0) acc.pos += l.varianceQuantity;
+      if (l.varianceQuantity < 0) acc.neg += Math.abs(l.varianceQuantity);
+      return acc;
+    },
+    { sys: 0, cnt: 0, pos: 0, neg: 0 }
+  );
+
+  // Lines table
+  const tableRows = lines.map((l, i) => [
+    String(i + 1),
+    l.productId?.sku || "—",
+    l.productId?.name || "—",
+    String(l.systemQuantity),
+    String(l.countedQuantity),
+    l.varianceQuantity > 0 ? `+${l.varianceQuantity}` : String(l.varianceQuantity),
+  ]);
+
+  autoTable(doc, {
+    startY: boxY + boxH + 6,
+    margin: { left: MARGIN, right: MARGIN },
+    head: [["N°", "Réf.", "Désignation", "Qté Système", "Qté Comptée", "Variance"]],
+    body: tableRows,
+    styles: { fontSize: 8, cellPadding: 2.5, lineColor: [226, 232, 240], lineWidth: 0.2 },
+    headStyles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: "bold", fontSize: 8 },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: {
+      0: { cellWidth: 10, halign: "center" },
+      1: { cellWidth: 30 },
+      3: { cellWidth: 25, halign: "center" },
+      4: { cellWidth: 25, halign: "center" },
+      5: { cellWidth: 22, halign: "center", fontStyle: "bold" },
+    },
+  });
+
+  const afterTable = (doc as any).lastAutoTable.finalY + 6;
+
+  // Totals summary
+  const sumX = W - MARGIN - 78;
+  doc.setFillColor(248, 250, 252).setDrawColor(226, 232, 240);
+  doc.roundedRect(sumX, afterTable, 78, 32, 2, 2, "FD");
+  doc.setFontSize(7).setFont("helvetica", "bold").setTextColor(100, 116, 139);
+  doc.text("RÉSUMÉ", sumX + 3, afterTable + 5);
+  doc.setFontSize(8.5).setFont("helvetica", "normal").setTextColor(15, 23, 42);
+  doc.text(`Total système : ${totals.sys}`, sumX + 3, afterTable + 11);
+  doc.text(`Total compté : ${totals.cnt}`, sumX + 3, afterTable + 17);
+  doc.setTextColor(22, 163, 74);
+  doc.text(`Surplus : +${totals.pos}`, sumX + 3, afterTable + 23);
+  doc.setTextColor(220, 38, 38);
+  doc.text(`Manquant : -${totals.neg}`, sumX + 3, afterTable + 29);
+
+  // Footer
+  doc.setDrawColor(226, 232, 240).setLineWidth(0.2);
+  doc.line(MARGIN, PAGE_H - 10, W - MARGIN, PAGE_H - 10);
+  doc.setFontSize(7).setFont("helvetica", "normal").setTextColor(148, 163, 184);
+  doc.text("EMM TN · Route de Gabès Km 6, Sfax · +(216) 98 241 790 · info@emmtn.com",
+    W / 2, PAGE_H - 6, { align: "center" });
+
+  return doc.output("blob");
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
@@ -370,6 +490,18 @@ export default function StockInventoriesPage() {
       await stockInventoryService.approveInventory(selected._id);
       flash(t("sessionApprovedMsg"));
       await refreshSelected();
+
+      // Auto-save inventory report as PDF to the documents page
+      try {
+        const closedSession = await stockInventoryService.getById(selected._id);
+        const closedLines   = await stockInventoryService.getLines(selected._id);
+        const pdfBlob = await buildInventoryPdf(closedSession, closedLines);
+        const date = new Date().toISOString().slice(0, 10);
+        const file = new File([pdfBlob], `Inventaire-${closedSession.code}-${date}.pdf`, { type: "application/pdf" });
+        await documentService.upload(file, `Rapport d'inventaire ${closedSession.code} — ${closedSession.depotId?.name || ""}`);
+      } catch (uploadErr) {
+        console.error("Inventory PDF auto-save failed:", uploadErr);
+      }
     } catch (e: any) {
       setError(e?.response?.data?.message || "Failed to approve.");
     } finally { setSubmitting(false); }
